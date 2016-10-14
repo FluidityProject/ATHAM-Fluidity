@@ -321,11 +321,14 @@ contains
     
     integer :: qstat, vstat
     real :: dt, rho_w=1000.
-    type(scalar_field) :: precip, density_remap
+    type(scalar_field) :: precip, s_precip, density_remap
     type(scalar_field), pointer :: density, QR, QR_sink
     
     call allocate(precip,p_field%mesh,"LocalPrecipitation")
     call allocate(density_remap,p_field%mesh,"RemappedDensity")
+    call allocate(s_precip,s_field%mesh,"LocalSurfacePrecipitation")
+
+    call zero(s_precip)
        
     call get_option("/timestepping/timestep", dt)
 
@@ -343,11 +346,14 @@ contains
       call scale(precip,density_remap)
       call scale(precip,1000.*dt/rho_w)  !Conversion to mm
     
-      call remap_field_to_surface(precip, s_field, surface_element_list)
+      call remap_field_to_surface(precip, s_precip, surface_element_list)
+
+      call addto(s_field, s_precip)
     endif
     
     call deallocate(precip)    
     call deallocate(density_remap)
+    call deallocate(s_precip)    
     
   end subroutine get_cumulated_surface_precipitation
 
@@ -476,7 +482,7 @@ contains
     character(len = OPTION_PATH_LEN) :: filename, bc_path, dump_format
     character(len = FIELD_NAME_LEN) :: field_name, mesh_name, bc_name, parent_name
     integer, dimension(:), pointer:: surface_element_list    
-    integer :: i, f, counter, max_dump_no, stat, dump
+    integer :: i, f, counter, max_dump_no, stat, index
     logical :: multi_state, write_region_ids=.false.
     
     ewrite(1, *) "In write_surface"
@@ -484,7 +490,7 @@ contains
     call get_option("/simulation_name", filename)
     call get_option("/io/max_dump_file_count", max_dump_no, stat, default = huge(0))
     
-    dump = modulo(dump_no, max_dump_no)
+    index = modulo(dump_no, max_dump_no)
         
     call get_option("/io/output_mesh[0]/name", mesh_name)
     model_mesh => extract_mesh(state(1), mesh_name)
@@ -493,7 +499,7 @@ contains
     select case(trim(dump_format))
     case("vtk")
     
-    ewrite(2, *) "Writing output " // int2str(dump) // " to vtu"
+    ewrite(2, *) "Writing output " // int2str(index) // " to vtu"
     
     multi_state = size(state) > 1
         
@@ -549,9 +555,10 @@ contains
       ewrite(2, *) "Writing using mesh " // trim(mesh_name)
       ewrite(2, "(a,i0,a)") "Writing ", size(lsfields), " surface field(s)"
     
-      call vtk_write_fields('surface_'//filename, dump, &
-           surface_coordinate, &
-           surface_mesh,  &
+      call vtk_write_fields('surface_'//filename, &
+           index=index, &
+           position=surface_coordinate, &
+           model=surface_mesh,  &
            sfields=lsfields, &
            write_region_ids=write_region_ids)
     endif
