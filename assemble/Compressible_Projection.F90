@@ -66,9 +66,6 @@ module compressible_projection
   !! Are we running a multiphase flow simulation?
   logical :: multiphase
 
-  !! Update of density using compressible_eos (else use linearized eos)
-  logical :: update_density_from_eos=.false.
-
   contains
 
   subroutine assemble_compressible_projection_cv(state, cmc, rhs, dt, theta_pg, theta_divergence, cmcget)
@@ -607,20 +604,14 @@ module compressible_projection
     
   end subroutine assemble_1mat_compressible_projection_cg
 
-  subroutine update_compressible_density(state, drhodp, eos_p, p, delta_p)
+  subroutine update_compressible_density(state)
   
     type(state_type), dimension(:), intent(inout) :: state
-    type(scalar_field), intent(inout) :: delta_p
-    type(scalar_field), intent(inout) :: drhodp, eos_p, p
 
-    type(scalar_field) :: drho, old_rho
     type(scalar_field), pointer :: density
     integer :: istate
     
     ewrite(3,*) "In update_compressible_density"
-    if (update_density_from_eos) then
-      ewrite(3,*) "Density updated from linearized EOS"
-    endif
     
     if(option_count("/material_phase/vector_field::Velocity/prognostic") > 1) then
        do istate=1,size(state)
@@ -628,7 +619,7 @@ module compressible_projection
 	  
 	  if(have_option(trim(density%option_path)//"/prognostic")) then
 	  
-	      call compressible_eos(state(istate), full_pressure=p, density=density)
+	      call compressible_eos(state(istate), density=density)
 	      	    
 	  end if
        end do
@@ -638,7 +629,7 @@ module compressible_projection
 
       if(have_option(trim(density%option_path)//"/prognostic")) then
 	
-	call compressible_eos(state, full_pressure=p, density=density)
+	call compressible_eos(state, density=density)
 
       end if
        
@@ -647,23 +638,9 @@ module compressible_projection
 	  density=>extract_scalar_field(state(1),'Density')
 	  
 	  if(have_option(trim(density%option_path)//"/prognostic")) then
-    
-            call allocate(old_rho, density%mesh, "OldRho")
-            call set(old_rho,density)
 
-            if (update_density_from_eos) then
-	      call compressible_eos(state(1), full_pressure=p, density=density)
-	    else
-	      call allocate(drho, drhodp%mesh, "DeltaRho")
-	      call set(drho,p)
-	      call addto(drho,eos_p,scale=-1.0)
-	      call scale(drho,drhodp)
-	      call addto(density,drho)
-	      call deallocate(drho)
-	    endif
-    
-            call deallocate(old_rho)
-	    
+	    call compressible_eos(state(1), density=density)
+
 	  end if
       
        end if
@@ -777,10 +754,6 @@ module compressible_projection
 	    have_option(trim(pressure_option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin")) then
 	  FLExit("With a DG pressure you cannot have use a compressible eos")
        end if
-       if (have_compressible_eos.and. &
-           have_option(trim(pressure_option_path)//"/prognostic/scheme/update_density_from_eos")) then
-         update_density_from_eos=.true.
-       endif
     end do
 
   end subroutine compressible_projection_check_options

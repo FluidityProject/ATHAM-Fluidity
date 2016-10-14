@@ -237,7 +237,7 @@
          ! calculated at time n+theta_divergence instead of at the end of the timestep
 	 ! in this case p_theta=theta_pg*p+(1-theta_pg)*old_p
 	 type(scalar_field), pointer :: old_p, p_theta
-	 type(scalar_field) :: eos_p, drhodp, T
+	 type(scalar_field) :: T
          real :: theta_divergence
          type(vector_field), pointer :: old_u
          ! all of this only applies if use_theta_pg .eqv. .true.
@@ -1101,12 +1101,6 @@
                u=>extract_vector_field(state(prognostic_p_istate), "Velocity", stat)
                x=>extract_vector_field(state(prognostic_p_istate), "Coordinate")
 	 
-	       call allocate(drhodp, p_theta%mesh, "DRhoDp")
-	       call allocate(eos_p, p_theta%mesh, "EOSPressure")
-               if(lcompressible_eos) then
-	         call compressible_eos(state, pressure=eos_p, drhodp=drhodp)
-               end if
-	       
                if(multiphase) then
                   cmc_m => cmc_global ! Use the sum over all individual phase CMC matrices
                end if
@@ -1119,17 +1113,17 @@
 	       call deallocate(projec_rhs)
                call profiler_toc(p, "assembly")
 
-               if(lcompressible_eos .and. &
-                 &have_option(trim(u%option_path)//"/prognostic/spatial_discretisation"//&
-                 &"/discontinuous_galerkin") .and. have_continuity_residual(state)) then
-
-                 call calculate_continuity_residual(state, dt, ct_m)
-		 
-		 call correct_scalars(state, x, p)
-               end if
+!               if(lcompressible_eos .and. &
+!                 &have_option(trim(u%option_path)//"/prognostic/spatial_discretisation"//&
+!                 &"/discontinuous_galerkin") .and. have_continuity_residual(state)) then
+!
+!                 call calculate_continuity_residual(state, dt, ct_m)
+!		 
+!		 call correct_scalars(state, x, p)
+!               end if
 
                if(lcompressible_eos) then
-                 call update_compressible_density(state, drhodp, eos_p, p, delta_p)
+                 call update_compressible_density(state)
                end if
 
                !! Correct and update velocity fields to u^{n+1} using pressure correction term delta_p
@@ -1184,8 +1178,6 @@
 
                !! Deallocate some memory reserved for the pressure solve
                call deallocate(delta_p)
-	       call deallocate(eos_p)
-	       call deallocate(drhodp)
 
                if(assemble_schur_auxiliary_matrix) then
                   ! Deallocate schur_auxiliary_matrix:

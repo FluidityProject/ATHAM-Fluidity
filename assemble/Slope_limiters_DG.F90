@@ -706,7 +706,7 @@ contains
     
     integer, dimension(:), pointer :: neigh, x_neigh, T_ele, face_nodes
     real :: ele_mean
-    real :: pos, neg, sum
+    real :: pos, neg, SumUp
     logical :: limit
     integer :: ele_2, ni, ni2, face, d, deg, i, j, jj
     real, dimension(X%dim,ele_loc(X,ele)) :: X_val
@@ -771,11 +771,11 @@ contains
     end do delta_loop
         
     ! Apply limiting in the element only if actually needed
-    sum=0.0
+    SumUp=0.0
     do ni = 1, size(neigh)
-      sum = sum+Delta(ni)+ele_mean
+      SumUp = SumUp+Delta(ni)+ele_mean
     enddo
-    limit=(sum(face_mean)/=sum)
+    limit=(sum(face_mean)/=SumUp)
     
     if (.not.limit) then
        return
@@ -1544,12 +1544,12 @@ contains
     integer, dimension(:), pointer :: neigh, nodes, nodes_x, face_nodes, face_nodes_x, ele_neighbours
     integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices 
     integer, dimension(X%mesh%faces%shape%loc) :: face_global
-    integer, dimension(ele_loc(T,ele)) :: flag
+    integer, dimension(ele_loc(T,1)) :: flag
              
-    real, dimension(ele_loc(T,ele)) :: T_neigh_max, T_neigh_min, T_val, T_val_n, new_val
-    real, dimension(X%dim,ele_loc(T,ele)) :: X_proj_val
-    real, dimension(X%dim,ele_loc(X,ele)) :: X_val, X_val_n
-    real, dimension(ele_loc(X,ele)) :: base, Delta, Delta_low, T_proj_val, T_rem_val, T_low
+    real, dimension(ele_loc(T,1)) :: T_neigh_max, T_neigh_min, T_val, T_val_n, new_val
+    real, dimension(X%dim,ele_loc(T,1)) :: X_proj_val
+    real, dimension(X%dim,ele_loc(X,1)) :: X_val, X_val_n
+    real, dimension(ele_loc(X,1)) :: base, Delta, Delta_low, T_proj_val, T_rem_val, T_low
     real, dimension(X%dim) :: X_neigh, X_mean
     real :: pos, neg, sum, T_mean, T_neigh, alpha
 

@@ -113,7 +113,6 @@ module advection_diffusion_DG
   integer :: flux_scheme
   integer, parameter :: UPWIND_FLUX=1
   integer, parameter :: LAX_FRIEDRICHS_FLUX=2
-  integer, parameter :: HLL_FLUX=3
   ! Projected velocity mesh name
   character(len=FIELD_NAME_LEN) :: pmesh_name
   ! equation type
@@ -215,13 +214,13 @@ contains
     else
        lvelocity_name="NonlinearVelocity"
     end if
-    
-    U_nl=>extract_vector_field(state, lvelocity_name)
-    pmesh_name=U_nl%mesh%name
 
     if (have_option(trim(T%option_path)//"/prognostic/spatial_discretisation"//&
          &"/discontinuous_galerkin/advection_scheme"//&
          &"/project_velocity_to_continuous")) then
+    
+       U_nl=>extract_vector_field(state, lvelocity_name)
+       pmesh_name=U_nl%mesh%name
 
        if(.not.has_scalar_field(state, "Projected"//trim(lvelocity_name))) &
             &then
@@ -556,7 +555,7 @@ contains
     type(vector_field) :: position
     
     !! Change in T over one timestep.
-    type(scalar_field) :: delta_T
+    type(scalar_field) :: delta_T, T_local
 
     !! Sparsity of advection_diffusion matrix.    
     type(csr_sparsity), pointer :: sparsity
@@ -590,8 +589,8 @@ contains
           '/equation_of_state/compressible/subtract_out_reference_profile')
 
     T=>extract_scalar_field(state, field_name)
-    T_old=>extract_scalar_field(state, "Old"//field_name)
-    T_ref=>extract_scalar_field(state, "HydrostaticReference"//field_name, stat=stat)
+    T_old=>extract_scalar_field(state, "Old"//trim(field_name))
+    T_ref=>extract_scalar_field(state, "HydrostaticReference"//trim(field_name), stat=stat)
     if (stat == 0) have_reference=.true.
     
     density=>extract_scalar_field(state, "Density")
@@ -624,6 +623,7 @@ contains
     call allocate(inv_mass, mass_sparsity)
 
     ! Ensure delta_T inherits options from T.
+    call allocate(T_local, T%mesh, "LocalT")
     call allocate(delta_T, T%mesh, "delta_T")
     delta_T%option_path = T%option_path
     call allocate(rhs, T%mesh, trim(field_name)//" RHS")
@@ -732,16 +732,16 @@ contains
 
     if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion) then
        ! Form RHS of diffusion equation.
-       call mult(delta_T, matrix_diff, T)
 
-       call addto(RHS_diff, delta_T,-1.0)
-       
        call zero(delta_T)
-       if (have_reference.and.have_subtract_reference) then
-         call mult(delta_T, matrix_diff, T_ref)
+       
+       call set(T_local, T)
+       
+       if (have_reference.and.have_subtract_reference) call addto(T_local, T_ref,-1.0)
 
-         call addto(RHS_diff, delta_T)
-       endif
+       call mult(delta_T, matrix_diff, T_local)
+
+       call addto(RHS_diff, delta_T, -1.0)
        
        call scale(matrix_diff, theta*dt)
 
@@ -754,7 +754,10 @@ contains
        ! Add the change in T to T.
        call addto(T, delta_T, dt)
     end if
+
+    ewrite_minmax(T)
         
+    call deallocate(T_local)
     call deallocate(delta_T)
     call deallocate(matrix)
     call deallocate(matrix_diff)
@@ -850,7 +853,6 @@ contains
 
     !! Pressure and density for internal energy equation
     type(scalar_field), pointer :: pressure, old_pressure, density, old_density
-    type(scalar_field) :: sound_speed, gamma, qc_p, qc_v
     type(scalar_field) :: pressure_scale
 
     !! Mesh for auxiliary variable
@@ -952,11 +954,6 @@ contains
          &"/spatial_discretisation/discontinuous_galerkin"//&
          &"/advection_scheme/lax_friedrichs")) then
        flux_scheme=LAX_FRIEDRICHS_FLUX
-    else if (have_option(trim(T%option_path)//"/prognostic"//&
-         &"/spatial_discretisation/discontinuous_galerkin"//&
-         &"/advection_scheme/hll")) then
-       flux_scheme=HLL_FLUX
-    
     end if
     
     call allocate(U_nl, U_nl_backup%dim, U_nl_backup%mesh, "LocalNonlinearVelocity")
@@ -972,13 +969,13 @@ contains
        have_velocity_divergence=.true.
        divergence_backup=extract_scalar_field(state, "ProjectedDivergence", stat)
        call incref(divergence_backup)
+       ewrite_minmax(divergence_backup)
     else
        call allocate(divergence_backup, U_nl_backup%mesh, "BackupDivergence")
        call zero(divergence_backup)
     endif
     call allocate(divergence, divergence_backup%mesh, "LocalDivergence")
     call set(divergence, divergence_backup)
-    ewrite_minmax(divergence)
     
     ! Sources
     Source=extract_scalar_field(state,trim(field_name)//"Source", stat=stat)
@@ -1122,24 +1119,12 @@ contains
        old_pressure => extract_scalar_field(state,"OldPressure",stat=stat)
        density => extract_scalar_field(state,"Density",stat=stat)
        old_density => extract_scalar_field(state,"OldDensity",stat=stat)
-       
-       
-       call allocate(gamma, pressure%mesh, "Gamma")
-       call allocate(qc_p, pressure%mesh, "C_P")
-       call allocate(qc_v, pressure%mesh, "C_V")
-       call allocate(sound_speed, pressure%mesh, "Sound")
-       call compressible_eos(state, full_pressure=pressure, qc_p=qc_p, qc_v=qc_v, sound_speed=sound_speed)
-       call set(gamma,qc_v)
-       call invert(gamma)
-       call scale(gamma,qc_p)
 
        ! Calculate scaling for pressure depending on Internal Energy variable  
        if (equation_type == FIELD_EQUATION_INTERNALENERGY) then
          call allocate (pressure_scale,pressure%mesh,"PressureScale")     
          call scale_pressure (t, state, pressure, pressure_scale) 
        endif
-       call deallocate(qc_p)
-       call deallocate(qc_v)
     else
        pressure => dummydensity
        density => dummydensity
@@ -1345,7 +1330,7 @@ contains
        call construct_adv_diff_element_dg(state, ele, big_m, rhs, big_m_diff,&
             & rhs_diff, X, X_old, X_new, T, T_0, U_nl, U_mesh, divergence, &
 	    & density, old_density, Source, Subsidence, T_subs, T_hmean, Absorption, Diffusivity, &
-            & pressure, old_pressure, pressure_scale, sound_speed, gamma, &
+            & pressure, old_pressure, pressure_scale, &
             & bc_value, bc_type, q_mesh, mass, &
             & buoyancy, gravity, gravity_magnitude, mixing_diffusion_amplitude,&
             & buoyancy_adjustment_diffusivity, &
@@ -1365,8 +1350,6 @@ contains
     ! Drop any extra field references.
     if (have_buoyancy_adjustment_by_vertical_diffusion) call deallocate(buoyancy)
     if (compressible.and.equation_type==FIELD_EQUATION_INTERNALENERGY)  call deallocate(pressure_scale)
-    if (compressible) call deallocate (gamma)
-    if (compressible) call deallocate(sound_speed)
     call deallocate(T_0)
     call deallocate(T_hmean)
     call deallocate(dummydensity)
@@ -1473,7 +1456,7 @@ contains
    subroutine construct_adv_diff_element_dg(state, ele, big_m, rhs, big_m_diff, rhs_diff, &
        & X, X_old, X_new, T, T_0, U_nl, U_mesh, divergence, Rho, OldRho, Source, &
        & Subsidence, T_subs, T_hmean, Absorption, Diffusivity,&
-       & pressure, old_pressure, pressure_scale, sound_speed, gamma, &
+       & pressure, old_pressure, pressure_scale, &
        & bc_value, bc_type, &
        & q_mesh, mass, buoyancy, gravity, gravity_magnitude, mixing_diffusion_amplitude, &
        & buoyancy_adjustment_diffusivity, &
@@ -1508,7 +1491,7 @@ contains
     type(scalar_field), intent(inout) :: Subsidence, T_subs, T_hmean
     
     ! Pressure term for internal energy equation
-    type(scalar_field), intent(in) ::pressure, old_pressure, pressure_scale, sound_speed, gamma
+    type(scalar_field), intent(in) ::pressure, old_pressure, pressure_scale
 
     !! Diffusivity
     type(tensor_field), intent(in) :: Diffusivity
@@ -2154,7 +2137,7 @@ contains
        if(primal) then
           call construct_adv_diff_interface_dg(ele, face, face_2, ni,&
                & centre_vec, big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, X, T, U_nl, &
-	       & divergence, pressure, sound_speed, gamma, Rho, OldRho, &
+	       & divergence, pressure, Rho, OldRho, &
                & bc_value, bc_type, &
                & U_mesh, q_mesh, cdg_switch_in, &
                & primal_fluxes_mat, ele2grad_mat,diffusivity, &
@@ -2173,7 +2156,7 @@ contains
        else
           call construct_adv_diff_interface_dg(ele, face, face_2, ni,&
                & centre_vec, big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, X, T, U_nl, &
-	       & divergence, pressure, sound_speed, gamma, Rho, OldRho, &
+	       & divergence, pressure, Rho, OldRho, &
                & bc_value, bc_type, &
                & U_mesh, q_mesh, cdg_switch_in)
        end if
@@ -2756,7 +2739,7 @@ contains
   
   subroutine construct_adv_diff_interface_dg(ele, face, face_2, &
        ni, centre_vec,big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, &
-       & X, T, U_nl, divergence, P, Sound, Gamma, Rho, OldRho,&
+       & X, T, U_nl, divergence, P, Rho, OldRho,&
        & bc_value, bc_type, &
        & U_mesh, q_mesh, CDG_switch_in, &
        & primal_fluxes_mat, ele2grad_mat,diffusivity, &
@@ -2773,7 +2756,7 @@ contains
     ! We pass these additional fields to save on state lookups.
     type(vector_field), intent(in) :: X, U_nl
     type(vector_field), pointer :: U_mesh
-    type(scalar_field), intent(in) :: T, Rho, OldRho, P, Sound, Gamma, divergence
+    type(scalar_field), intent(in) :: T, Rho, OldRho, P, divergence
     !! Mesh of the auxiliary variable in the second order operator.
     type(mesh_type), intent(in) :: q_mesh
     !! switch for CDG fluxes
@@ -2810,11 +2793,6 @@ contains
     ! Variable transform times quadrature weights.
     real, dimension(face_ngi(T,face)) :: detwei
     real, dimension(face_ngi(T,face)) :: inner_advection_integral, outer_advection_integral
-
-    ! For HLL fluxes
-    real, dimension(U_nl%dim,face_ngi(T,face)) :: advection_integral
-    real, dimension(face_ngi(U_nl, face)) :: p_f_q, p_f2_q, g_q, rho_q, c_q
-    real, dimension(face_ngi(U_nl, face)) :: p_star, s_star, q_plus, q_min, s_plus, s_min, u_star, t_plus, t_min
     
     ! Bilinear forms
     real, dimension(face_loc(T,face),face_loc(T,face)) :: nnAdvection_out
@@ -3016,54 +2994,6 @@ contains
 	nnAdvection_in=shape_shape(T_shape, T_shape_2, &
              &                       outer_advection_integral * detwei) 
 
-              
-    else if (include_advection.and.(flux_scheme==HLL_FLUX)) then
-
-       u_f_q = face_val_at_quad(U_nl, face)
-       u_f2_q = face_val_at_quad(U_nl, face_2)       
-       p_f_q = face_val_at_quad(P, face)
-       p_f2_q = face_val_at_quad(P, face_2)       
-            
-       rho_q = 0.5*(face_val_at_quad(Rho, face)+face_val_at_quad(Rho, face_2))
-       c_q = 0.5*(face_val_at_quad(Sound, face)+face_val_at_quad(Sound, face_2))
-       g_q=0.5*(face_val_at_quad(Gamma, face)+face_val_at_quad(Gamma, face_2))  
-       
-       p_star=0.5*(p_f_q+p_f2_q) - 0.5*sum((u_f2_q-u_f_q)*normal,1)*rho_q*c_q
-       u_star=0.5*sum((u_f_q+u_f2_q)*normal,1) - 0.5*(p_f2_q-p_f_q)/(rho_q*c_q)
-       
-       q_min=1.
-       q_plus=1.
-       do i = 1, face_ngi(T,face)
-         if (p_star(i) > p_f2_q(i)) q_plus(i)=sqrt(1. + 0.5*(g_q(i)+1.)/g_q(i)*(p_star(i)/p_f2_q(i) - 1.))
-         if (p_star(i) > p_f_q(i)) q_min(i)=sqrt(1. + 0.5*(g_q(i)+1.)/g_q(i)*(p_star(i)/p_f_q(i) - 1.))
-       enddo
-       s_min=sum(u_f_q*normal,1) - face_val_at_quad(Sound, face)*q_min
-       s_plus=face_val_at_quad(Sound, face_2)*q_plus + sum(u_f2_q*normal,1)
-
-       t_min=(s_min-sum(normal*u_f_q,1))/(s_min-u_star)
-       t_plus=(s_plus-sum(normal*u_f2_q,1))/(s_plus-u_star)
-       
-       ! Velocity over interior face:
-       inner_advection_integral=0.0
-       outer_advection_integral=0.0
-       do i = 1, face_ngi(T,face)
-         if (s_min(i) >= 0.) then
-           inner_advection_integral(i)=sum(normal(:,i)*u_f_q(:,i))
-         else if (s_plus(i) <= 0.) then
-           outer_advection_integral(i)=sum(normal(:,i)*u_f2_q(:,i))
-         else if (s_min(i) <= 0. .and. u_star(i) >= 0.) then
-           inner_advection_integral(i)=sum(normal(:,i)*u_f_q(:,i)) + s_min(i)*(t_min(i) - 1.)
-	 else if (s_plus(i) >= 0. .and. u_star(i) <= 0.) then
-           outer_advection_integral(i)=sum(normal(:,i)*u_f2_q(:,i)) + s_plus(i)*(t_plus(i) - 1.)
-         endif
-       enddo
-       
-       nnAdvection_out=shape_shape(T_shape, T_shape,  &
-            &                      inner_advection_integral * detwei) 
-       
-       nnAdvection_in=shape_shape(T_shape, T_shape_2,  &
-            &                      outer_advection_integral * detwei) 
-
     end if
     
     if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion) then
@@ -3146,7 +3076,6 @@ contains
    ! Add non-zero contributions from Neumann boundary conditions (if present)
    if (boundary.and.(neumann.or.flux)) then
       call addto(RHS_diff, T_face, shape_rhs(T_shape, detwei * ele_val_at_quad(bc_value,face)))
-       print*, 'add surface boundary for scalar ', trim(T%name)
    end if
 
   contains

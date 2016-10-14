@@ -236,7 +236,7 @@ contains
     type(vector_field) :: Subsidence, U_subs, X_vel
 
     !! Momentum source and absorption fields
-    logical :: no_buoyancy
+    logical :: no_buoyancy, have_buoyancy_from_pt
     type(scalar_field) :: buoyancy
     type(vector_field) :: Source, gravity, Abs, Abs_wd
     !! Surface tension field
@@ -553,7 +553,12 @@ contains
       call incref(buoyancy)
       
       if (have_option(trim(state%option_path)//'/equation_of_state/compressible/subtract_out_reference_profile')) then
-        hb_buoyancy => extract_scalar_field(state, "HydrostaticReferenceDensity",stat=stat)	
+        have_buoyancy_from_pt=have_option(trim(state%option_path)//'/equation_of_state/compressible/giraldo/buoyancy_from_pt')
+        if (have_buoyancy_from_pt) then
+           hb_buoyancy => extract_scalar_field(state, "HydrostaticReferenceDensityPotentialTemperature",stat=stat)
+        else
+           hb_buoyancy => extract_scalar_field(state, "HydrostaticReferenceDensity",stat=stat)	
+        endif
         if (stat /= 0) hb_buoyancy => dummyscalar
       else
         hb_buoyancy => dummyscalar
@@ -1172,6 +1177,8 @@ contains
     ! Different velocities at quad points.
     real, dimension(U%dim, ele_ngi(U_nl, ele)) :: u_nl_q
     real, dimension(ele_ngi(U_nl, ele)) :: u_nl_div_q
+    ! Buoyancy at quad points.
+    real, dimension(ele_ngi(U_nl, ele)) :: buoyancy_q
 
     ! Eddy viscosity 
     type(tensor_field) :: eddy_viscosity
@@ -1628,7 +1635,11 @@ contains
 
     if(have_gravity.and.acceleration.and.assemble_element) then
       ! buoyancy: hb_buoyancy should be 0 if no Hydrostatic Reference profile is prescribed
-      coefficient_detwei = detwei*gravity_magnitude*(ele_val_at_quad(buoyancy, ele)-ele_val_at_quad(hb_buoyancy, ele))
+      buoyancy_q=gravity_magnitude*(ele_val_at_quad(buoyancy, ele)-ele_val_at_quad(hb_buoyancy, ele))
+      if (have_option(trim(state%option_path)//'/equation_of_state/compressible/giraldo/buoyancy_from_pt')) &
+              buoyancy_q=-ele_val_at_quad(Rho, ele)*buoyancy_q/ele_val_at_quad(hb_buoyancy, ele)
+      coefficient_detwei = detwei*buoyancy_q
+
       if (radial_gravity) then
       ! If we're using a radial gravity, evaluate the direction of the gravity vector
       ! exactly at quadrature points.
@@ -2781,7 +2792,6 @@ contains
          rhs_addto(dim,u_face_l) = rhs_addto(dim,u_face_l) + &
               shape_rhs(u_shape, ele_val_at_quad(velocity_bc,face,dim)*detwei)
        enddo
-       print*, 'add surface boundary for velocity'
     end if
    
 

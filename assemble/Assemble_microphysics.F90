@@ -38,7 +38,7 @@ module assemble_microphysics
 
   implicit none
 
-  public :: assemble_split_microphysics, advance_microphysics
+  public :: assemble_split_microphysics
 
   contains
 
@@ -50,7 +50,7 @@ module assemble_microphysics
     logical :: have_ndrop, have_nrain, have_cold, have_ccn
     integer :: j, nmom
         
-    ewrite(1,*) 'assemble split microphysics'
+    ewrite(1,*) 'Assemble split microphysics'
     
     do j = 1, size(state)
     
@@ -126,7 +126,7 @@ module assemble_microphysics
        return
     end if
 
-    mfield=>extract_scalar_field(state,name//'MicrophysicsSource',stat=stat)
+    mfield=>extract_scalar_field(state,trim(name)//'MicrophysicsSource',stat=stat)
     if (stat /= 0) then
        ewrite(3,*) ('No field '//name//' in state to store!')
        return

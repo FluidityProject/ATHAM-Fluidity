@@ -224,13 +224,13 @@ contains
     logical, intent(in), optional ::momentum_diagnostic
     
     type(scalar_field), target :: dummyscalar
-    type(scalar_field) :: eosdensity, eostemperature, eospotentialtemp
+    type(scalar_field) :: eosdensity
     type(scalar_field), pointer :: tmpdensity
     type(scalar_field) :: bulksumvolumefractionsbound
     type(scalar_field) :: buoyancysumvolumefractionsbound
     type(mesh_type), pointer :: mesh
     integer, dimension(size(state)) :: state_order
-    logical :: subtract_out_hydrostatic, multimaterial
+    logical :: subtract_out_hydrostatic, multimaterial, have_buoyancy_from_pt
     character(len=OPTION_PATH_LEN) :: option_path
     integer :: subtract_count, materialvolumefraction_count
     real :: hydrostatic_rho0, reference_density
@@ -430,7 +430,16 @@ contains
               if (have_option(trim(option_path)//'/compressible/ATHAM')) then
                 call compressible_eos(state,density=eosdensity)
               else if (have_option(trim(option_path)//'/compressible/giraldo')) then
-                call compressible_eos(state(state_order(i)),density=eosdensity)
+                have_buoyancy_from_pt=have_option(trim(option_path)//'/compressible/giraldo/buoyancy_from_pt')
+                if (have_buoyancy_from_pt) then
+                  call compressible_eos(state(state_order(i)),density_pottem=eosdensity)
+                  if (has_scalar_field(state(state_order(i)),"DensityPotentialTemperature")) then
+                    tmpdensity => extract_scalar_field(state(state_order(i)), "DensityPotentialTemperature")
+                    call set(tmpdensity,eosdensity)
+                  endif
+                else
+                  call compressible_eos(state(state_order(i)),density=eosdensity)
+                endif
               else
                  call compressible_eos(state(state_order(i)), density=eosdensity)
               end if
@@ -470,7 +479,7 @@ contains
         
     end do state_loop
     
-    if(present(buoyancy)) then
+    if (present(buoyancy)) then
       if(multimaterial) call addto(buoyancy, -hydrostatic_rho0)
 
       ! the buoyancy density is being used in a Boussinesq eqn
