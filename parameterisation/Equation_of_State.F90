@@ -302,12 +302,12 @@ contains
   
   subroutine compressible_eos_1mat(state,full_pressure,full_density,energy,density,pressure,	&
   				   drhodp,saturation,supersaturation,dqsaturation,temperature,	&
-				   potentialtem,qc_p,qc_v,sound_speed, getold)
+				   potentialtem,density_pottem,qc_p,qc_v,sound_speed, getold)
 
     type(state_type), intent(inout) :: state
     type(scalar_field), intent(inout), target, optional :: energy, full_pressure, full_density
     type(scalar_field), intent(inout), optional :: density, drhodp, saturation, supersaturation, dqsaturation
-    type(scalar_field), intent(inout), optional :: pressure, temperature, potentialtem, qc_p, qc_v,sound_speed
+    type(scalar_field), intent(inout), optional :: pressure, temperature, potentialtem, density_pottem, qc_p, qc_v,sound_speed
     logical, intent(in), optional :: getold
 
     type(scalar_field), pointer :: output, local_density, local_pressure, thermal, lp
@@ -347,6 +347,8 @@ contains
       call allocate(drhodp_local, temperature%mesh, 'Localdrhop')
     else if (present(potentialtem)) then
       call allocate(drhodp_local, potentialtem%mesh, 'Localdrhop')
+    else if (present(density_pottem)) then
+      call allocate(drhodp_local, density_pottem%mesh, 'Localdrhop')
     else if (present(saturation)) then
       call allocate(drhodp_local, saturation%mesh, 'Localdrhop')
     else if (present(sound_speed)) then
@@ -479,6 +481,13 @@ contains
                 local_pressure,local_density,thermal,thermal_variable,drhodp_local,	&
 		have_vapour, have_liquid, have_ice, temperature=temperature, potentialtem=potentialtem)
          end if
+	 
+	 if (present(density_pottem))then
+           ewrite(1,*) 'compressible_eos_giraldo: compute density potential temperature'
+           call compressible_eos_giraldo_1mat(state,eos_path,q_v,q_c,q_r,q_i,q_g,q_s,   &
+                local_pressure,local_density,thermal,thermal_variable,drhodp_local,	&
+		have_vapour, have_liquid, have_ice, density_pottem=density_pottem)
+         end if
 
 	 if (present(saturation)) then
            ewrite(1,*) 'compressible_eos_giraldo: compute saturation'
@@ -574,6 +583,10 @@ contains
       ewrite_minmax(potentialtem)
     end if  
 
+    if(present(density_pottem)) then
+      ewrite_minmax(density_pottem)
+    end if  
+
     if(present(saturation)) then
       ewrite_minmax(saturation)
     end if  
@@ -597,13 +610,13 @@ contains
   end subroutine compressible_eos_1mat
 
   subroutine compressible_eos_mmat(state,full_pressure,full_density,energy,density,pressure,	& 
-       		drhodp,saturation,dqsaturation,temperature,potentialtem,qc_p,qc_v,sound_speed,getold)
+       		drhodp,saturation,dqsaturation,temperature,potentialtem,density_pottem,qc_p,qc_v,sound_speed,getold)
 
     type(state_type), intent(inout), dimension(:) :: state
     type(scalar_field), intent(inout), optional :: full_pressure,full_density,energy
     type(scalar_field), intent(inout), optional :: density, pressure, drhodp
     type(scalar_field), intent(inout), optional :: saturation, dqsaturation, qc_p, qc_v, sound_speed
-    type(scalar_field), intent(inout), optional :: temperature, potentialtem
+    type(scalar_field), intent(inout), optional :: temperature, potentialtem, density_pottem
     logical, intent(in), optional :: getold
 
     integer :: stat, thermal_variable
@@ -623,7 +636,7 @@ contains
     if (size(state)==1) then !<--------
        call compressible_eos_1mat(state(1), full_pressure=full_pressure, full_density=full_density, energy=energy, &
             density=density, pressure=pressure,drhodp=drhodp,saturation=saturation,dqsaturation=dqsaturation,&
-	    temperature=temperature,potentialtem=potentialtem,qc_p=qc_p,qc_v=qc_v,getold=getold)
+	    temperature=temperature,potentialtem=potentialtem,density_pottem=density_pottem,qc_p=qc_p,qc_v=qc_v,getold=getold)
        return
     else
     
@@ -845,7 +858,7 @@ contains
   subroutine compressible_eos_giraldo_1mat(state, eos_path, q_v, q_c, q_r, q_i, q_g, q_s,	&
     pressure_local,density_local,thermal_local, thermal_variable, drhodp, &
     have_vapour, have_liquid, have_ice, density, pressure, temperature, potentialtem, &
-    saturation, dqsaturation, qc_p, qc_v, sound_speed)
+    density_pottem, saturation, dqsaturation, qc_p, qc_v, sound_speed)
     ! Eq. of state commonly used in atmospheric applications. See
     ! Giraldo et. al., J. Comp. Phys., vol. 227 (2008), 3849-3877. 
     ! density= P_0/(R*T)*(P/P_0)^((R+c_v)/c_p)
@@ -856,19 +869,19 @@ contains
     character(len=*), intent(in):: eos_path
     type(scalar_field), intent(inout) :: drhodp,q_v,q_c,q_r,q_i,q_g,q_s
     type(scalar_field), intent(inout) :: pressure_local,density_local,thermal_local
-    type(scalar_field), intent(inout), optional :: density, pressure, temperature, potentialtem
+    type(scalar_field), intent(inout), optional :: density, pressure, temperature, potentialtem, density_pottem
     type(scalar_field), intent(inout), optional :: saturation, dqsaturation, qc_p, qc_v, sound_speed
     
     ! locals
     type(scalar_field) :: energy_remap, pressure_remap, density_remap, &
     	 drhodp_remap, qg, temperature_remap, potentialtem_remap, &
-	 saturation_remap,dqsaturation_remap,incompfix,incompfix2, &
-	 qc_p_remap,qc_v_remap,sound_speed_remap,qc_pg_remap,qc_png_remap, &
+	 density_pottem_remap,saturation_remap,dqsaturation_remap, &
+	 incompfix,incompfix2,qc_p_remap,qc_v_remap,sound_speed_remap, &
 	 qv_remap,qc_remap,qr_remap,qi_remap,qg_remap,qs_remap
     real :: reference_density, p_0, r_cp, r, gamm
-    real :: drhodp_node, rhog_node, qg_node, temperature_node, pottem_node, density_node, c_node, &
-         pressure_node, energy_node,esat_node,saturation_node,dqsaturation_node,i_node,i2_node
-    real :: rho_w=1000., rho_i=920.
+    real :: drhodp_node, rhog_node, temperature_node, pottem_node, dpt_node, density_node, c_node, &
+            pressure_node, energy_node,esat_node,saturation_node,dqsaturation_node,i_node,i2_node, qt_node
+    real :: exn, epsilon, rho_w=1000., rho_i=920.
     integer :: node
     logical :: constant_cp_cv
         
@@ -877,14 +890,11 @@ contains
     
     call allocate(incompfix,drhodp%mesh,"IncompressibleScaleFactor")          
     call allocate(incompfix2,drhodp%mesh,"IncompressibleScaleFactor2")          
-    call allocate(qg,drhodp%mesh,"QGas")          
     call allocate(energy_remap, drhodp%mesh, "RemappedThermal")
     call allocate(pressure_remap, drhodp%mesh, "RemappedPressure")
     call allocate(density_remap, drhodp%mesh, "RemappedDensity")
     call allocate(qc_p_remap, drhodp%mesh, "RemappedCP")
     call allocate(qc_v_remap, drhodp%mesh, "RemappedCV")
-    call allocate(qc_pg_remap, drhodp%mesh, "RemappedCPGas")
-    call allocate(qc_png_remap, drhodp%mesh, "RemappedCPNonGas")
     call allocate(sound_speed_remap, drhodp%mesh, "RemappedSoundSpeed")
     call allocate(potentialtem_remap, drhodp%mesh, "RemappedPotentialTemperature")
     call allocate(temperature_remap, drhodp%mesh, "RemappedTemperature")
@@ -896,7 +906,6 @@ contains
     call zero(incompfix)
     call zero(incompfix2)
     call zero(drhodp) 
-    call zero(qg)
     call zero(potentialtem_remap)
     call zero(temperature_remap)
     
@@ -928,61 +937,52 @@ contains
     endif
  
     if (constant_cp_cv) then
-      call make_giraldo_quantities_1mat_cst (state,qc_p_remap,qc_v_remap,qc_pg=qc_pg_remap,qc_png=qc_png_remap)
+      call make_giraldo_quantities_1mat_cst (state,qc_p_remap,qc_v_remap)
     else
       call make_giraldo_quantities_1mat (state,have_vapour,have_liquid,have_ice, &
                    qv_remap,qc_remap,qr_remap,qi_remap,qg_remap,qs_remap, &
-		   qc_p_remap,qc_v_remap,qc_pg=qc_pg_remap,qc_png=qc_png_remap)
+		   qc_p_remap,qc_v_remap)
     endif
     
     do node=1,node_count(drhodp)
       r=node_val(qc_p_remap,node)-node_val(qc_v_remap,node)
-      r_cp=r/node_val(qc_pg_remap,node)
+      r_cp=r / node_val(qc_p_remap,node)
       gamm=node_val(qc_p_remap,node)/node_val(qc_v_remap,node)
+      exn=(node_val(pressure_remap,node)/p_0)**(r_cp)
       
       select case (thermal_variable)
       case(1)
        temperature_node=node_val(energy_remap,node)/node_val(qc_v_remap,node)
-       pottem_node=temperature_node*(node_val(qc_pg_remap,node) + node_val(qc_png_remap,node)) / &
-     	  (node_val(qc_pg_remap,node)*(node_val(pressure_remap,node)/p_0)**(r_cp) + node_val(qc_png_remap,node))
+       pottem_node=temperature_node/exn
       case(2)
        temperature_node=node_val(energy_remap,node)
-       pottem_node=temperature_node*(node_val(qc_pg_remap,node) + node_val(qc_png_remap,node)) / &
-     	  (node_val(qc_pg_remap,node)*(node_val(pressure_remap,node)/p_0)**(r_cp) + node_val(qc_png_remap,node))
+       pottem_node=temperature_node/exn
       case(3)
-       temperature_node=node_val(energy_remap,node)/(node_val(qc_pg_remap,node) + node_val(qc_png_remap,node)) * &
-     	  (node_val(qc_pg_remap,node)*(node_val(pressure_remap,node)/p_0)**(r_cp) + node_val(qc_png_remap,node))
+       temperature_node=node_val(energy_remap,node)*exn
        pottem_node=node_val(energy_remap,node)
       case(5)
        pottem_node=node_val(energy_remap,node)/node_val(density_remap,node)
-       temperature_node=pottem_node/(node_val(qc_pg_remap,node) + node_val(qc_png_remap,node)) * &
-     	  (node_val(qc_pg_remap,node)*(node_val(pressure_remap,node)/p_0)**(r_cp) + node_val(qc_png_remap,node))
-      end select  
-      
+       temperature_node=pottem_node*exn
+      end select 
+       
+      drhodp_node=r*temperature_node
       select case (thermal_variable)
-      case(1, 2)
-    	drhodp_node=(node_val(qc_p_remap,node)-node_val(qc_v_remap,node))*temperature_node
       case(3, 5)
-    	drhodp_node=node_val(qc_p_remap,node)/node_val(qc_v_remap,node)* &
-     	     (node_val(qc_p_remap,node)-node_val(qc_v_remap,node))*temperature_node
+    	drhodp_node=drhodp_node*gamm
       end select  
-      rhog_node=node_val(pressure_remap,node)/(temperature_node*(node_val(qc_p_remap,node)-node_val(qc_v_remap,node)))
+      rhog_node=node_val(pressure_remap,node)/(temperature_node*r)
       c_node=sqrt(gamm*r*temperature_node)
       
       i_node=1.
-      if (have_liquid) i_node=i_node-(node_val(qc_remap,node)+node_val(qr_remap,node))*(1.-rhog_node/rho_w)
-      if (have_ice) i_node=i_node-(node_val(qi_remap,node)+node_val(qg_remap,node)+node_val(qs_remap,node))*(1.-rhog_node/rho_i)
+      if (have_liquid) i_node=i_node+(node_val(qc_remap,node)+node_val(qr_remap,node))*rhog_node/rho_w
+      if (have_ice) i_node=i_node+(node_val(qi_remap,node)+node_val(qg_remap,node)+node_val(qs_remap,node))*rhog_node/rho_i
       i2_node=1.
       if (have_liquid) i2_node=i2_node-(node_val(qc_remap,node)+node_val(qr_remap,node))*node_val(density_remap,node)/rho_w
       if (have_ice) i2_node=i2_node-(node_val(qi_remap,node)+node_val(qg_remap,node)+node_val(qs_remap,node))*node_val(density_remap,node)/rho_i
-      qg_node=1.
-      if (have_liquid) qg_node=qg_node-(node_val(qc_remap,node)+node_val(qr_remap,node))
-      if (have_ice) qg_node=qg_node-(node_val(qi_remap,node)+node_val(qg_remap,node)+node_val(qs_remap,node)) 
       
       call set(drhodp, node, drhodp_node)
       call set(incompfix, node, i_node)
       call set(incompfix2, node, i2_node)
-      call set(qg, node, qg_node)
       call set(sound_speed_remap, node, c_node)
       call set(temperature_remap, node, temperature_node)
       call set(potentialtem_remap, node, pottem_node)
@@ -991,12 +991,29 @@ contains
     call scale(drhodp,incompfix)
     call scale(drhodp,incompfix)
     call invert(drhodp)
-    call scale(drhodp,qg)
     
     if (present(temperature)) &
     	call safe_set(state,temperature,temperature_remap)
     if (present(potentialtem)) &
     	call safe_set(state,potentialtem,potentialtem_remap)
+    
+    if (present(density_pottem)) then
+      call allocate(density_pottem_remap, drhodp%mesh, "RemappedDensityPotentialTemperature")
+    
+      do node=1,node_count(drhodp)
+        pottem_node=node_val(potentialtem_remap,node)
+	qt_node=node_val(qv_remap,node)
+	if (have_liquid) qt_node=qt_node+node_val(qc_remap,node)+node_val(qr_remap,node)
+	if (have_ice) qt_node=qt_node+node_val(qi_remap,node)+node_val(qg_remap,node)+node_val(qs_remap,node)
+
+        dpt_node=pottem_node*(1. + node_val(qv_remap,node)*(c_p_v-c_v_v)/(c_p-c_v))/(1. + qt_node)
+
+        call set(density_pottem_remap, node, dpt_node)	      
+      end do
+
+      call safe_set(state,density_pottem,density_pottem_remap)        
+      call deallocate(density_pottem_remap)
+    end if  
     
     if (present(saturation)) then
       call allocate(saturation_remap, drhodp%mesh, "RemappedSaturation")
@@ -1025,8 +1042,8 @@ contains
       do node=1,node_count(drhodp)
         pressure_node=node_val(pressure_remap,node)
 	temperature_node=node_val(temperature_remap,node)
+	rhog_node=pressure_node / (temperature_node*(node_val(qc_p_remap,node)-node_val(qc_v_remap,node)))
 	i_node=node_val(incompfix,node)
-	rhog_node=pressure_node/(temperature_node*(node_val(qc_p_remap,node)-node_val(qc_v_remap,node)))
         
         density_node=rhog_node/i_node  
         call set(density, node, density_node)	    
@@ -1040,9 +1057,8 @@ contains
         density_node=node_val(density_remap,node)
         temperature_node=node_val(temperature_remap,node)
 	i2_node=node_val(incompfix2,node)
-	qg_node=node_val(qg,node)
-        rhog_node=density_node*qg_node/i2_node
-            
+	
+        rhog_node=density_node/i2_node
         pressure_node=rhog_node*temperature_node*(node_val(qc_p_remap,node)-node_val(qc_v_remap,node))
         call set(pressure, node, pressure_node)       
       end do
@@ -1060,12 +1076,9 @@ contains
     
     call deallocate(incompfix)
     call deallocate(incompfix2)
-    call deallocate(qg)
     call deallocate(qc_p_remap)
     call deallocate(qc_v_remap)
     call deallocate(sound_speed_remap)
-    call deallocate(qc_pg_remap)
-    call deallocate(qc_png_remap)
     
     if (have_vapour) then
       call deallocate(qv_remap)
@@ -1082,49 +1095,40 @@ contains
       
   end subroutine compressible_eos_giraldo_1mat
   
-  subroutine make_giraldo_quantities_1mat_cst (state,qc_p,qc_v,qc_pg,qc_png)
+  subroutine make_giraldo_quantities_1mat_cst (state,qc_p,qc_v)
 
     type(state_type), intent(inout) :: state
     type(scalar_field), intent(inout) :: qc_p,qc_v
-    type(scalar_field), intent(inout), optional :: qc_pg,qc_png
         
     call set (qc_p,c_p)
     call set (qc_v,c_v)
-    
-    if (present(qc_pg)) call set (qc_pg,c_p)
-    if (present(qc_png)) call set (qc_png,0.)  
           
   end subroutine make_giraldo_quantities_1mat_cst
 
   subroutine make_giraldo_quantities_1mat(state,have_qv,have_ql,have_qi,q_v,q_c,q_r,q_i,q_g,q_s, &
-                               qc_p,qc_v,qc_pg,qc_png)
+                               qc_p,qc_v)
 
     ! Here, qc_p and qc_v are mixture averaged heat capacities: qc_p=Sum_i(q_i*c_p_i) with i the consituents of the mixture.
-    ! qc_pg and qc_pg are the gas and non-gas (liquid and solid) parts of qc_p respectively. These are not the true
-    ! gas and non-gas heat capacities. To get the true gas and non-gas capacities, qc_pg and qc_png need to be divided
-    ! by the q_i sums over gas and non-gas constituents respectively. 
    
     type(state_type), intent(inout) :: state
     type(scalar_field), intent(inout) :: qc_p,qc_v,q_v,q_c,q_r,q_i,q_g,q_s
-    type(scalar_field), intent(inout), optional :: qc_pg, qc_png
     logical, intent(in) :: have_qv, have_ql,have_qi
     type(scalar_field) :: qc_p_local,qc_v_local, tmp
-    type(scalar_field) :: qa_local, ql_local, qi_local, qv_local
+    type(scalar_field) :: ql_local, qi_local, qv_local, qd_local
     character(len=OPTION_PATH_LEN) :: eos_path
     integer :: i,stat
     
-    if (present(qc_pg)) call zero(qc_pg)
-    if (present(qc_png)) call zero(qc_png)
-
-    !  Allocate local arrays
-    call allocate(qa_local,qc_p%mesh,"DryAirFraction") 
-    call set(qa_local,1.)   
+    call zero(qc_p)
+    call zero(qc_v)
 
     ! Initialize local arrays
+    call allocate(qd_local,qc_p%mesh,"DryAirFraction")
+    call set(qd_local,1.)
+    
     if (have_qv) then
       call allocate(qv_local,qc_p%mesh,"VapourFraction")    
       call safe_set(state,qv_local,q_v)			! Water vapour fraction
-      call addto(qa_local,qv_local,scale=-1.)    
+      call addto(qd_local,qv_local,scale=-1.0)
     endif
     
     if (have_ql) then
@@ -1134,8 +1138,8 @@ contains
       call allocate(tmp,qc_p%mesh,"Tmp")    
       call safe_set(state,tmp,q_r)	       
       call addto(ql_local,tmp)	
-      call addto(qa_local,ql_local,scale=-1.)  
       call deallocate(tmp)  
+      call addto(qd_local,ql_local,scale=-1.0)
     endif
     
     if (have_qi) then
@@ -1147,21 +1151,18 @@ contains
       call addto(qi_local,tmp)
       call safe_set(state,tmp,q_s)
       call addto(qi_local,tmp)
-      call addto(qa_local,qi_local,scale=-1.)    
       call deallocate(tmp)  
+      call addto(qd_local,qi_local,scale=-1.0)
     endif
 
     ! Compute cp cv
-    call set(qc_p,c_p)
-    call scale(qc_p,qa_local)
-    call set(qc_v,c_v)
-    call scale(qc_v,qa_local)
+    call addto(qc_p,qd_local,scale=c_p)
+    call addto(qc_v,qd_local,scale=c_v)
     
     if (have_qv) then
       call addto(qc_p,qv_local,scale=c_p_v)
       call addto(qc_v,qv_local,scale=c_v_v)
     endif
-    if (present(qc_pg)) call set(qc_pg,qc_p)
     
     if (have_ql) then
       call addto(qc_p,ql_local,scale=c_p_l)
@@ -1172,12 +1173,8 @@ contains
       call addto(qc_p,qi_local,scale=c_p_i)
       call addto(qc_v,qi_local,scale=c_v_i)
     endif
-    if (present(qc_png)) then
-      call set(qc_png,qc_p)
-      call addto(qc_png,qc_pg,scale=-1.)
-    endif
     
-    call deallocate(qa_local)
+    call deallocate(qd_local)
     if (have_qv) call deallocate(qv_local)
     if (have_ql) call deallocate(ql_local)
     if (have_qi) call deallocate(qi_local)
@@ -2546,6 +2543,7 @@ contains
     real, parameter :: T0=273.15
     
     cal_flv=(2500.8-2.36*(tem-T0)+0.0016*(tem-T0)**2.-0.00006*(tem-T0)**3.)*1000.
+!     cal_flv=2501000.
     
     return
   end function

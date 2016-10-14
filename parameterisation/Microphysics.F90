@@ -49,11 +49,11 @@ module microphysics
 
   implicit none
   
-  real, parameter :: xmin=1.e-10, xnmin=1., xactiv=4.1888e-15, rho0=1.16, rhow=1000., kt=2.4e-2, pi=3.1415927
+  real, parameter :: xmin=1.e-15, xnmin=0.1, xactiv=4.1888e-15, rho0=1.225, rhow=1000., kt=2.4e-2, pi=3.1415927
   real, parameter :: N0r = 1.e7, N0g = 4.e6, N0s = 2.e7
   real :: rauto, mauto, k0, rd0, sd0, mindt, rtol, relaxation
   character(len=OPTION_PATH_LEN) :: condensation_evaporation
-  logical :: sat_adj=.false.
+  logical :: constant_cp_cv, sat_adj=.false., drop_adj=.false.
 
   real, dimension(5), parameter  :: nu=(/5., 0., 0., 0., 0./),			 &
   				    nu_sb=(/1., -2./3., 1., 1., 1./),		 &
@@ -315,7 +315,7 @@ contains
     real, intent(in) :: dt
     character(len=FIELD_NAME_LEN):: option_path, mom_path, mname
 
-    logical :: constant_cp_cv, present_tem=.false., present_lpt=.false., present_ie=.false., have_qt=.false.
+    logical :: have_qt=.false.
     integer :: stat,i,j,ele,thermal_variable
     real :: qs, dqsdt, cp, cv, ccn, g, w, gsat
     real :: c_p,c_v,c_p_v,c_v_v,c_p_l,c_v_l,c_p_i,c_v_i
@@ -338,7 +338,7 @@ contains
     ! (4) Sinking Velocity (output, on Microphysics mesh)
     ! (5) Microphysics forcing (output, on Microphysics mesh)
     
-    ewrite(1,*) 'In calculate_microphysics_from_fortran', trim(mname)
+    ewrite(1,*) 'In calculate_microphysics_from_fortran ', trim(mname)
 
     ! Extract microphysics and thermo constants
     call extract_constants (state)
@@ -349,11 +349,13 @@ contains
       if (trim(condensation_evaporation)=='Adaptive') then
         call get_option('/material_phase[0]/cloud_microphysics/condensation_evaporation::Adaptive/min_step_size',mindt)
         call get_option('/material_phase[0]/cloud_microphysics/condensation_evaporation::Adaptive/tolerance',rtol)
-      endif
+      else
+        drop_adj = have_option('/material_phase[0]/cloud_microphysics/fortran_microphysics/two_moment_microphysics::'//trim(mname)//'/droplet_adjustment')
+      endif      
     endif
     constant_cp_cv=have_option('/material_phase[0]/equation_of_state/compressible/giraldo/constant_cp_cv')
     
-    call get_option('/material_phase[0]/cloud_microphysics/relaxation',relaxation,default=0.)
+    call get_option('/material_phase[0]/cloud_microphysics/relaxation',relaxation,default=1.)
 
     call get_option("/physical_parameters/gravity/magnitude", g, stat)
     have_qt = has_scalar_field(state,"TotalWaterQ")
@@ -381,14 +383,13 @@ contains
     call extract_and_project(state,mesh,pp,   	"PressureRemap", local=pressure_remap)
     call extract_and_project(state,mesh,ptem,   "Temperature", local=temperature)  
     call extract_and_project(state,mesh,prho, 	"EOSDensity", local=eosdensity)
-    call extract_and_project(state,mesh,pth,    "MicroThermal", local=thermal)  
+    call extract_and_project(state,mesh,pth,     trim(thermal%name), local=thermal)  
     
     if (have_qt) then 
       call extract_and_project(state,mesh,pq_t,"TotalWaterQ")    
     else
       call extract_and_project(state,mesh,pq_v,"VapourWaterQ")    
     endif
-    
     call extract_and_project(state,mesh,pq_c,       "Qdrop")
     call extract_and_project(state,mesh,pq_r,       "Qrain")
     call extract_and_project(state,mesh,pq_i,       "Qice")
@@ -472,15 +473,13 @@ contains
        call store_result(pn_i,n_i,ele)
        call store_result(pn_g,n_g,ele)
        call store_result(pn_s,n_s,ele)
-       call store_result(prho,rho,ele)
-       call store_result(ptem,tem,ele)
        call store_result(pn_ccn,n_ccn,ele)
        if (have_qt) then
          call store_result(pq_t,q_t,ele)
        else
          call store_result(pq_v,q_v,ele)
        endif
-       call store_thermal(thermal_variable,pth,th,tem,p,q_v,q_c,q_r,q_i,q_g,q_s,ele)
+       call store_thermal(thermal_variable,pth,th,tem,p,q_v,cp,cv,ele)
     end do
     
     if (have_qt) then
@@ -558,28 +557,22 @@ contains
 
     end subroutine store_result
     
-    subroutine store_thermal(index,field,vloc,tem,p,q_v,q_c,q_r,q_i,q_g,q_s,n)
+    subroutine store_thermal(index,field,vloc,tem,p,q_v,cp,cv,n)
       type(microphysics_field), intent(inout) :: field
       real, intent(in), dimension(5) :: vloc
-      real, intent(in), dimension(5) :: p, tem, q_v, q_c, q_r, q_i, q_g, q_s
+      real, intent(in), dimension(5) :: p, tem, q_v
       integer, intent(in) :: n, index
-      real :: source, precip, exner
+      real :: source, precip, cp, cv, pp
       
       if (index==1) then
         source = cv*tem(5)
-        if (.not.constant_cp_cv) then
-          source = source + tem(1)*(c_p_v*q_v(5) + c_p_l*(q_c(5)+q_r(5)) &
-	         + c_p_i*(q_i(5)+q_g(5)+q_s(5)))
-        endif
       else if (index==2) then
         source = tem(5)
       else if (index==3) then
-        source = vloc(1)*tem(5)/tem(1)
+        pp = (p(1)/1.E+05)**((cp-cv)/cp)
+        source = tem(5) * vloc(3)/tem(3)
         if (.not.constant_cp_cv) then
-          exner  = (p(1)/1.E+05)**((cp-cv)/cp)
-          source = source &
-	         + log(exner)*vloc(1) * ((c_p_v/cp - (c_p_v-c_v_v)/(cp-cv))*q_v(5) &
-	         + (c_p_l*(q_c(5)+q_r(5)) + c_p_i*(q_i(5)+q_g(5)+q_s(5)))/cp)
+          source = source - vloc(3)*log(pp)*((c_p_v-c_v_v)/(cp-cv) - (c_p_v-c_p_l)/cp)*q_v(5)
         endif
       endif
 
@@ -657,7 +650,7 @@ subroutine microphysics_2mom(state,sat_adj,mom_path,mname,time,dt, &
   type(state_type),intent(inout) :: state
   logical :: sat_adj, have_ndrop, have_nrain, have_ccn
   real :: time, dt, qs, cp, cv, g, w, gsat
-  real :: lq_c0, lq_r0, ln_c0, ln_r0, lq_v0, ltem0, ln_ccn0
+  real :: lq_c0, lq_r0, ln_c0, ln_r0, lq_v0, ltem0, ln_ccn0, lp0, lrho0
   real :: lq_c1, lq_r1, ln_c1, ln_r1, lq_v1, ltem1, ln_ccn1
   real, dimension(5) :: lq_t,lq_v,lq_r,lq_c,lq_i,lq_g,lq_s,ln_r,ln_c,ln_i,ln_g,ln_s,ln_ccn,ltem,lp,lrho
   character(len=FIELD_NAME_LEN):: mom_path, mname
@@ -683,13 +676,16 @@ subroutine microphysics_2mom(state,sat_adj,mom_path,mname,time,dt, &
   ltem(5) = 0.
   ln_ccn(5) = 0.
   
-  lq_v0 = lq_v(1); lq_v1 = lq_v(3)
-  lq_c0 = lq_c(1); lq_c1 = lq_c(3)
-  lq_r0 = lq_r(1); lq_r1 = lq_r(3)
-  ln_c0 = ln_c(1); ln_c1 = ln_c(3)
-  ln_r0 = ln_r(1); ln_r1 = ln_r(3)
-  ltem0 = ltem(1); ltem1 = ltem(3)
-  ln_ccn0 = ln_ccn(1); ln_ccn1 = ln_ccn(3)
+  lp0   = lp(3)
+  lrho0 = lrho(3)
+  lq_v0 = lq_v(3); lq_v1 = lq_v(3)
+  lq_c0 = lq_c(3); lq_c1 = lq_c(3)
+  lq_r0 = lq_r(3); lq_r1 = lq_r(3)
+  ln_c0 = ln_c(3); ln_c1 = ln_c(3)
+  ln_r0 = ln_r(3); ln_r1 = ln_r(3)
+  ltem0 = ltem(3); ltem1 = ltem(3)
+  ln_ccn0 = ln_ccn(3); ln_ccn1 = ln_ccn(3)
+
   !
   !  1.: Evaluate microphysical processes: diffusion/evaporation
   !
@@ -699,21 +695,20 @@ subroutine microphysics_2mom(state,sat_adj,mom_path,mname,time,dt, &
       call diff_analytic (dt, w, qs, gsat, g, cp, lq_v, lq_c, ln_c, lq_r, ln_r, ln_ccn, lrho, lp, ltem)
       
     case('Adaptive')
-      call diff_adaptive_bdf (dt, w, qs, g, cp, lq_v, lq_c, ln_c, lq_r, ln_r, ln_ccn, lrho, lp, ltem)
-!      call diff_adaptive_rkf (dt, w, qs, g, cp, lq_v, lq_c, ln_c, lq_r, ln_r, ln_ccn, lrho, lp, ltem)
+      call diff_adaptive_rkf (dt, w, qs, g, cp, lq_v, lq_c, ln_c, lq_r, ln_r, ln_ccn, lrho, lp, ltem)
   
     case default
-      call diff_simple (dt, w, qs, g, cp, lq_v, lq_c, ln_c, lq_r, ln_r, ln_ccn, lrho, lp, ltem)
+      call diff_simple (dt, qs, g, cp, lq_v, lq_c, ln_c, lq_r, ln_r, ln_ccn, lrho, lp, ltem)
     
   end select
   
-  lq_v1 = lq_v0 + dt*lq_v(5)
-  lq_c1 = lq_c0 + dt*lq_c(5)
-  lq_r1 = lq_r0 + dt*lq_r(5)
-  ln_c1 = ln_c0 + dt*ln_c(5)
-  ln_r1 = ln_r0 + dt*ln_r(5)
-  ltem1 = ltem0 + dt*ltem(5)
-  ln_ccn1 = ln_ccn0 + dt*ln_ccn(5)
+  lq_v1 = lq_v1 + dt*lq_v(5)
+  lq_c1 = lq_c1 + dt*lq_c(5)
+  lq_r1 = lq_r1 + dt*lq_r(5)
+  ln_c1 = ln_c1 + dt*ln_c(5)
+  ln_r1 = ln_r1 + dt*ln_r(5)
+  ltem1 = ltem1 + dt*ltem(5)
+  ln_ccn1 = ln_ccn1 + dt*ln_ccn(5)
   
   lq_v(5) = 0.
   lq_c(5) = 0.
@@ -772,7 +767,7 @@ subroutine microphysics_2mom(state,sat_adj,mom_path,mname,time,dt, &
   !
   !  4.: Sedimentation velocities
   !
-  call sedim (dt, 2, lq_r1, ln_r1, lq_r, ln_r, lrho)
+  call sedim (dt, 2, lq_r0, ln_r0, lq_r1, ln_r1, lq_r(4), ln_r(4))
   
   !
   !  5.: Assemble microphysics sources 
@@ -780,45 +775,111 @@ subroutine microphysics_2mom(state,sat_adj,mom_path,mname,time,dt, &
   call assemble_micro (dt, cp, lq_v, lq_c, ln_c, lq_r, ln_r, ln_ccn, ltem)
 
 contains
+
+subroutine diff_analytic (dt, w, qs, gsat, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn, lrho, lp, ltem)
+
+  implicit none
+  integer :: i
+  real  :: dt, fl, fv, vis, dif, lambda, gamm, tau, fac, aa
+  real  :: dql, ql, qc, nc, qr, nr, qv, ss
+  real  :: w, qs, es, dqsdt, g, cp, tem, pp, den, sat0, sat, gsat
+  real, dimension(5) :: lqv,lqr,lnr,lqc,lnc,lp,ltem,lrho,lnccn,cd
+
+  pp   = lp0
+  den  = lrho0
+  tem  = relaxation*ltem1+(1.-relaxation)*ltem0
+  qv   = relaxation*lq_v1+(1.-relaxation)*lq_v0
+  qc   = relaxation*lq_c1+(1.-relaxation)*lq_c0
+  nc   = relaxation*ln_c1+(1.-relaxation)*ln_c0
+  qr   = relaxation*lq_r1+(1.-relaxation)*lq_r0
+  nr   = relaxation*ln_r1+(1.-relaxation)*ln_r0
+
+  call diff_cd (dt, qs, cp, qv, qc, nc, qr, nr, den, pp, tem, cd)
+
+  ql  = qc + qr
+  dql = cd(1) + cd(2)
+  
+  if ( dql > 1.e-6 ) then
+
+    dqsdt= cal_dqsatdt(ltem1,pp)
+    es   = cal_esat(ltem1)
+    sat0 = lq_v1 - cal_qsat(ltem1,pp)
+    ss   = lq_v1 / cal_qsat(ltem1,pp)
     
-subroutine diff_simple (dt, w, qs, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn, lrho, lp, ltem)
+    aa   = g/cp*dqsdt - den*g*qs/(pp - es)
+    gamm = 1. + ss*cal_flv(tem)/cp*dqsdt
+    tau  = max(1./(gamm*dql),1.e-15)
+    
+    if (have_option('/material_phase[0]/cloud_microphysics/time_integration::Splitting') .or. &
+        have_option('/material_phase[0]/cloud_microphysics/time_integration::Strang')) then
+      sat = tau/dt*sat0*(1. - exp(-dt/tau))
+    else
+      aa  = g/cp*dqsdt - den*g*qs/(pp - es)
+      sat = w*aa*tau + tau/dt*(sat0 - w*aa*tau - w*gsat*dt)*(1. - exp(-dt/tau))
+    endif
+    
+    if ((lq_c1 > xmin .and. ln_c1 > xnmin) .and. (.not.drop_adj)) then
+      lqc(5) = lqc(5) + max(min(cd(1)*sat, qv/dt), -lq_c1/dt)
+      if (have_ndrop) lnc(5) = lnc(5) + min(max(cd(1)*sat*ln_c0/lq_c0,-ln_c1/dt),0.)
+    endif
+    
+    if (lq_r1 > xmin .and. ln_r1 > xnmin) then    
+      lqr(5) = lqr(5) + max(min(cd(2)*sat, qv/dt-lqc(5)), -lq_r1/dt)
+      if (have_nrain) lnr(5) = lnr(5) + max(min(cd(2)*sat*ln_r0/lq_r0, 0.), -ln_r1/dt)
+    endif
+        
+    lqv(5) = lqv(5) - lqc(5) - lqr(5)
+    ltem(5) = ltem(5) + (lqc(5) + lqr(5))*cal_flv(tem)/cp
+    
+  endif
+  
+end subroutine
+    
+subroutine diff_simple (dt, qs, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn, lrho, lp, ltem)
   implicit none
   integer :: i, nit
   real  :: dt, gamm, dqsdt, beta, dql
   real  :: qc0, qr0, qv0, tem0, nc0, nr0
-  real  :: w, qs, es, g, cp, tem, pp, den, qv, qc, qr
+  real  :: qs, ss, sat0, dqsatt, g, cp, pp, den, dqc, dqr
   real, dimension(5) :: lqv,lqr,lnr,lqc,lnc,lp,ltem,lrho,lnccn,cd
 
-  pp    = lp(3)
-  den   = lrho(3)
-  tem0  = relaxation*ltem1+(1.-relaxation)*ltem(3); tem = ltem0
-  qv0   = relaxation*lq_v1+(1.-relaxation)*lqv(3);  qv = lq_v0
-  qc0   = relaxation*lq_c1+(1.-relaxation)*lqc(3);  qc = lq_c0
-  qr0   = relaxation*lq_r1+(1.-relaxation)*lqr(3);  qr = lq_r0
-  nc0   = relaxation*ln_c1+(1.-relaxation)*lnc(3)
-  nr0   = relaxation*ln_r1+(1.-relaxation)*lnr(3)
+  beta  = 1.0
+
+  pp    = lp0
+  den   = lrho0
+  tem0  = relaxation*ltem1+(1.-relaxation)*ltem0
+  qv0   = relaxation*lq_v1+(1.-relaxation)*lq_v0
+  qc0   = relaxation*lq_c1+(1.-relaxation)*lq_c0
+  qr0   = relaxation*lq_r1+(1.-relaxation)*lq_r0
+  nc0   = relaxation*ln_c1+(1.-relaxation)*ln_c0
+  nr0   = relaxation*ln_r1+(1.-relaxation)*ln_r0
 
   call diff_cd (dt, qs, cp, qv0, qc0, nc0, qr0, nr0, den, pp, tem0, cd)
   
   dql = cd(1) + cd(2)
   
-  if (dql > 1.e-9) then
+  if (dql > 1.e-6) then
 
-    call direct_solve_trapeze (dt, cd, cp, pp, tem, qv, qc, qr, 1.)
-
-    if ((lq_c0 > xmin .or. ln_c0 > xnmin) .and. (.not.sat_adj)) then    
-      lqc(5) = lqc(5) + (qc - lq_c0)/dt
-      if (have_ndrop) lnc(5)   = lnc(5) + min(ln_c0/lq_c0*(qc - lq_c0)/dt,0.)
+    sat0   = lq_v1 - cal_qsat(ltem1,pp)
+    ss     = lq_v1 / cal_qsat(ltem1,pp)
+    dqsatt = cal_dqsatdt(ltem1,pp)
+    gamm   = dql*(1. + ss*dqsatt*cal_flv(ltem0)/cp)
+    
+    if ((lq_c1 > xmin .and. ln_c1 > xnmin) .and. (.not.drop_adj)) then    
+      dqc  = max(min(cd(1)*sat0 / (1. + beta*dt*gamm),qv0/dt),-lq_c1/dt)
+      lqc(5) = lqc(5) + dqc
+      if (have_ndrop) lnc(5)   = lnc(5) + max(min(ln_c0/lq_c0*dqc,0.),-ln_c1/dt)
 !      if (have_ccn) lnccn(5) = lnccn(5) - min(ln_c0/lq_c0*(qc - lq_c0)/dt,0.)
     endif
     
-    if (lq_r0 > xmin .or. ln_r0 > xnmin) then    
-      lqr(5) = lqr(5) + (qr - lq_r0)/dt
-      if (have_nrain) lnr(5) = lnr(5) + min(ln_r0/lq_r0*(qr - lq_r0)/dt,0.)
+    if (lq_r1 > xmin .and. ln_r1 > xnmin) then    
+      dqr  = max(min(cd(2)*sat0 / (1. + beta*dt*gamm),max(qv0/dt-dqc,0.)),-lq_r1/dt)
+      lqr(5) = lqr(5) + dqr
+      if (have_nrain) lnr(5) = lnr(5) + max(min(ln_r0/lq_r0*dqr,0.),-ln_r1/dt)
     endif
    
-    lqv(5) = lqv(5) - lqc(5) - lqr(5)
-    ltem(5) = ltem(5) + (lqc(5) + lqr(5))*cal_flv(tem0)/cp
+    lqv(5) = lqv(5) - (lqc(5) + lqr(5))
+    ltem(5) = ltem(5) - lqv(5)*cal_flv(tem0)/cp
   endif
 
 end subroutine
@@ -831,30 +892,30 @@ subroutine diff_adaptive_rkf (dt, w, qs, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn, 
   real  :: w, qs, es, g, cp, tem, pp, den, qv, qc, qr
   real, dimension(5) :: lqv,lqr,lnr,lqc,lnc,lp,ltem,lrho,lnccn,cd
 
-  pp    = lp(3)
-  den   = lrho(3)
-  tem0  = relaxation*ltem1+(1.-relaxation)*ltem(3); tem = ltem0
-  qv0   = relaxation*lq_v1+(1.-relaxation)*lqv(3);  qv = lq_v0
-  qc0   = relaxation*lq_c1+(1.-relaxation)*lqc(3);  qc = lq_c0
-  qr0   = relaxation*lq_r1+(1.-relaxation)*lqr(3);  qr = lq_r0
-  nc0   = relaxation*ln_c1+(1.-relaxation)*lnc(3)
-  nr0   = relaxation*ln_r1+(1.-relaxation)*lnr(3)
+  pp    = lp0
+  den   = lrho0
+  tem0  = relaxation*ltem1+(1.-relaxation)*ltem0; tem = ltem0
+  qv0   = relaxation*lq_v1+(1.-relaxation)*lq_v0;  qv = lq_v0
+  qc0   = relaxation*lq_c1+(1.-relaxation)*lq_c0;  qc = lq_c0
+  qr0   = relaxation*lq_r1+(1.-relaxation)*lq_r0;  qr = lq_r0
+  nc0   = relaxation*ln_c1+(1.-relaxation)*ln_c0
+  nr0   = relaxation*ln_r1+(1.-relaxation)*ln_r0
 
   call diff_cd (dt, qs, cp, qv0, qc0, nc0, qr0, nr0, den, pp, tem0, cd)
   
   dql = cd(1)+cd(2)
   
-  if (dql > 1.e-9) then
+  if (dql > 1.e-6) then
 
     call direct_solve_rkf (dt, cd, cp, pp, tem0, qv0, qc0, qr0, tem, qv, qc, qr)
 
-    if ((lq_c0 > xmin .or. ln_c0 > xnmin) .and. (.not.sat_adj)) then    
+    if ((lq_c0 > xmin .and. ln_c0 > xnmin) .and. (.not.drop_adj)) then    
       lqc(5) = lqc(5) + (qc - lq_c0)/dt
       if (have_ndrop) lnc(5)   = lnc(5) + min(ln_c0/lq_c0*(qc - lq_c0)/dt,0.)
 !      if (have_ccn) lnccn(5) = lnccn(5) - min(ln_c0/lq_c0*(qc - lq_c0)/dt,0.)
     endif
     
-    if (lq_r0 > xmin .or. ln_r0 > xnmin) then    
+    if (lq_r0 > xmin .and. ln_r0 > xnmin) then    
       lqr(5) = lqr(5) + (qr - lq_r0)/dt
       if (have_nrain) lnr(5) = lnr(5) + min(ln_r0/lq_r0*(qr - lq_r0)/dt,0.)
     endif
@@ -864,159 +925,45 @@ subroutine diff_adaptive_rkf (dt, w, qs, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn, 
   endif
 
 end subroutine
-   
-subroutine diff_adaptive_bdf (dt, w, qs, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn, lrho, lp, ltem)
+
+subroutine droplet_adjustment(qc, qr, qv, pp, tem)
   implicit none
-  integer :: i, nit
-  real  :: dt, fl, fv, vis, gamm, gammt
-  real  :: qc, nc, qr, nr, qv, qc0, qr0, qv0, tem0, nc0, nr0, sat0
-  real  :: tem_p, qv_p, qc_p, qr_p, tt_o(2), qv_o(2), qc_o(2), qr_o(2)
-  real  :: w, qs, es, g, cp, tem, pp, den, dql
-  real  :: epsilon, err, dt0, dt1, tim
-  real, dimension(5) :: lqv,lqr,lnr,lqc,lnc,lp,ltem,lrho,lnccn,cd
-
-  pp    = lp(3)
-  den   = lrho(3)
-  tem0  = relaxation*ltem1+(1.-relaxation)*ltem(3); tem = ltem0; tem_p = ltem0
-  qv0   = relaxation*lq_v1+(1.-relaxation)*lqv(3); qv = lq_v0; qv_p = lq_v0
-  qc0   = relaxation*lq_c1+(1.-relaxation)*lqc(3); qc = lq_c0; qc_p = lq_c0
-  qr0   = relaxation*lq_r1+(1.-relaxation)*lqr(3); qr = lq_r0; qr_p = lq_r0
-  nc0   = relaxation*ln_c1+(1.-relaxation)*lnc(3)
-  nr0   = relaxation*ln_r1+(1.-relaxation)*lnr(3)
-
-  call diff_cd (dt, qs, cp, qv0, qc0, nc0, qr0, nr0, den, pp, tem0, cd)
-
-  dql = cd(1) + cd(2)
-    
-  if (dql > 1.e-9) then
-
-    call direct_solve_trapeze (dt, cd, cp, pp, tem, qv, qc, qr, 0.5)
-    call direct_solve_trapeze (dt, cd, cp, pp, tem_p, qv_p, qc_p, qr_p, 1.)
-
-    err = erreur (tem_p, qv_p, qc_p, qr_p, tem, qv, qc, qr, 2)
-    dt0 = max(dt/real(ceiling(1./err)),mindt)
-    dt1 = dt0
-
-    tem = ltem0
-    qv = lq_v0
-    qc = lq_c0
-    qr = lq_r0
-    if (dt0 < dt) then
-
-      call direct_solve_trapeze (dt0, cd, cp, pp, tem, qv, qc, qr, 0.5)
-      
-      tt_o(1)=tem; tt_o(2)=ltem0
-      qv_o(1)=qv; qv_o(2)=lq_v0
-      qc_o(1)=qc; qc_o(2)=lq_c0
-      qr_o(1)=qr; qr_o(2)=lq_r0
-
-      tim = dt0
-      nit = 1
-      epsilon = 1.
-      do while (tim < dt .and. epsilon > rtol .and. qc > xmin)
-        epsilon=max(abs(qv_o(1)-qv_o(2))/qv_o(2),abs(qc_o(1)-qc_o(2))/qc_o(2))
-        tim = tim+dt0 
-	nit = nit+1
-
-        tem_p = tt_o(1)
-	qv_p = qv_o(1)
-	qc_p = qc_o(1)
-	qr_p = qr_o(1)
-	
-        call direct_solve_trapeze (dt0, cd, cp, pp, tem_p, qv_p, qc_p, qr_p, 1.)
-        call direct_solve_bdf2_var (dt0, dt1, cd, cp, pp, tt_o, qv_o, qc_o, qr_o, tem, qv, qc, qr)
-
-        dt1 = dt0
-        err = erreur(tem_p, qv_p, qc_p, qr_p, tem, qv, qc, qr, 2)
-        dt0 = min(max(dt0/real(ceiling(1./err)),mindt),dt0)
-
-        tt_o(2)=tt_o(1); tt_o(1)=tem
-        qv_o(2)=qv_o(1); qv_o(1)=qv
-        qc_o(2)=qc_o(1); qc_o(1)=qc
-        qr_o(2)=qr_o(1); qr_o(1)=qr
-	
-	if (nit == 100) then
-	  ewrite(1,*) 'Warning: Number of diffusion/evaporation subcycles exceeds 100'
-	else if (nit == 1000) then
-	  ewrite(1,*) 'Warning: Number of diffusion/evaporation subcycles exceeds 1000'
-        endif
-      enddo
-      
-    endif
-    
-    if ((lq_c0 > xmin .or. ln_c0 > xnmin) .and. (.not.sat_adj)) then      
-        lqc(5) = lqc(5) + (qc - lq_c0)/dt
-        if (have_ndrop) lnc(5)   = lnc(5) + min(ln_c0/lq_c0*(qc - lq_c0)/dt,0.)
-!        if (have_ccn) lnccn(5) = lnccn(5) - min(ln_c0/lq_c0*(qc - lq_c0)/dt,0.)
-    endif
-    
-    if (lq_r0 > xmin .or. ln_r0 > xnmin) then
-        lqr(5) = lqr(5) + (qr - lq_r0)/dt
-        if (have_nrain) lnr(5) = lnr(5) + min(ln_r0/lq_r0*(qr - lq_r0)/dt,0.)
-    endif
-        
-    lqv(5)  = lqv(5) - lqc(5) - lqr(5)
-    ltem(5) = ltem(5) + (lqc(5) + lqr(5))*cal_flv(tem0)/cp
-  endif
-
-end subroutine
-
-subroutine diff_analytic (dt, w, qs, gsat, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn, lrho, lp, ltem)
-
-  implicit none
+  
   integer :: i
-  real  :: dt, fl, fv, vis, dif, lambda, gamm, tau, fac, aa
-  real  :: dql, ql, qc, nc, qr, nr, qv, ss
-  real  :: w, qs, es, dqsdt, g, cp, tem, pp, den, sat0, sat, gsat
-  real, dimension(5) :: lqv,lqr,lnr,lqc,lnc,lp,ltem,lrho,lnccn,cd
-
-  pp   = lp(3)
-  den  = lrho(3)
-  tem  = relaxation*ltem1+(1.-relaxation)*ltem(3)
-  qv   = relaxation*lq_v1+(1.-relaxation)*lqv(3)
-  qc   = relaxation*lq_c1+(1.-relaxation)*lqc(3)
-  nc   = relaxation*ln_c1+(1.-relaxation)*lnc(3)
-  qr   = relaxation*lq_r1+(1.-relaxation)*lqr(3)
-  nr   = relaxation*ln_r1+(1.-relaxation)*lnr(3)
-
-  call diff_cd (dt, qs, cp, qv, qc, nc, qr, nr, den, pp, tem, cd)
-
-  ql  = qc + qr
-  dql = cd(1) + cd(2)
-  
-  if ( dql > 1.e-9 ) then
-
-    dqsdt= cal_dqsatdt(tem,pp)
-    es  = cal_esat(tem)
-    sat0= qv - cal_qsat(tem,pp)
-    ss  = qv/cal_qsat(tem,pp)
+  real :: sat, pp, tem, qv, qc, qr
+  real :: epsilon, cp, cv, dq_c, d_tem, qc_new
+  real, parameter :: tol=1.e-8
+  integer, parameter :: max_iter=15
     
-    gamm = 1. + ss*cal_flv(tem)/cp*dqsdt
-    tau  = max(1./(gamm*dql),1.e-9)
+  if ( qc > xmin ) then
+	
+    i=0
+    epsilon=1.
+    do while (abs(epsilon) > tol .and. i < max_iter)
+      i=i+1
+
+      cp=c_p
+      cv=c_v
+      if (.not.constant_cp_cv) then
+  	cp = cp + qv*c_p_v + (qc+qr)*c_p_l
+  	cv = cv + qv*c_v_v + (qc+qr)*c_v_l
+      endif
+      sat=cal_qsat(tem,pp)
+
+      dq_c = (qv - sat) / (1. + cal_flv(tem)**2.*sat/(cp*(cp-cv) * tem**2.))
+      qc_new=min(max(qc+dq_c,0.),qv)
+      dq_c=qc_new-qc
     
-    if (have_option('/material_phase[0]/cloud_microphysics/time_integration::Splitting') .or. &
-        have_option('/material_phase[0]/cloud_microphysics/time_integration::Strang')) then
-      sat = tau/dt*sat0*(1. - exp(-dt/tau))
-    else
-      aa  = g/cp*dqsdt - den*g*qs/(pp - es)
-      sat = w*aa*tau + tau/dt*(sat0 - w*aa*tau - w*gsat*dt)*(1. - exp(-dt/tau))
-    endif
+      tem = tem + dq_c*cal_flv(tem)/cp
+      qc  = qc + dq_c
+      qv  = min(max(qv-dq_c,0.),qv+qc)
+      
+      epsilon = (qv-sat)/sat
+  	
+    enddo
     
-    if ((lq_c0 > xmin .or. ln_c0 > xnmin) .and. (.not.sat_adj)) then
-      lqc(5) = lqc(5) + max(min(cd(1)*sat,lq_v0/dt),-lq_c0/dt)
-      if (have_ndrop) lnc(5) = lnc(5) + min(max(cd(1)*sat*ln_c0/lq_c0,-ln_c0/dt),0.)
-!      if (have_ccn) lnccn(5) = lnccn(5) - min(max(cd(1)*sat*ln_c0/lq_c0,-ln_c0/dt),0.)
-    endif
-    
-    if ((lq_r0 > xmin .or. ln_r0 > xnmin)) then    
-      lqr(5) = lqr(5) + max(min(cd(2)*sat,lq_v0/dt-lqc(5)),-lq_r0/dt)
-      if (have_nrain) lnr(5) = lnr(5) + max(min(cd(2)*sat*ln_r0/lq_r0,0.),-ln_r0/dt)
-    endif
-        
-    lqv(5) = lqv(5) - lqc(5) - lqr(5)
-    ltem(5) = ltem(5) + (lqc(5) + lqr(5))*cal_flv(tem)/cp
   endif
-  
+
 end subroutine
 
 subroutine aucr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
@@ -1031,11 +978,11 @@ subroutine aucr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   
   xprim = 1000.*4./3.*pi*rauto**3.
   
-  dens = lrho(3)
-  xc  = dens*(relaxation*lq_c1+(1.-relaxation)*lq_c(3))
-  xr  = dens*(relaxation*lq_r1+(1.-relaxation)*lq_r(3))
-  xnc = dens*(relaxation*ln_c1+(1.-relaxation)*ln_c(3))
-  xnr = dens*(relaxation*ln_r1+(1.-relaxation)*ln_r(3))
+  dens = lrho0
+  xc  = dens*(relaxation*lq_c1+(1.-relaxation)*lq_c0)
+  xr  = dens*(relaxation*lq_r1+(1.-relaxation)*lq_r0)
+  xnc = dens*(relaxation*ln_c1+(1.-relaxation)*ln_c0)
+  xnr = dens*(relaxation*ln_r1+(1.-relaxation)*ln_r0)
 
   if (xnc > xnmin .and. xc > xmin) then
     xav = min(2.e-9,max(2.e-14,xc/xnc))
@@ -1068,15 +1015,14 @@ subroutine scr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   real, dimension(5) :: lq_r,lq_c,ln_r,ln_c,lrho
   real, parameter :: deq=1.3e-3, krr=7.12, kar=60.7
   
-  dens = lrho(3)
-  xc  = dens*(relaxation*lq_c1+(1.-relaxation)*lq_c(3))
-  xr  = dens*(relaxation*lq_r1+(1.-relaxation)*lq_r(3))
-  xnc = dens*(relaxation*ln_c1+(1.-relaxation)*ln_c(3))
-  xnr = dens*(relaxation*ln_r1+(1.-relaxation)*ln_r(3))
+  dens = lrho0
+  xc  = dens*(relaxation*lq_c1+(1.-relaxation)*lq_c0)
+  xr  = dens*(relaxation*lq_r1+(1.-relaxation)*lq_r0)
+  xnc = dens*(relaxation*ln_c1+(1.-relaxation)*ln_c0)
+  xnr = dens*(relaxation*ln_r1+(1.-relaxation)*ln_r0)
 
   if (xnr > xnmin .and. xr > xmin) then
-    lambda = (cal_gamma((nu_sb(2)+1.)/mu_sb(2))/cal_gamma((nu_sb(2)+2.)/mu_sb(2))*xc/xnc)**(-mu_sb(2))
-    lambda = min(max(lambda,10.),1000000.)
+    lambda = cal_lambda_sb (2, xc, xnc)
     
     avd = 0.12407/lambda
     if (avd < 0.45e-3) then
@@ -1085,7 +1031,7 @@ subroutine scr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
       phibr = 1000.*(avd - deq)
     endif
     
-    crrn = -phibr*krr*xr*xnr*(1.+kar/lambda)**-9. * sqrt(rho0/dens)
+    crrn = -phibr*krr*xr*xnr * sqrt(rho0/dens)
     
     ln_r(5) = ln_r(5) - min(crrn/dens,ln_r1/dt)
   endif  
@@ -1102,11 +1048,11 @@ subroutine ccr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   real, dimension(5) :: lq_r,lq_c,ln_r,ln_c,lrho
   real, parameter :: kr=5.25
   
-  dens = lrho(3)
-  xc  = dens*(relaxation*lq_c1+(1.-relaxation)*lq_c(3))
-  xr  = dens*(relaxation*lq_r1+(1.-relaxation)*lq_r(3))
-  xnc = dens*(relaxation*ln_c1+(1.-relaxation)*ln_c(3))
-  xnr = dens*(relaxation*ln_r1+(1.-relaxation)*ln_r(3))
+  dens = lrho0
+  xc  = dens*(relaxation*lq_c1+(1.-relaxation)*lq_c0)
+  xr  = dens*(relaxation*lq_r1+(1.-relaxation)*lq_r0)
+  xnc = dens*(relaxation*ln_c1+(1.-relaxation)*ln_c0)
+  xnr = dens*(relaxation*ln_r1+(1.-relaxation)*ln_r0)
 
   if ((xnc > xnmin .and. xc > xmin) .and. (xnr > xnmin .and. xr > xmin)) then
     tau = 1. - xc/(xc+xr)
@@ -1139,9 +1085,9 @@ subroutine aucr_k (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   k1    = xref/xprim
   
   ! Convert to: kg/kg and cm-3
-  dens = lrho(3)
-  xc  = (relaxation*lq_c1+(1.-relaxation)*lq_c(3))/dens
-  xnc = (relaxation*ln_c1+(1.-relaxation)*ln_c(3))/1000000.
+  dens = lrho0
+  xc  = (relaxation*lq_c1+(1.-relaxation)*lq_c0)/dens
+  xnc = (relaxation*ln_c1+(1.-relaxation)*ln_c0)/1000000.
 
   if (1000000.*xnc > xnmin .and. dens*xc > xmin) then
     auq  = log(k1*kau) + 4.22*log(xc) - 3.01*log(xnc)
@@ -1166,11 +1112,11 @@ subroutine scr_k (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   real, dimension(5) :: lq_r,lq_c,ln_r,ln_c,lrho
   real, parameter :: kscr=205.
 
-  dens = lrho(3)
-  xc  = (relaxation*lq_c1+(1.-relaxation)*lq_c(3))/dens
-  xr  = (relaxation*lq_r1+(1.-relaxation)*lq_r(3))/dens
-  xnc = (relaxation*ln_c1+(1.-relaxation)*ln_c(3))/1000000.
-  xnr = (relaxation*ln_r1+(1.-relaxation)*ln_r(3))/1000000.
+  dens = lrho0
+  xc  = (relaxation*lq_c1+(1.-relaxation)*lq_c0)/dens
+  xr  = (relaxation*lq_r1+(1.-relaxation)*lq_r0)/dens
+  xnc = (relaxation*ln_c1+(1.-relaxation)*ln_c0)/1000000.
+  xnr = (relaxation*ln_r1+(1.-relaxation)*ln_r0)/1000000.
 
   if (1000000.*xnr > xnmin .and. dens*xr > xmin) then    
     crrn = log(kscr) + 0.6*log(xnr) + 1.55*log(xr)
@@ -1191,11 +1137,11 @@ subroutine ccr_k (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   real, dimension(5) :: lq_r,lq_c,ln_r,ln_c,lrho
   real, parameter :: kr=8.53
   
-  dens = lrho(3)
-  xc  = (relaxation*lq_c1+(1.-relaxation)*lq_c(3))/dens
-  xr  = (relaxation*lq_r1+(1.-relaxation)*lq_r(3))/dens
-  xnc = (relaxation*ln_c1+(1.-relaxation)*ln_c(3))/1000000.
-  xnr = (relaxation*ln_r1+(1.-relaxation)*ln_r(3))/1000000.
+  dens = lrho0
+  xc  = (relaxation*lq_c1+(1.-relaxation)*lq_c0)/dens
+  xr  = (relaxation*lq_r1+(1.-relaxation)*lq_r0)/dens
+  xnc = (relaxation*ln_c1+(1.-relaxation)*ln_c0)/1000000.
+  xnr = (relaxation*ln_r1+(1.-relaxation)*ln_r0)/1000000.
 
   if ((1000000.*xnc > xnmin .and. dens*xc > xmin) .and. (1000000.*xnr > xnmin .and. dens*xr > xmin)) then
     clr  = log(kr) + 1.05*log(xc) + 0.98*log(xr)
@@ -1222,11 +1168,13 @@ subroutine diff_cd (dt, qs, cp, qv, qc, nc, qr, nr, den, pp, tem, cd)
   esi = cal_esati(tem)
   dif = cal_xfkd(tem,pp)
   vis = cal_xfmu(tem)
+  sat = qv - qs
 
   cd0 = qs * ((c_p_v-c_v_v)*tem/(dif*esw) + (cal_flv(tem)/(kt*tem))*(cal_flv(tem)/((c_p_v-c_v_v)*tem) - 1.))
 
   ! Cloud drops
   if ((qc > xmin .or. nc > xnmin) .and. cd0 > 1.e-9) then
+    fv=1.
     dav = (1./cm(1))**(1./am(1)) * cal_moment_sb(1, qc, nc, 1./am(1))
     call ventilation (1, vis, qc, nc, den, fv)
     
@@ -1235,8 +1183,9 @@ subroutine diff_cd (dt, qs, cp, qv, qc, nc, qr, nr, den, pp, tem, cd)
 
   ! Rain drops
   if ((qr > xmin .or. nr > xnmin) .and. cd0 > 1.e-9) then
+    fv=1.
     dav = (1./cm(2))**(1./am(2)) * cal_moment_sb(2, qr, nr, 1./am(2))
-    call ventilation (2, vis, qr, nr, den, fv)
+    if (sat < 0.) call ventilation (2, vis, qr, nr, den, fv)
     
     cd(2) = 2.*pi*nr*dav*fv / cd0
   endif
@@ -1265,7 +1214,7 @@ subroutine direct_solve_trapeze (dtt, cd, cp, pp, tt_1, qv_1, qc_1, qr_1, beta)
     endif
     
     if (qr_1 > xmin) then  
-      dqr  = max(min(dtt*cd(2)*sat0 / (1. + beta*dtt*gamm),qv_1),-qr_1)
+      dqr  = max(min(dtt*cd(2)*sat0 / (1. + beta*dtt*gamm),qv_1-dqc),-qr_1)
       qr_1 = qr_1 + dqr
     endif
     
@@ -1371,48 +1320,6 @@ subroutine direct_solve_rkf (dtt, cd, cp, pp, tt_0, qv_0, qc_0, qr_0, tt_1, qv_1
 !  
 end subroutine
 
-subroutine direct_solve_bdf2_var (dt0, dt1, cd, cp, pp, tt_o, qv_o, qc_o, qr_o, tt_1, qv_1, qc_1, qr_1)
-
-  implicit none
-  real :: dt0, dt1, cd(2), cp, pp
-  real :: tt_1, qv_1, qc_1, qr_1, tt_o(2), qv_o(2), qc_o(2), qr_o(2)
-  real :: psit, psiqv, psiqc, psiqr, alpha1, alpha2, beta, rho
-  real :: epsilon, gamm, lamb, dqsatt, dql, dqc, dqr, sat0, ss
-  integer :: nn
-!
-  rho    = dt0/dt1
-  beta   = (rho+1.)/(2.*rho+1.)
-  alpha1 = (rho+1.)**2./(2.*rho+1.) - 1.
-  alpha2 = -rho*rho/(2.*rho+1.)
-!
-  dqc    = 0.0
-  dqr    = 0.0
-  dql    = cd(1) + cd(2)
-  sat0   = qv_1 - cal_qsat(tt_1,pp)
-  ss     = qv_1/cal_qsat(tt_1,pp)
-  dqsatt = cal_dqsatdt(tt_1,pp)
-  gamm   = dql*(1. + ss*dqsatt*cal_flv(tt_1)/cp)
-!
-  psit=alpha1*tt_o(1)+alpha2*tt_o(2)
-  psiqc=alpha1*qc_o(1)+alpha2*qc_o(2)
-  psiqr=alpha1*qr_o(1)+alpha2*qr_o(2)
-  lamb = psiqc + psiqr + ss*dqsatt*psit
-!
-  if (qc_1 > xmin) then
-    dqc  = max(min(psiqc + cd(1)*beta*dt0*(sat0 - lamb) / (1. + beta*dt0*gamm),qv_1),-qc_1)
-    qc_1 = qc_1 + dqc
-  endif
-!
-  if (qr_1 > xmin) then  
-    dqr  = max(min(psiqr + cd(2)*beta*dt0*(sat0 - lamb) / (1. + beta*dt0*gamm),qv_1),-qr_1)
-    qr_1 = qr_1 + dqr
-  endif
-!  
-  qv_1 = qv_1 - dqc - dqr
-  tt_1 = tt_1 + (dqc + dqr)*cal_flv(tt_1)/cp
-!  
-end subroutine
-
 subroutine activ (dt, w, cp, cv, g, gsat, lnccn, lq_v, lq_c, ln_c, lp, ltem, mom_path)
 
   implicit none
@@ -1426,16 +1333,17 @@ subroutine activ (dt, w, cp, cv, g, gsat, lnccn, lq_v, lq_c, ln_c, lp, ltem, mom
   real :: eps, dtem, tem_new, tem_old, qv_new, qc_new, qs_new
   integer :: iter
   
-  pp  = lp(3)
-  tem = relaxation*ltem1+(1.-relaxation)*ltem(3)
-  qv  = relaxation*lq_v1+(1.-relaxation)*lq_v(3)
-  qc  = relaxation*lq_c1+(1.-relaxation)*lq_c(3)
-  nc  = relaxation*ln_c1+(1.-relaxation)*ln_c(3)
-  ccn = relaxation*ln_ccn1+(1.-relaxation)*lnccn(3)
+  pp  = lp0
+  tem = relaxation*ltem1+(1.-relaxation)*ltem0
+  qv  = relaxation*lq_v1+(1.-relaxation)*lq_v0
+  qc  = relaxation*lq_c1+(1.-relaxation)*lq_c0
+  nc  = relaxation*ln_c1+(1.-relaxation)*ln_c0
+  ccn = relaxation*ln_ccn1+(1.-relaxation)*ln_ccn0
 
   !Supersaturation arbitrarily limited to 5%
   qs = cal_qsat(tem,pp)
   ss = (qv - qs)/qs
+  ss = min(ss,0.05)
     
   if (ss > 0.) then
   
@@ -1451,11 +1359,12 @@ subroutine activ (dt, w, cp, cv, g, gsat, lnccn, lq_v, lq_c, ln_c, lp, ltem, mom
         erf = max(min(calerf(xxx,0),1.),-1.)
       
         nc0 = ccn/2. * (1. - erf)
-        dnc = min(max((nc0 - nc)/dt,0.),ln_ccn1/dt)
       else if (have_option(trim(mom_path)//'/simple_activation')) then
-        dnc = (ccn - nc)/dt
+        nc0 = ccn
       endif
       
+      dnc = 1./dt*min(max((nc0 - nc),0.),ln_ccn1,ss*qs/xactiv)
+     
       lq_c(5) = lq_c(5)  + xactiv*dnc
       lq_v(5) = lq_v(5)  - xactiv*dnc
       ln_c(5) = ln_c(5)  + dnc
@@ -1516,17 +1425,16 @@ subroutine ventilation (i, vis, q, n, dens, fv)
   
 end subroutine
 
-subroutine sedim (dt, i, lq1, ln1, lq, ln, lrho)
+subroutine sedim (dt, i, lq0, ln0, lq1, ln1, lqv, lnv)
   implicit none
   integer :: i
   real :: q, n, den, vel1, vel2, lambda
   
-  real :: dt, lq1, ln1
-  real, dimension(5) :: lq,ln,lrho
+  real :: dt, lq1, ln1, lq0, ln0, lqv, lnv
   
-  den = lrho(3)
-  q = relaxation*lq1+(1.-relaxation)*lq(3)
-  n = relaxation*ln1+(1.-relaxation)*ln(3)
+  den = lrho0
+  q = relaxation*lq1+(1.-relaxation)*lq0
+  n = relaxation*ln1+(1.-relaxation)*ln0
 
   if (q > xmin .or. n > xnmin) then
     lambda = cal_lambda_sb (i, q, n)
@@ -1534,8 +1442,8 @@ subroutine sedim (dt, i, lq1, ln1, lq, ln, lrho)
     vel1 = 9.65 - 10.3*(1.+600./lambda)**(-4.)
     vel2 = 9.65 - 10.3*(1.+600./lambda)**(-1.)
  
-    lq(4) = max(vel1,0.) * sqrt(rho0/den)
-    ln(4) = max(vel2,0.) * sqrt(rho0/den)
+    lqv = max(vel1,0.) * sqrt(rho0/den)
+    lnv = max(vel2,0.) * sqrt(rho0/den)
   endif  
   
 end subroutine
@@ -1578,7 +1486,6 @@ subroutine assemble_micro (dt, cp, lqv, lqc, lnc, lqr, lnr, lnccn, ltem)
   real  :: fqc, fqr, tem
   real, dimension(5) :: lqv,lqr,lnr,lqc,lnc,lnccn,ltem
 
-  tem = relaxation*ltem1 +(1.-relaxation)*ltem(3)
   if (lq_v1 < xmin) then
     fqc = lq_c1/(lq_c1+lq_r1)
     fqr = lq_r1/(lq_c1+lq_r1)
@@ -1599,6 +1506,7 @@ subroutine assemble_micro (dt, cp, lqv, lqc, lnc, lqr, lnr, lnccn, ltem)
 
 !  ln_ccn(5) = (max(ln_ccn1,0.) - ln_ccn0)/dt
 
+  tem = relaxation*ltem1 +(1.-relaxation)*ltem0
   ltem(5) = -lq_v(5)*cal_flv(tem)/cp
   
 end subroutine
@@ -2448,7 +2356,8 @@ subroutine calculate_diagnostic_microphysics(state,current_time,dt,init)
     endif
     
     sat_path = '/material_phase['//int2str(j-1)//']/cloud_microphysics/saturation_adjustment'
-    sat_adj=have_option(trim(sat_path))
+    sat_adj = have_option(trim(sat_path))
+    drop_adj = have_option('/material_phase[0]/cloud_microphysics/fortran_microphysics/two_moment_microphysics::'//trim(mic_name)//'/droplet_adjustment')
  
     ! Reference mesh is the one used for microphysics variables
     if (have_option(trim(mom_path)//'/scalar_field::Qdrop/prognostic'))then
@@ -2462,7 +2371,7 @@ subroutine calculate_diagnostic_microphysics(state,current_time,dt,init)
     mesh=>extract_mesh(state(j), trim(mesh_name)) 
        
     ! Calculate saturation adjustment
-    if (sat_adj .or. linit) then 
+    if (sat_adj .or. drop_adj .or. linit) then 
       call saturation_adjustment (state(j), mesh, sat_path, dt, linit)
     end if
     
@@ -2498,7 +2407,7 @@ subroutine saturation_adjustment(state, mesh, sat_path, dt, linit)
     type(scalar_field) :: pressure_local,temperature,eosdensity,qc_p,qc_v
     type(scalar_field) :: thermal_old,q_c_old,epsilon
     type(scalar_field), target :: dummyscalar
-    real :: thermal_node, saturation, exner, qv_node, qc_node, tem, pp
+    real :: thermal_node, saturation, exn, qv_node, qc_node, tem, therm, pp, cp_node, cv_node
     real :: dq_c, d_therm, dtem, qc_new, qv_new, thermal_new, tol
     real :: c_p, c_v, c_p_v, c_v_v, c_p_l, c_v_l, c_p_i, c_v_i
     character(len=OPTION_PATH_LEN) :: eos_path, phase_name
@@ -2605,10 +2514,13 @@ subroutine saturation_adjustment(state, mesh, sat_path, dt, linit)
 
 	do node=1,node_count(q_c)
           tem=node_val(temperature,node)
+	  therm=node_val(thermal,node)
 	  pp=node_val(pressure_local,node)
 	  saturation=cal_qsat(tem,pp)
 	  qc_node=node_val(q_c,node)
 	  qv_node=node_val(q_v,node)
+	  cp_node=node_val(qc_p,node)
+	  cv_node=node_val(qc_v,node)
 	  if (has_scalar_field(state,"TotalWaterQ")) qv_node=qv_node-node_val(q_c,node)-node_val(q_r,node) &
 	  					            -node_val(q_i,node)-node_val(q_g,node)-node_val(q_s,node)
 
@@ -2632,15 +2544,14 @@ subroutine saturation_adjustment(state, mesh, sat_path, dt, linit)
 	    else if (thermal_variable == 2) then
 	      d_therm = dtem
             else if (thermal_variable == 3) then
+	      exn = (pp/1.E+05)**((cp_node-cv_node)/cp_node)
+              d_therm = dtem * therm/tem
 	      if (.not.constant_cp_cv) then
-	        exner=(pp/1.E+05)**((node_val(qc_p,node)-node_val(qc_v,node))/(node_val(qc_p,node)))
-	        d_therm = node_val(thermal,node)*(dtem/tem + log(exner)*((c_p_v-c_v_v)/(node_val(qc_p,node)-node_val(qc_v,node)) &
-	                - (c_p_v-c_p_l)/node_val(qc_p,node)))
-	      else
-	        d_therm = node_val(thermal,node)*dtem/tem
+                d_therm = d_therm + therm*log(exn)*((c_p_v-c_v_v)/(node_val(qc_p,node)-node_val(qc_v,node)) &
+		        - (c_p_v-c_p_l)/node_val(qc_p,node))
 	      endif
 	    endif
-	    thermal_new = node_val(thermal,node)+d_therm*dq_c
+	    thermal_new=therm+d_therm*dq_c
 	    tem=tem+dtem*dq_c
 	    
             call set (thermal,node,thermal_new)
@@ -2721,34 +2632,32 @@ contains
     integer :: n,stat,stat0
     logical :: have_n=.false., have_q=.false., have_s=.false.
     
-    
     sfield=>extract_scalar_field(state,trim(field_name),stat0)
     if (stat0 /= 0) then
       sfield=>extract_scalar_field(state,'VapourWaterQ',stat)
-      if (stat==0) have_s=.true.
+      if (stat==0 .and. have_option(trim(sfield%option_path)//'/prognostic')) have_s=.true.
       nfield=>extract_scalar_field(state,'N'//trim(field_name),stat)
-      if (stat==0) have_n=.true.
+      if (stat==0 .and. have_option(trim(nfield%option_path)//'/prognostic')) have_n=.true.
       qfield=>extract_scalar_field(state,'Q'//trim(field_name),stat)
-      if (stat==0) have_q=.true.
+      if (stat==0 .and. have_option(trim(qfield%option_path)//'/prognostic')) have_q=.true.
+    else
+      if (have_option(trim(sfield%option_path)//'/prognostic')) have_s=.true.
     endif
     
-    if (stat0==0 .and. have_option(trim(sfield%option_path)//'/prognostic')) then
+    if (stat0==0 .and. have_s) then
 
       do n = 1, size(sfield%val)
         sfield%val(n)=max(sfield%val(n),0.0)
       enddo
     
-    else if (have_option(trim(qfield%option_path)//'/prognostic') .or. have_option(trim(nfield%option_path)//'/prognostic')) then
+    else if (stat==0 .and. (have_n.or.have_q)) then
     
       do n = 1, size(qfield%val)
         
-	if ((have_q .and. qfield%val(n)<0.0) .or. (have_n .and. nfield%val(n)<0.0)) then
-	  if(have_s .and. have_option(trim(sfield%option_path)//'/prognostic')) &
-	      sfield%val(n)=sfield%val(n)-qfield%val(n)
-	  if(have_q .and. have_option(trim(qfield%option_path)//'/prognostic')) &
-	      qfield%val(n)=0.
-	  if(have_n .and. have_option(trim(nfield%option_path)//'/prognostic')) &
-	      nfield%val(n)=0.
+	if (qfield%val(n)<xmin .or. nfield%val(n)<xnmin) then
+!	  if (have_s .and. have_q) sfield%val(n)=sfield%val(n)+qfield%val(n)
+	  if (have_n) nfield%val(n)=0.
+	  if (have_q) qfield%val(n)=0.
 	endif
 	
       enddo      
