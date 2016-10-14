@@ -159,6 +159,12 @@ be the surface pressure, 1.0e05.</a:documentation>
 	      <a:documentation>CP and CV are kept constant and equal to their prescribed values</a:documentation>
 	    </element>
 	  </optional>
+          <optional>
+            <element name="buoyancy_from_pt">
+              <a:documentation>Calculates buoyancy from a density potential temperature. 
+              The DensityPotentialTemperature field must therefore be apropriately defined.</a:documentation>
+            </element>
+          </optional>
 	</element>
 	<element name="ATHAM">
 	  <a:documentation>ATHAM moist equation of state

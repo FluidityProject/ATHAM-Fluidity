@@ -47,6 +47,12 @@
       <choice>
         <element name="saturation_adjustment">
           <optional>
+            <element name="strong_coupling">
+              <a:documentation>Strong microphysics-dynamics coupling: saturation adjustment is performed at the end of each non-linear iteration instead of just once at the end of the time-step.</a:documentation>
+              <empty/>
+            </element>
+          </optional>
+          <optional>
             <element name="tolerance">
               <a:documentation>Absolute tolerance (with respect to potential temperature, units K) for the saturation adjustment procedure (default is 1.e-5).</a:documentation>
               <ref name="real"/>
@@ -591,6 +597,12 @@
       </element>
   </define>
   <define name="two_moment_microphysics_options">
+    <optional>
+      <element name="droplet_adjustment">
+      <a:documentation>Activates saturation adjustment for droplets only.</a:documentation>    
+        <empty/>
+      </element>
+    </optional>
     <element name="autoconversion_radius">
       <a:documentation>Size above which cloud droplets are considered as drizzling drops.</a:documentation>
       <ref name="real"/>

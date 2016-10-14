@@ -2294,13 +2294,6 @@ viscosity tensors.</a:documentation>
           <empty/>
         </element>
       </optional>
-      <optional>
-        <element name="update_density_from_eos">
-          <a:documentation>After pressure correction, update density using compressible EOS.
-If not selected, the density is updated using a linearized EOS.</a:documentation>
-          <empty/>
-        </element>
-      </optional>
     </element>
     <element name="solver">
       <a:documentation>Solver</a:documentation>

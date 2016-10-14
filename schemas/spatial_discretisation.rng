@@ -252,10 +252,6 @@ scale factor 0.5.</a:documentation>
           <a:documentation>Modified Lax-Friedrichs flux.</a:documentation>
           <empty/>
         </element>
-        <element name="hll">
-          <a:documentation>HLL flux.</a:documentation>
-          <empty/>
-        </element>
         <element name="none">
           <a:documentation>Disable advection</a:documentation>
           <empty/>
