@@ -1132,7 +1132,7 @@ contains
         else
            t = mod(t, 2147483647)
         end if
-        t = mod(t * 279470273, 2147483647)
+        t = mod(t * 139735135, 2147483643)
         seed(i) = int(mod(t, int(huge(0))), kind(0))
       end do
       call random_seed(put=seed)

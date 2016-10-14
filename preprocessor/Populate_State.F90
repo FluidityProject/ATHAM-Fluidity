@@ -1054,7 +1054,7 @@ contains
             
               p0 = p(j,k-1)
               do it = 1, 10
-                den0 = p0/(r*pt0*(1.-0.392*qt0))*(p0/1.e+5)**(-r/cp)
+                den0 = p0/(r*pt0*(p0/1.e+5)**(-r/cp)
                 p0 = p(j,k-1) - 0.5*9.81*(den(j,k-1)+den0)*(z-h(j,k-1))
               enddo
         		    
@@ -1242,8 +1242,9 @@ contains
       cp = cp*(1.-qt0) + c_p_v*qt0
       cv = cv*(1.-qt0) + c_v_v*qt0
     endif
+    r = cp - cv
 
-    den0 = p0/((cp-cv)*pt0*(p0/100000.)**((cp-cv)/cp))
+    den0 = p0/(r*pt0*(p0/100000.)**((cp-cv)/cp))
     do k = 1, size(h)
       read(lunit,*,iostat=stat) h(k),pt(k),qt(k),uu(k),vv(k)
       if (k == 1 .and. h(k) > 0.) then
@@ -1274,7 +1275,7 @@ contains
     
       p(k) = p_o
       do it = 1, 10
-    	den(k) = p(k)/(r*pt(k)*(1.-0.392*qt(k)))*(p(k)/1.e+5)**(-r/cp)
+    	den(k) = p(k)/(r*pt(k)*(p(k)/1.e+5)**(-r/cp)
     	p(k) = p_o - 0.5*9.81*(den(k)+den_o)*(h(k)-h_o)
       enddo
     enddo
