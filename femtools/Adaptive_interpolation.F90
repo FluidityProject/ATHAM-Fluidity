@@ -36,7 +36,7 @@ module adaptive_interpolation_module
     ! of the projection is less than error_tolerance.
     subroutine adaptive_interpolation(old_field, old_positions, new_field, new_positions, error_tolerance, achieved_error, no_refinements)
       type(scalar_field), intent(in) :: old_field
-      type(vector_field), intent(in) :: old_positions
+      type(vector_field), intent(inout) :: old_positions
       type(scalar_field), intent(inout) :: new_field
       type(vector_field), intent(inout) :: new_positions
       real, intent(in) :: error_tolerance

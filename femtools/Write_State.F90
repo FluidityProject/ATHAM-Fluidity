@@ -23,7 +23,7 @@ module write_state_module
   private
 
   public :: initialise_write_state, do_write_state, write_state, write_state_module_check_options, &
-            vtk_write_state_new_options
+            vtk_write_state_new_options, include_scalar_field_in_vtu
   
   ! Static variables set by update_dump_times and used by do_write_state
   logical, save :: last_times_initialised = .false.
@@ -376,7 +376,7 @@ contains
     ewrite(1, *) "Exiting vtk_write_state_new_options"
     
   end subroutine vtk_write_state_new_options
-    
+     
   logical function include_scalar_field_in_vtu(state, istate, field_name)
     !!< function that uses optionpath and state number to work out
     !!< if a field should be written out (skipping aliased fields)

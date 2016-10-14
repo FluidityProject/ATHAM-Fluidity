@@ -52,6 +52,9 @@ use integer_set_module !for iceshelf
 use sediment, only: set_sediment_reentrainment
 use halos_numbering
 use halos_base
+use Surface_Ocean_COARE
+use equation_of_state
+use diagnostic_fields
 
 implicit none
 
@@ -101,13 +104,13 @@ contains
        nfields = scalar_field_count(states(p+1))
        do f = 1, nfields
           sfield => extract_scalar_field(states(p+1),f)
+
           field_path=sfield%option_path
 
-          call populate_scalar_boundary_conditions(sfield, &
+          call populate_scalar_boundary_conditions(states(p+1),sfield, &
                trim(field_path)//'/prognostic/boundary_conditions', position, suppress_warnings=suppress_warnings)
-          call populate_scalar_boundary_conditions(sfield, &
+          call populate_scalar_boundary_conditions(states(p+1),sfield, &
                trim(field_path)//'/diagnostic/algorithm/boundary_conditions', position, suppress_warnings=suppress_warnings)
-
        end do
 
        ! Vector fields:
@@ -115,6 +118,7 @@ contains
        nfields = vector_field_count(states(p+1))
        do f = 1, nfields
           vfield => extract_vector_field(states(p+1), f)
+
           field_path=vfield%option_path
           
           if (.not. have_option(trim(field_path)//'/prognostic')) cycle
@@ -167,13 +171,19 @@ contains
     if (have_option('/ocean_forcing/iceshelf_meltrate/Holland08/calculate_boundaries')) then
         call populate_iceshelf_boundary_conditions(states(1))
     end if
+
+    ! Populate diagnostic surface fields
+    do p = 0, nphases-1
+      call populate_diagnostic_boundary_conditions(states(p+1))
+    end do
     
   end subroutine populate_boundary_conditions
 
-  subroutine populate_scalar_boundary_conditions(field, bc_path, position, suppress_warnings)
+  subroutine populate_scalar_boundary_conditions(state, field, bc_path, position, suppress_warnings)
     ! Populate the boundary conditions of one scalar field
     ! needs to be a pointer:
-    type(scalar_field), pointer:: field
+    type(state_type), intent(in) :: state 
+    type(scalar_field), pointer :: field
     character(len=*), intent(in):: bc_path
     type(vector_field), intent(in):: position
     ! suppress warnings about non-existant surface ids
@@ -184,7 +194,7 @@ contains
     type(vector_field) bc_position
     integer, dimension(:), pointer:: surface_element_list
     character(len=OPTION_PATH_LEN) bc_path_i
-    character(len=FIELD_NAME_LEN) bc_name, bc_type
+    character(len=FIELD_NAME_LEN) bc_name, bc_type, diag_type
     integer, dimension(:), allocatable:: surface_ids
     integer i, nbcs, shape_option(2)
 
@@ -247,10 +257,12 @@ contains
        ! Add boundary condition
        call add_boundary_condition(field, trim(bc_name), trim(bc_type), &
             surface_ids, option_path=bc_path_i, suppress_warnings=suppress_warnings)
+       deallocate(surface_ids)
 
        ! mesh of only the part of the surface where this b.c. applies
        call get_boundary_condition(field, i+1, surface_mesh=surface_mesh, &
           surface_element_list=surface_element_list)
+	  
        bc_position = get_coordinates_remapped_to_surface(position, surface_mesh, surface_element_list) 
 
        ! Dirichlet and Neumann boundary conditions require one input
@@ -259,11 +271,14 @@ contains
        select case(trim(bc_type))
 
        case("dirichlet", "neumann", "weakdirichlet", &
-            "buoyancy", "flux")
+            "buoyancy", "flux", "surface_ocean_COARE3")
 
           call allocate(surface_field, surface_mesh, name="value")
           call insert_surface_field(field, i+1, surface_field)
           call deallocate(surface_field)
+
+          if (trim(bc_type) == "surface_ocean_COARE3") &
+	      call populate_COARE3_boundary_conditions(state, field, i+1, surface_mesh, surface_element_list, position)
 
        case("robin")
 
@@ -298,7 +313,6 @@ contains
 
        end select
        
-       deallocate(surface_ids)
        call deallocate(bc_position)
 
     end do boundary_conditions
@@ -329,13 +343,14 @@ contains
 
     character(len=20), dimension(3) :: aligned_components
 
-    type(mesh_type), pointer:: mesh, surface_mesh
+    type(mesh_type), pointer:: mesh, surface_mesh, projected_surface_mesh
     type(vector_field) surface_field, surface_field2, bc_position
     type(vector_field):: normal, tangent_1, tangent_2
+    type(vector_field), pointer :: coordinate
     type(scalar_field) :: scalar_surface_field, scalar_surface_field2
     character(len=OPTION_PATH_LEN) bc_path_i, bc_type_path, bc_component_path
     character(len=FIELD_NAME_LEN) bc_name, bc_type
-    logical applies(3), have_sem_bc, debugging_mode, prescribed(3)
+    logical applies(3), have_sem_bc, have_dfm_bc, debugging_mode, prescribed(3)
     integer, dimension(:), allocatable:: surface_ids
     integer, dimension(:), pointer:: surface_element_list, surface_node_list
     integer i, j, nbcs, shape_option(2)
@@ -356,7 +371,7 @@ contains
        end if
 
        select case(trim(bc_type))
-       case("dirichlet", "neumann", "weakdirichlet", "flux")
+       case("dirichlet", "neumann", "weakdirichlet", "flux", "surface_ocean_COARE3")
 
           if(have_option(trim(bc_path_i)//"/type[0]/align_bc_with_cartesian")) then
              aligned_components=cartesian_aligned_components
@@ -381,11 +396,18 @@ contains
           deallocate(surface_ids)
           
           call get_boundary_condition(field, i+1, surface_mesh=surface_mesh)
+
           call allocate(surface_field, field%dim, surface_mesh, name="value")
-          
           call insert_surface_field(field, i+1, surface_field)
           call deallocate(surface_field)
-          
+	  
+	  if (trim(bc_type)=="surface_ocean_COARE3") then
+             ! Allocate boundary variables associated with momentum
+             call allocate(surface_field, field%dim, surface_mesh, name="momentum_stress")
+             call insert_surface_field(field, i+1, surface_field)
+             call deallocate(surface_field)
+          endif
+	  
           if (have_sem_bc) then
              call allocate(surface_field, field%dim, surface_mesh, name="TurbulenceLengthscale")
              call insert_surface_field(field, i+1, surface_field)
@@ -399,6 +421,39 @@ contains
              call insert_surface_field(field, i+1, surface_field)
              call deallocate(surface_field)
           end if
+	  
+	  if (have_option(trim(bc_path_i)//"/type::"//trim(bc_type)//"/digital_filter_turbulence")) then
+	     ! We need to create a new (continuous) mesh which will be used for this boundary by the DFM model
+             allocate(surface_ids(1:shape_option(1)))
+             call get_option(trim(bc_path_i)//"/surface_ids", surface_ids)
+
+	     coordinate => extract_vector_field(state,"Coordinate")
+             call add_boundary_condition(coordinate, trim(bc_name), trim(bc_type), &
+	                    surface_ids, suppress_warnings=suppress_warnings)
+             call get_boundary_condition(coordinate, i+1, surface_mesh=projected_surface_mesh)
+	     deallocate(surface_ids)
+
+	     ! Allocate and insert surface fields required by the DFM method
+             call allocate(surface_field, field%dim, projected_surface_mesh, name="TurbulenceLengthScale")
+             call insert_surface_field(field, bc_name, surface_field)
+             call deallocate(surface_field)
+
+             call allocate(surface_field, field%dim, projected_surface_mesh, name="TurbulenceTimeScale")
+             call insert_surface_field(field, bc_name, surface_field)
+             call deallocate(surface_field)
+
+             call allocate(surface_field, field%dim, projected_surface_mesh, name="ReynoldsStress")
+             call insert_surface_field(field, bc_name, surface_field)
+             call deallocate(surface_field)
+
+             call allocate(surface_field, field%dim, projected_surface_mesh, name="FluctuationField")
+             call insert_surface_field(field, bc_name, surface_field)
+             call deallocate(surface_field)
+
+             call allocate(surface_field, field%dim, projected_surface_mesh, name="OldFluctuationField")
+             call insert_surface_field(field, bc_name, surface_field)
+             call deallocate(surface_field)
+	  endif
 
        case("robin")
 
@@ -534,7 +589,7 @@ contains
              bc_component_path=trim(bc_type_path)//"/normal_direction"
              if (have_option(bc_component_path)) then
                 prescribed(1) = .true.
-                call initialise_field(normal, bc_component_path, bc_position)
+                call initialise_field(state, normal, bc_component_path, bc_position)
              else
                 call zero(normal)
              end if
@@ -544,7 +599,7 @@ contains
              bc_component_path=trim(bc_type_path)//"/tangent_direction_1"
              if (have_option(bc_component_path)) then
                 prescribed(2) = .true.
-                call initialise_field(tangent_1, bc_component_path, bc_position)
+                call initialise_field(state, tangent_1, bc_component_path, bc_position)
              else
                 call zero(tangent_1)
              end if
@@ -554,7 +609,7 @@ contains
              bc_component_path=trim(bc_type_path)//"/tangent_direction_2"
              if (have_option(bc_component_path)) then
                 prescribed(3) = .true.
-                call initialise_field(tangent_2, bc_component_path, bc_position)
+                call initialise_field(state, tangent_2, bc_component_path, bc_position)
              else
                 call zero(tangent_2)
              end if
@@ -580,10 +635,56 @@ contains
 
   end subroutine populate_vector_boundary_conditions
 
+  subroutine populate_diagnostic_boundary_conditions(state)
+    implicit none
+    type(state_type), intent(in) :: state
+    
+    type(scalar_field) :: surface_field
+    type(scalar_field), pointer :: pfield
+    type(mesh_type), pointer :: surface_mesh
+    character(len=FIELD_NAME_LEN) :: scalar_name, parent_name
+    character(len=OPTION_PATH_LEN) :: bc_path, bc_type
+    integer, dimension(:), allocatable :: surface_ids
+    integer :: i, nfields, shape_option(2)
+    
+    ewrite(1,*) "In populate_diagnostic_boundary_conditions"
+  
+    nfields=option_count("/material_phase[0]/scalar_field")
+    do i =1, nfields
+    
+      call get_option('/material_phase[0]/scalar_field['//int2str(i-1)//']/name',scalar_name)
+      if (have_option('/material_phase[0]/scalar_field::'//trim(scalar_name)//'/diagnostic/boundary_conditions::diagnostic')) then
+        bc_path = '/material_phase[0]/scalar_field::'//trim(scalar_name)//'/diagnostic/boundary_conditions'
+        shape_option = option_shape(trim(bc_path)//"/surface_ids")
+        allocate(surface_ids(1:shape_option(1)))
+      
+        bc_path = trim(bc_path)//"::diagnostic"
+        call get_option(trim(bc_path)//"/surface_ids", surface_ids)
+        call get_option(trim(bc_path)//"/parent_field_name", parent_name)
+        call get_option(trim(bc_path)//"/type[0]/name", bc_type)
+
+        ! Add boundary condition
+        pfield=>extract_scalar_field(state, trim(parent_name))
+        call add_boundary_condition(pfield, trim(bc_type), 'diagnostic', &
+    	                     surface_ids, option_path=bc_path, suppress_warnings=.true.)
+        deallocate(surface_ids)
+   
+        ! mesh of only the part of the surface where this b.c. applies
+        call get_boundary_condition(pfield, trim(bc_type), surface_mesh=surface_mesh)
+
+        call allocate(surface_field, surface_mesh, name=trim(bc_type))
+        call insert_surface_field(pfield, trim(bc_type), surface_field)
+        call deallocate(surface_field)
+      end if
+    
+    enddo
+  
+  end subroutine populate_diagnostic_boundary_conditions
+
   subroutine set_boundary_conditions_values(states, shift_time)
     !!< Set the values of the boundary conditions of all fields
     !!< This is called each time step.
-    type(state_type), dimension(:), intent(in):: states
+    type(state_type), dimension(:), intent(inout):: states
     !! if present and true the time level at which the bcs are evaluated
     !! is shifted according to:
     !! "dirichlet": current_time+dt
@@ -602,7 +703,6 @@ contains
 
     ewrite(1,*) "In set_boundary_conditions"
 
-    
     if (have_option('/ocean_forcing/bulk_formulae')) then
         call set_ocean_forcings_boundary_conditions(states(1))
     end if
@@ -617,9 +717,8 @@ contains
        phase_path = '/material_phase['//int2str(p)//']'
 
        position => extract_vector_field(states(p+1), "Coordinate")
-
+   
        ! Scalar fields:
-
        nfields = scalar_field_count(states(p+1))
        do f = 1, nfields
           sfield => extract_scalar_field(states(p+1),f)
@@ -635,7 +734,6 @@ contains
        end do
 
        ! Vector fields:
-
        nfields = vector_field_count(states(p+1))
        do f = 1, nfields
           vfield => extract_vector_field(states(p+1), f)
@@ -666,7 +764,7 @@ contains
 
   subroutine set_scalar_boundary_conditions_values(state, field, bc_path, position, shift_time)
     ! Set the boundary condition values of one scalar field
-    type(state_type), intent(in) :: state
+    type(state_type), intent(inout) :: state
     type(scalar_field), intent(inout):: field
     character(len=*), intent(in):: bc_path
     type(vector_field), intent(in):: position
@@ -674,15 +772,16 @@ contains
     logical, optional, intent(in):: shift_time
 
     type(mesh_type), pointer:: surface_mesh
-    type(scalar_field), pointer:: surface_field
-    type(vector_field) bc_position, temp_position
+    type(scalar_field), pointer:: surface_field, sfield
+    type(vector_field), pointer :: vfield
+    type(vector_field) :: bc_position, temp_position
     character(len=OPTION_PATH_LEN) bc_path_i, bc_type_path
     character(len=FIELD_NAME_LEN) bc_name, bc_type
     real:: time, theta, dt
-    integer, dimension(:), pointer:: surface_element_list
+    integer, dimension(:), pointer:: surface_element_list, surface_node_list
     integer i, nbcs
 
-    integer :: stat
+    integer :: stat, f, nfields
     type(scalar_field), pointer:: parent_field
     character(len=OPTION_PATH_LEN) :: parent_field_name
 
@@ -724,7 +823,7 @@ contains
 
        ! mesh of only the part of the surface where this b.c. applies
        call get_boundary_condition(field, i+1, surface_mesh=surface_mesh, &
-            surface_element_list=surface_element_list)
+            surface_element_list=surface_element_list, surface_node_list=surface_node_list)
 
        if((surface_mesh%shape%degree==0).and.(bc_type=="dirichlet")) then
 
@@ -768,7 +867,7 @@ contains
           end if
 
           ! Tidal: set free surface height at the boundary.
-          if (have_option(trim(bc_type_path)//"/from_file")) then
+          if (have_option(trim(bc_type_path)//"/from_file_tidal")) then
             ! Special case for tidal harmonic boundary conditions
             call set_tidal_bc_value(surface_field, bc_position, trim(bc_type_path), field%name)
 
@@ -785,8 +884,12 @@ contains
 
             call remap_field_to_surface(parent_field, surface_field, surface_element_list, stat)
 
+          else if (have_option(trim(bc_type_path)//"/from_file")) then
+            call initialise_field(state, surface_field, bc_type_path, bc_position, &
+              time=time, field_name=field%name, surface_element_list=surface_element_list)
+	      
           else
-            call initialise_field(surface_field, bc_type_path, bc_position, &
+            call initialise_field(state, surface_field, bc_type_path, bc_position, &
               time=time)
           end if
 
@@ -794,17 +897,17 @@ contains
 
           bc_type_path=trim(bc_path_i)//"/type[0]/order_zero_coefficient"
           surface_field => extract_surface_field(field, bc_name, name="order_zero_coefficient")
-          call initialise_field(surface_field, bc_type_path, bc_position)
+          call initialise_field(state, surface_field, bc_type_path, bc_position)
 
           bc_type_path=trim(bc_path_i)//"/type[0]/order_one_coefficient"
           surface_field => extract_surface_field(field, bc_name, name="order_one_coefficient")
-          call initialise_field(surface_field, bc_type_path, bc_position)
+          call initialise_field(state, surface_field, bc_type_path, bc_position)
           
        case( "buoyancy")
 
           bc_type_path=trim(bc_path_i)//"/type::buoyancy/scalar_field/prognostic/initial_condition"
           surface_field => extract_surface_field(field, bc_name, "value")
-          call initialise_field(surface_field, bc_type_path, bc_position)
+          call initialise_field(state, surface_field, bc_type_path, bc_position)
           
        case( "zero_flux" )
        
@@ -817,6 +920,20 @@ contains
                FLAbort("Incorrect boundary condition type for field")
            end if
 
+       case( "surface_ocean_COARE3" )
+	
+	  surface_field => extract_surface_field(field, bc_name, "value")
+	  call zero(surface_field)
+
+	  if (size(surface_element_list) > 0) then
+
+            call get_COARE3_bc_values(state, i+1, bc_name, bc_path_i, surface_mesh, surface_element_list)
+	  
+	    call set_COARE3_bc_value(state, surface_field, bc_name, trim(field%name), surface_mesh, surface_node_list)
+	    ewrite_minmax(surface_field)
+	    
+	  endif
+	  
        case default
 
           ! This really shouldn't happen
@@ -833,7 +950,7 @@ contains
   subroutine set_vector_boundary_conditions_values(state, field, bc_path, position, &
     shift_time)
     !for foamvel bc
-    type(state_type), intent(in) :: state
+    type(state_type), intent(inout) :: state
     ! Set the boundary condition values of one vector field
     type(vector_field), intent(inout):: field
     character(len=*), intent(in):: bc_path
@@ -855,8 +972,8 @@ contains
 
     character(len=20), dimension(3) :: aligned_components
 
-    ! for sem
-    logical have_sem_bc
+    ! for synthetic turbulence boundary conditions
+    logical have_sem_bc, have_dfm_bc
     integer ns, nots
 
     ! for foam velocity bc's
@@ -864,18 +981,20 @@ contains
     type(vector_field), pointer :: foamvel
     integer ele, face
 
-    type(mesh_type), pointer:: surface_mesh
+    type(mesh_type), pointer:: surface_mesh, projected_surface_mesh
+    type(mesh_type) :: surface_mesh_continuous
     type(scalar_field) :: surface_field_component, vector_parent_field_component
     type(scalar_field), pointer:: scalar_surface_field, scalar_parent_field
     type(vector_field), pointer :: vector_parent_field
     type(vector_field), pointer:: surface_field, surface_field11
-    type(vector_field), pointer:: surface_field2, surface_field21, surface_field22
-    type(vector_field) :: bc_position, temp_position
+    type(vector_field), pointer:: surface_field2, surface_field21, surface_field22, surface_field23
+    type(vector_field), pointer:: coordinate
+    type(vector_field) :: projected_surface_field, position_remapped, bc_position, temp_position
     character(len=OPTION_PATH_LEN) bc_path_i, bc_type_path, bc_component_path
     character(len=FIELD_NAME_LEN) bc_name, bc_type, parent_field_name
     logical applies(3)
     real:: time, theta, dt
-    integer, dimension(:), pointer:: surface_element_list
+    integer, dimension(:), pointer:: surface_element_list, surface_node_list, projected_surface_element_list
     integer i, j, k, nbcs, stat
 
     ns=1
@@ -884,7 +1003,7 @@ contains
     boundary_conditions: do i=0, nbcs-1
        bc_path_i=trim(bc_path)//"["//int2str(i)//"]"
        call get_option(trim(bc_path_i)//"/name", bc_name)
-
+	       
        bc_path_i=trim(bc_path_i)//'/type[0]'
        call get_option(trim(bc_path_i)//"/name", bc_type)
 
@@ -931,8 +1050,15 @@ contains
              have_sem_bc=have_sem_bc .or. (applies(j) .and. have_option(bc_component_path))
           end do
 
+	  have_dfm_bc=.false.
+          if (((trim(bc_type).eq."dirichlet").or.(trim(bc_type).eq."weakdirichlet")) .and. &
+             have_option(trim(bc_path_i)//"/digital_filter_turbulence")) then
+             have_dfm_bc=.true.
+          end if
+       
           call get_boundary_condition(field, i+1, surface_mesh=surface_mesh, &
                surface_element_list=surface_element_list)
+	       
           surface_field => extract_surface_field(field, bc_name, name="value")
           
           if((surface_mesh%shape%degree==0).and.(bc_type=="dirichlet")) then
@@ -956,7 +1082,7 @@ contains
             do k=1,3
                surface_field_component=extract_scalar_field(surface_field11, k)
                bc_component_path=trim(bc_type_path)//"/"//trim(aligned_components(k))//"/synthetic_eddy_method/mean_profile"
-               call initialise_field(surface_field_component, trim(bc_component_path), bc_position, &
+               call initialise_field(state, surface_field_component, trim(bc_component_path), bc_position, &
                   time=time)
             enddo
             
@@ -964,7 +1090,7 @@ contains
             do k=1,3
                surface_field_component=extract_scalar_field(surface_field22, k)
                bc_component_path=trim(bc_type_path)//"/"//trim(aligned_components(k))//"/synthetic_eddy_method/turbulence_lengthscale"
-               call initialise_field(surface_field_component, trim(bc_component_path), bc_position, &
+               call initialise_field(state, surface_field_component, trim(bc_component_path), bc_position, &
                   time=time)
             enddo
             
@@ -972,7 +1098,7 @@ contains
             do k=1,3
                surface_field_component=extract_scalar_field(surface_field21, k)
                bc_component_path=trim(bc_type_path)//"/"//trim(aligned_components(k))//"/synthetic_eddy_method/Re_stresses_profile"
-               call initialise_field(surface_field_component, trim(bc_component_path), bc_position, &
+               call initialise_field(state, surface_field_component, trim(bc_component_path), bc_position, &
                  time=time)
             enddo
            
@@ -1027,12 +1153,53 @@ contains
                         call remap_field_to_surface(scalar_parent_field, surface_field_component, surface_element_list, stat)
                      end if                    
 
+                  else if (have_option(trim(bc_component_path)//"/from_file")) then
+                     call initialise_field(state, surface_field_component, bc_component_path, bc_position, &
+                              time=time, field_name=trim(field%name)//int2str(j), &
+			      surface_element_list=surface_element_list)
                   else
-                     call initialise_field(surface_field_component, bc_component_path, bc_position, &
+                     call initialise_field(state, surface_field_component, bc_component_path, bc_position, &
                               time=time)
                   end if
                end if
             end do
+	    
+	    if (have_dfm_bc .and. (applies(1).or.applies(2).or.applies(3))) then
+	       ! Get the continuous surface mesh and project position onto it
+	       coordinate => extract_vector_field(state,"Coordinate")
+               call get_boundary_condition(coordinate, i+1, surface_mesh=projected_surface_mesh, &
+	           surface_element_list=projected_surface_element_list)
+	       position_remapped=get_coordinates_remapped_to_surface(coordinate,projected_surface_mesh, &
+	           projected_surface_element_list)
+		   
+               surface_field21 => extract_surface_field(field, bc_name, name="TurbulenceTimeScale")
+               bc_component_path=trim(bc_path_i)//"/digital_filter_turbulence/turbulence_lengthscale/value"
+               call initialise_field(state, surface_field21, trim(bc_component_path), position_remapped, &
+                  time=time)	   
+	       	    
+               surface_field22 => extract_surface_field(field, bc_name, name="TurbulenceLengthScale")
+               bc_component_path=trim(bc_path_i)//"/digital_filter_turbulence/turbulence_lengthscale/value"
+               call initialise_field(state, surface_field22, trim(bc_component_path), position_remapped, &
+                  time=time)
+            
+               surface_field23 => extract_surface_field(field, bc_name, name="ReynoldsStress")
+               bc_component_path=trim(bc_path_i)//"/digital_filter_turbulence/reynolds_stress/value"
+               call initialise_field(state, surface_field23, trim(bc_component_path), position_remapped, &
+                 time=time)
+	       
+	       ! Project boundary field onto new mesh
+	       call allocate(projected_surface_field,surface_field%dim,position_remapped%mesh,"ProjectedSurfaceField")
+	       call project_field(surface_field,projected_surface_field,position_remapped)
+	       
+	       ! Calculate turbulent boundary field
+	       call add_dfm_bc (field, projected_surface_field, projected_surface_element_list, position_remapped, &
+	           projected_surface_mesh, bc_name, bc_path_i, dt)
+	       
+	       ! Remap turbulent field onto surface mesh
+               call remap_field(projected_surface_field,surface_field)
+	       call deallocate (projected_surface_field)
+	    endif
+	    
          end if
 
          call deallocate(bc_position)
@@ -1065,12 +1232,12 @@ contains
              end if
              bc_component_path=trim(bc_type_path)//"/"//aligned_components(j)//"/order_zero_coefficient"
              surface_field_component=extract_scalar_field(surface_field, j)
-             call initialise_field(surface_field_component, bc_component_path, bc_position, &
+             call initialise_field(state, surface_field_component, bc_component_path, bc_position, &
                time=time)
 
              bc_component_path=trim(bc_type_path)//"/"//aligned_components(j)//"/order_one_coefficient"
              surface_field_component=extract_scalar_field(surface_field2, j)
-             call initialise_field(surface_field_component, bc_component_path, bc_position, &
+             call initialise_field(state, surface_field_component, bc_component_path, bc_position, &
                time=time)
           end do
           call deallocate(bc_position)
@@ -1083,7 +1250,7 @@ contains
           ! map the coordinate field onto this mesh
           bc_position = get_coordinates_remapped_to_surface(position, surface_mesh, surface_element_list) 
 
-          call initialise_field(scalar_surface_field, bc_path_i, bc_position, &
+          call initialise_field(state, scalar_surface_field, bc_path_i, bc_position, &
             time=time)
           call deallocate(bc_position)
 
@@ -1119,7 +1286,7 @@ contains
              end if                    
 
           else
-             call initialise_field(surface_field_component, bc_path_i, bc_position, &
+             call initialise_field(state, surface_field_component, bc_path_i, bc_position, &
                       time=time)
           end if
           call deallocate(bc_position)
@@ -1134,17 +1301,17 @@ contains
 
           if (have_option(trim(bc_path_i)//"/wind_stress")) then
              bc_type_path=trim(bc_path_i)//"/wind_stress"
-             call initialise_field(surface_field, bc_type_path, bc_position, &
+             call initialise_field(state, surface_field, bc_type_path, bc_position, &
                time=time)
           else if (have_option(trim(bc_path_i)//"/wind_velocity")) then
              bc_type_path=trim(bc_path_i)//"/wind_velocity"
 
              scalar_surface_field => extract_scalar_surface_field(field, bc_name, name="WindDragCoefficient")
-             call initialise_field(scalar_surface_field, &
+             call initialise_field(state, scalar_surface_field, &
                   trim(bc_type_path)//"/wind_drag_coefficient", bc_position, &
                   time=time)
 
-             call initialise_field(surface_field, &
+             call initialise_field(state, surface_field, &
                   trim(bc_type_path)//"/wind_velocity", bc_position, &
                   time=time)
           end if
@@ -1156,6 +1323,23 @@ contains
               call zero(scalar_surface_field)
            end if
 
+	case("surface_ocean_COARE3")
+
+          call get_boundary_condition(field, i+1, surface_mesh=surface_mesh, &
+                 surface_element_list=surface_element_list, surface_node_list=surface_node_list)
+
+	   surface_field => extract_surface_field(field, bc_name, "value")
+	   call zero(surface_field)
+
+	   if (size(surface_element_list) > 0) then
+
+             call get_COARE3_bc_values(state, i+1, bc_name, bc_path_i, surface_mesh, surface_element_list)
+	   
+	     call set_COARE3_bc_value(state, surface_field, bc_name, field%name, surface_mesh, surface_node_list)
+	     ewrite_minmax(surface_field)
+	   
+	   endif
+	   
          case ("no_normal_flow", "outflow")
 
           ! nothing to be done (yet?)
@@ -1184,27 +1368,27 @@ contains
 
     allocate(amplitude(node_count(surface_field)), phase(node_count(surface_field)))
     
-    if(have_option(trim(bc_type_path)//"/from_file/tidal")) then
+    if(have_option(trim(bc_type_path)//"/from_file_tidal/tidal")) then
        call set(surface_field, 0.0)
        call get_option("/timestepping/current_time", current_time)
-       constituent_count = option_count(trim(bc_type_path)//"/from_file/tidal")
+       constituent_count = option_count(trim(bc_type_path)//"/from_file_tidal/tidal")
 
        do i=0, constituent_count-1
           amplitude = 0.0
           phase = 0.0
-          call get_option(trim(bc_type_path)//"/from_file/tidal["//int2str(i)//"/amplitude_factor", amplitude_factor, stat=stat)
+          call get_option(trim(bc_type_path)//"/from_file_tidal/tidal["//int2str(i)//"/amplitude_factor", amplitude_factor, stat=stat)
           if (stat/=0) then
              amplitude_factor = 1.0
           end if
           
           ! Taken from E.W. Schwiderski - Rev. Geophys. Space Phys. Vol. 18 No. 1 pp. 243--268, 1980
-          call get_option(trim(bc_type_path)//"/from_file/tidal["//int2str(i)//"]/name", constituent_name, stat=stat)
+          call get_option(trim(bc_type_path)//"/from_file_tidal/tidal["//int2str(i)//"]/name", constituent_name, stat=stat)
 
           frequency = get_tidal_frequency(constituent_name)
 
-          call get_option(trim(bc_type_path)//"/from_file/tidal["//int2str(i)//"]/file_name", file_name, stat=stat)
-          call get_option(trim(bc_type_path)//"/from_file/tidal["//int2str(i)//"]/variable_name_amplitude", variable_name_amplitude, stat=stat)
-          call get_option(trim(bc_type_path)//"/from_file/tidal["//int2str(i)//"]/variable_name_phase", variable_name_phase, stat=stat)
+          call get_option(trim(bc_type_path)//"/from_file_tidal/tidal["//int2str(i)//"]/file_name", file_name, stat=stat)
+          call get_option(trim(bc_type_path)//"/from_file_tidal/tidal["//int2str(i)//"]/variable_name_amplitude", variable_name_amplitude, stat=stat)
+          call get_option(trim(bc_type_path)//"/from_file_tidal/tidal["//int2str(i)//"]/variable_name_phase", variable_name_phase, stat=stat)
 
           call SampleNetCDF_Open(trim(file_name), id)
           call SampleNetCDF_SetVariable(id, trim(variable_name_amplitude))
@@ -1272,6 +1456,61 @@ contains
     end if
   end subroutine set_nemo_bc_value
 
+  subroutine populate_COARE3_boundary_conditions (state, sfield, i, surface_mesh, surface_element_list, position)
+
+    type(state_type), intent(in)	       :: state
+    type(scalar_field), intent(inout)  	       :: sfield
+    type(mesh_type), pointer, intent(inout)    :: surface_mesh
+    type(vector_field), intent(in)             :: position
+    integer, dimension(:), pointer, intent(in) :: surface_element_list
+    integer, intent(in) :: i
+    
+    type(scalar_field), pointer        :: pt, sst
+    type(vector_field)		       :: bc_position
+    type(scalar_field)		       :: surface_scalar_field
+    character(len=FIELD_NAME_LEN)      :: bc_name
+    character(len=OPTION_PATH_LEN)     :: bc_path, bc_type_path
+    integer			       :: stat
+    real                               :: current_time
+    
+    call get_thermo_variable(state, pt)
+    call get_option("/timestepping/current_time", current_time)
+    
+    ! Allocate specific boundary variables
+    if (trim(sfield%name) == trim(pt%name)) then
+       
+      bc_path="/material_phase[0]/scalar_field::"//trim(sfield%name)//"/prognostic/boundary_conditions"
+      call get_option(trim(bc_path)//"["//int2str(i-1)//"]"//"/name",bc_name)
+    
+      call allocate(surface_scalar_field, surface_mesh, name="sensible_heat_flux")
+      call insert_surface_field(sfield, i, surface_scalar_field)
+      call deallocate(surface_scalar_field)    
+
+      call allocate(surface_scalar_field, surface_mesh, name="latent_heat_flux")
+      call insert_surface_field(sfield, i, surface_scalar_field)
+      call deallocate(surface_scalar_field)    
+
+      call allocate(surface_scalar_field, surface_mesh, name="rain_heat_flux")
+      call insert_surface_field(sfield, i, surface_scalar_field)
+      call deallocate(surface_scalar_field)    
+
+      call allocate(surface_scalar_field, surface_mesh, name="sea_surface_temperature")
+      call insert_surface_field(sfield, i, surface_scalar_field)
+      call deallocate(surface_scalar_field)    
+    	
+      ! Sea surface temperature needs to be initialised
+      bc_position=get_coordinates_remapped_to_surface(position, surface_mesh, surface_element_list)  
+         
+      bc_type_path=trim(bc_path)//"["//int2str(i-1)//"]/type[0]/sea_surface_temperature"
+      
+      sst=>extract_surface_field(sfield, bc_name, "sea_surface_temperature")
+      call initialise_field(state, sst, bc_type_path, bc_position, time=current_time, field_name=sfield%name)    
+    
+      call deallocate(bc_position)
+    endif
+    
+  end subroutine populate_COARE3_boundary_conditions
+  
   subroutine apply_dirichlet_conditions_inverse_mass_vector(inverse_mass, field)
     !!< Zeroes the rows of dirichlet boundary conditions in 
     !!< the inverse mass matrix

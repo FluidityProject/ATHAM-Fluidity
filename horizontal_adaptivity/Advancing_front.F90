@@ -19,11 +19,12 @@ module hadapt_advancing_front
 
   contains
 
-  subroutine generate_layered_mesh(mesh, h_mesh)
+  subroutine generate_layered_mesh(mesh, h_mesh, direction)
     !! Given a columnar mesh with the positions of the vertical
     !! nodes, fill in the elements. 
     type(vector_field), intent(inout) :: mesh
     type(vector_field), intent(inout) :: h_mesh
+    character(len=*), optional, intent(in) :: direction
 
     type(csr_sparsity), pointer :: nelist
     type(scalar_field) :: height_field
@@ -87,7 +88,12 @@ module hadapt_advancing_front
       height_field = extract_scalar_field(mesh, mesh%dim)
     end if
     ! we want it ordered top to bottom
-    heights = -height_field%val
+    if (present(direction)) then
+      if (trim(direction)=='bottom_up') then
+        heights = -height_field%val
+      endif
+    endif
+    
     if (associated(h_mesh%mesh%halos)) then
       call parallel_consistent_ordering(heights, mesh%mesh%halos(2), sorted)
     else

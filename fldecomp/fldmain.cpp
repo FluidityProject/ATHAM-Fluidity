@@ -26,7 +26,7 @@
     USA
 */
 
-
+#include "mpi.h"
 #include "fldecomp.h"
 
 
@@ -100,7 +100,6 @@ int main(int argc, char **argv){
       <<"\tfldecomp is retained only to decompose Terreno meshes, which\n"
       <<"\tflredecomp cannot process.\n"
       <<"\n";
-
   int optionIndex = 0;
   
   optarg = NULL;  

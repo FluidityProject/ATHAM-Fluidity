@@ -26,6 +26,7 @@
     USA
 */
 
+#include "mpi.h"
 #include "Element_Intersection.h"
 
 using namespace SpatialIndex;

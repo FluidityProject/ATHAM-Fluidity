@@ -614,9 +614,10 @@ character(len=OPTION_PATH_LEN):: complete_solver_option_path
   ! implemented here:
   if (have_option(trim(option_path)//'/prognostic/solver')) then
     complete_solver_option_path=trim(option_path)//'/prognostic/solver'
-  ! some diagnostic cases have solver blocks now
   else if (have_option(trim(option_path)//'/diagnostic/solver')) then
     complete_solver_option_path=trim(option_path)//'/diagnostic/solver'
+  else if (have_option(trim(option_path)//'/prescribed/solver')) then
+    complete_solver_option_path=trim(option_path)//'/prescribed/solver'
   else if (have_option(trim(option_path)//'/solver')) then
     complete_solver_option_path=trim(option_path)//'/solver'
   else

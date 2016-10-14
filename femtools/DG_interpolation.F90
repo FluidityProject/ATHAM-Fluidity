@@ -36,7 +36,7 @@ module dg_interpolation_module
 
   subroutine dg_interpolation_galerkin_scalars_supermesh_free(old_fields, old_position, new_fields, new_position, map_BA)
     type(scalar_field), dimension(:), intent(in) :: old_fields
-    type(vector_field), intent(in) :: old_position
+    type(vector_field), intent(inout) :: old_position
 
     type(scalar_field), dimension(:), intent(inout), target :: new_fields
     type(vector_field), intent(in) :: new_position

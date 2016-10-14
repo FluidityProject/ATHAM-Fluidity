@@ -356,6 +356,7 @@ module divergence_matrix_cg
               end if
             end do
           end if
+	  
         end do
         
         call deallocate(field_bc)
@@ -627,7 +628,8 @@ module divergence_matrix_cg
                density_grad_at_quad = theta*(ele_grad_at_quad(density, ele, ddensity_t))+&
                                    (1-theta)*(ele_grad_at_quad(olddensity, ele, ddensity_t))
 
-               ele_mat = -dshape_shape(dtest_t, field_shape, detwei*ele_val_at_quad(nvfrac, ele)*(theta*density_at_quad + (1-theta)*olddensity_at_quad)) - shape_shape_vector(test_shape, field_shape, detwei*ele_val_at_quad(nvfrac, ele), density_grad_at_quad)
+               ele_mat = -dshape_shape(dtest_t, field_shape, detwei*ele_val_at_quad(nvfrac, ele)*(theta*density_at_quad + (1-theta)*olddensity_at_quad)) &
+	                 -shape_shape_vector(test_shape, field_shape, detwei*ele_val_at_quad(nvfrac, ele), density_grad_at_quad)
 
             else if(multiphase .and. is_compressible_phase) then
                ele_mat = -dshape_shape(dtest_t, field_shape, detwei*ele_val_at_quad(nvfrac, ele)*(theta*density_at_quad + (1-theta)*olddensity_at_quad))
@@ -655,7 +657,8 @@ module divergence_matrix_cg
                ! = (rho*vfrac*div(u) + rho*u*grad(vfrac)) + u*vfrac*grad(rho)
 
                ! First assemble rho*div(u*vfrac). This is the incompressible phase's divergence matrix.
-               ele_mat = shape_dshape(test_shape, dfield_t, detwei*(theta*density_at_quad + (1-theta)*olddensity_at_quad)*ele_val_at_quad(nvfrac, ele)) + shape_shape_vector(test_shape, field_shape, detwei*(theta*density_at_quad + (1-theta)*olddensity_at_quad), ele_grad_at_quad(nvfrac, ele, dnvfrac_t))
+               ele_mat = shape_dshape(test_shape, dfield_t, detwei*(theta*density_at_quad + (1-theta)*olddensity_at_quad)*ele_val_at_quad(nvfrac, ele)) + &
+	       		shape_shape_vector(test_shape, field_shape, detwei*(theta*density_at_quad + (1-theta)*olddensity_at_quad), ele_grad_at_quad(nvfrac, ele, dnvfrac_t))
 
                ! If the phase is compressible, then we now complete the assembly of div(rho*vfrac*u) below.
                if(is_compressible_phase) then
@@ -663,9 +666,8 @@ module divergence_matrix_cg
                end if
 
             else
-               ele_mat = shape_dshape(test_shape, dfield_t, &
-                                   detwei*(theta*density_at_quad + (1-theta)*olddensity_at_quad)) + &
-                      shape_shape_vector(test_shape, field_shape, detwei, density_grad_at_quad)
+               ele_mat = shape_dshape(test_shape, dfield_t, detwei*(theta*density_at_quad + (1-theta)*olddensity_at_quad)) + &
+                        shape_shape_vector(test_shape, field_shape, detwei, density_grad_at_quad)
             end if
 
         end if

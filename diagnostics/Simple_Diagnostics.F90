@@ -29,6 +29,7 @@
 
 module simple_diagnostics
   use diagnostic_source_fields
+  use diagnostic_fields
   use field_options
   use fields_manipulation
   use initialise_fields_module
@@ -39,6 +40,7 @@ module simple_diagnostics
   use state_fields_module
   use state_module
   use vtk_cache_module
+  use parallel_tools
 
   implicit none
 
@@ -52,8 +54,9 @@ module simple_diagnostics
 
   public :: calculate_temporalmax_scalar, calculate_temporalmax_vector, calculate_temporalmin, calculate_l2norm, &
             calculate_time_averaged_scalar, calculate_time_averaged_vector, &
-            calculate_time_averaged_scalar_squared, &
-            calculate_time_averaged_vector_times_scalar, calculate_period_averaged_scalar
+            calculate_time_averaged_scalar_squared, calculate_density_weighted_scalar, calculate_density_weighted_vector, &
+            calculate_time_averaged_vector_times_scalar, calculate_period_averaged_scalar, & 	
+	    calculate_atmosphere_forcing_scalar 
 
   ! for the period_averaged_scalar routine
   real, save :: last_output_time
@@ -76,7 +79,7 @@ contains
        path=trim(complete_field_path(s_field%option_path)) // "/algorithm/initial_condition"
        if (have_option(trim(path))) then
           call zero(s_field)
-          call initialise_field_over_regions(s_field, path, position)
+          call initialise_field_over_regions(state, s_field, path, position)
        else
           call set(s_field,source_field)
        end if
@@ -91,6 +94,7 @@ contains
        val = max(node_val(s_field,i),node_val(source_field,i))
        call set(s_field,i,val)
     end do
+
   end subroutine calculate_temporalmax_scalar
 
   subroutine calculate_temporalmax_vector(state, v_field)
@@ -109,10 +113,10 @@ contains
     if(timestep==0) then
        path=trim(complete_field_path(v_field%option_path)) // "/algorithm/initial_condition"
        if (have_option(trim(path))) then
-          call zero(v_field)
-          call initialise_field_over_regions(v_field, path, position)
+	  call zero(v_field)
+	  call initialise_field_over_regions(state, v_field, path, position)
        else
-          call set(v_field,source_field)
+	  call set(v_field,source_field)
        end if
        return
     end if
@@ -129,16 +133,15 @@ contains
     magnitude_vel = magnitude(source_field)
 
     do i=1,node_count(magnitude_vel)
-        if (node_val(magnitude_vel,i) .gt. node_val(magnitude_max_vel,i)) then
-            call set(v_field,i,node_val(source_field,i))
-        end if
+	if (node_val(magnitude_vel,i) .gt. node_val(magnitude_max_vel,i)) then
+	    call set(v_field,i,node_val(source_field,i))
+	end if
     end do
 
     call deallocate(magnitude_max_vel)
     call deallocate(magnitude_vel)
 
   end subroutine calculate_temporalmax_vector
-
 
   subroutine calculate_temporalmin(state, s_field)
     type(state_type), intent(in) :: state
@@ -156,7 +159,7 @@ contains
        path=trim(complete_field_path(s_field%option_path)) // "/algorithm/initial_condition"
        if (have_option(trim(path))) then
           call zero(s_field)
-          call initialise_field_over_regions(s_field, path, position)
+          call initialise_field_over_regions(state, s_field, path, position)
        else
           call set(s_field,source_field)
        end if
@@ -183,16 +186,16 @@ contains
     real :: res
     source_field => vector_source_field(state, s_field)
     allocate(val(source_field%dim))
-      assert(node_count(s_field) == node_count(source_field))
-      do i=1,node_count(s_field)
-       val = node_val(source_field,i)
+    assert(node_count(s_field) == node_count(source_field))
+    do i=1,node_count(s_field)
+      val = node_val(source_field,i)
 
-    res = 0
-            do j=1,source_field%dim
-      res=res+val(j)**2
-     end do
-     res=sqrt(res)
-     call set(s_field,i,res)
+      res = 0
+      do j=1,source_field%dim
+        res=res+val(j)**2
+      end do
+      res=sqrt(res)
+      call set(s_field,i,res)
     end do
     deallocate(val)
   end subroutine calculate_l2norm
@@ -247,14 +250,14 @@ contains
       n_times_added = 0
       running_tot => extract_scalar_field(state,"AveCumulativeValue",stat)
       if (stat .ne. 0) then
-          ewrite(-1,*) "You haven't set up a field call AveCumulativeValue for the time-averaged scalar diagnostic to use."
-          ewrite(-1,*) "I'm going to make one for you, but this will *not* work with adaptivity and checkpointing"
-          ewrite(-1,*) "If you need these features, stop the run and add a scalar field called AveCumulativeValue as a diagnostic, set via internal function"
-          call allocate(cumulative_value, s_field%mesh, "AveCumulativeValue")
-          call zero(cumulative_value)
-          call insert(state, cumulative_value, cumulative_value%name)
-          call deallocate(cumulative_value)
-          call initialise_diagnostic_from_checkpoint(s_field)
+	  ewrite(-1,*) "You haven't set up a field call AveCumulativeValue for the time-averaged scalar diagnostic to use."
+	  ewrite(-1,*) "I'm going to make one for you, but this will *not* work with adaptivity and checkpointing"
+	  ewrite(-1,*) "If you need these features, stop the run and add a scalar field called AveCumulativeValue as a diagnostic, set via internal function"
+	  call allocate(cumulative_value, s_field%mesh, "AveCumulativeValue")
+	  call zero(cumulative_value)
+	  call insert(state, cumulative_value, cumulative_value%name)
+	  call deallocate(cumulative_value)
+	  call initialise_diagnostic_from_checkpoint(s_field)
       end if
       return
     end if
@@ -386,6 +389,51 @@ contains
     call deallocate(l_field)
   end subroutine calculate_time_averaged_vector_times_scalar
 
+  subroutine calculate_density_weighted_scalar(state, s_field)
+    type(state_type), intent(in) :: state
+    type(scalar_field), intent(inout) :: s_field
+
+    type(scalar_field), pointer :: source_field, density
+    type(scalar_field) :: density_remap
+
+    density=>extract_scalar_field(state,"Density")
+    
+    source_field => scalar_source_field(state, s_field)
+    assert(node_count(s_field) == node_count(source_field))
+    call set(s_field, source_field)
+    
+    call allocate(density_remap, s_field%mesh, "RemapDensity")
+    call remap_field(density, density_remap)
+
+    call invert(density_remap)
+    call scale(s_field, density_remap)
+
+    call deallocate(density_remap)
+  end subroutine calculate_density_weighted_scalar
+
+  subroutine calculate_density_weighted_vector(state, v_field)
+    type(state_type), intent(in) :: state
+    type(vector_field), intent(inout) :: v_field
+
+    type(vector_field), pointer :: source_field
+    type(scalar_field), pointer :: density
+    type(scalar_field) :: density_remap
+
+    density=>extract_scalar_field(state,"Density")
+    
+    source_field => vector_source_field(state, v_field)
+    assert(node_count(v_field) == node_count(source_field))
+    call set(v_field, source_field)
+    
+    call allocate(density_remap, v_field%mesh, "RemapDensity")
+    call remap_field(density, density_remap)
+
+    call invert(density_remap)
+    call scale(v_field, density_remap)
+    
+    call deallocate(density_remap)
+  end subroutine calculate_density_weighted_vector
+
   subroutine initialise_diagnostic_scalar_from_checkpoint(s_field) 
     type(scalar_field), intent(inout) :: s_field
 
@@ -484,5 +532,138 @@ contains
     end if
 
   end subroutine initialise_diagnostic_tensor_from_checkpoint
+  
+  subroutine calculate_atmosphere_forcing_scalar(state, s_field, dt)
+    type(state_type), intent(inout) :: state
+    type(scalar_field), intent(inout) :: s_field
+    real, intent(in) :: dt
+    
+    integer :: ind, stat, ele, dim
+    real  :: time_scale, z_base, x_base_r, x_base_l, y_base_r, y_base_l, z_max, x_max, x_min, y_max, y_min, xi, X_val, coeff
+    real  :: absorption_valx, absorption_valy, absorption_valz
+    type(vector_field), pointer :: X
+    type(vector_field) :: X_local
+    character(len=OPTION_PATH_LEN) :: absorption_path
+    character(len=FIELD_NAME_LEN) :: scalar_name
+    
+    ewrite(2,*) 'Inside calculate_atmosphere_forcing_scalar '//trim(s_field%name)
+    
+    ind=index(trim(s_field%name),"Absorption")-1
+    scalar_name=s_field%name(1:ind)
+    call zero(s_field)
+      
+    X=>extract_vector_field(state, "Coordinate")
+    X_local = get_remapped_coordinates(X, s_field%mesh)
+  
+    absorption_path = trim(s_field%option_path)//"/diagnostic/algorithm::atmosphere_forcing_scalar"
+    
+    if (have_option(trim(absorption_path)//"/sponge_layer_scalar_absorption")) then
+      
+      call get_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/coefficient',coeff)
+      
+      if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/x_sponge_right')) &
+    	  call get_option (trim(absorption_path)//'/sponge_layer_scalar_absorption/x_sponge_right',x_base_r)
+      if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/x_sponge_left')) &
+    	  call get_option (trim(absorption_path)//'/sponge_layer_scalar_absorption/x_sponge_left',x_base_l)
+      if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/y_sponge_right')) &
+    	  call get_option (trim(absorption_path)//'/sponge_layer_scalar_absorption/y_sponge_right',y_base_r)
+      if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/y_sponge_left')) &
+    	  call get_option (trim(absorption_path)//'/sponge_layer_scalar_absorption/y_sponge_left',y_base_l)
+      if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/z_sponge')) &
+    	  call get_option (trim(absorption_path)//'/sponge_layer_scalar_absorption/z_sponge',z_base)
 
+      dim=X%dim 
+      x_max=maxval(X_local%val(1,:))	  
+      x_min=minval(X_local%val(1,:))	  
+      y_max=maxval(X_local%val(2,:))	  
+      y_min=minval(X_local%val(2,:))	  
+      z_max=maxval(X_local%val(dim,:))
+
+      call allmax(x_max)
+      call allmax(y_max)
+      call allmax(z_max)
+      call allmin(x_min)
+      call allmin(y_min)
+
+      do ele=1,node_count(s_field)
+        absorption_valx=0.
+        absorption_valy=0.
+        absorption_valz=0.
+        
+        X_val=node_val(X_local,1,ele)
+    	if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/x_sponge_right') .and. X_val > x_base_r) then
+          xi=(X_val - x_base_r)/(x_max - x_base_r)
+          if (X_val >= x_base_r .and. xi >= 0. .and. xi < 0.75) then
+            absorption_valx=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+          else if (X_val >= x_base_r .and. xi > 0.75 .and. xi <= 1.) then
+            absorption_valx=1./dt
+          else
+            absorption_valx=0.
+          endif
+        endif
+
+    	if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/x_sponge_left') .and. X_val < x_base_l) then
+          xi=(x_base_l - X_val)/(x_base_l - x_min)
+          if (X_val <= x_base_l .and. xi >= 0. .and. xi < 0.75) then
+            absorption_valx=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+          else if (X_val <= x_base_l .and. xi > 0.75 .and. xi <= 1.) then
+            absorption_valx=1./dt
+          else
+            absorption_valx=0.
+          endif
+        endif 
+          
+        if (dim > 2) then
+          X_val=node_val(X_local,2,ele)
+    	  if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/y_sponge_right') .and. X_val > y_base_r) then
+            xi=(X_val - y_base_r)/(y_max - y_base_r)
+            if (X_val >= y_base_r .and. xi >= 0. .and. xi < 0.75) then
+              absorption_valy=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+            else if (X_val >= y_base_r .and. xi > 0.75 .and. xi <= 1.) then
+              absorption_valy=1./dt
+            else
+              absorption_valy=0.
+            endif
+          endif
+  
+    	  if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/y_sponge_left') .and. X_val < y_base_l) then
+            xi=(y_base_l - X_val)/(y_base_l - y_min)
+            if (X_val <= y_base_l .and. xi >= 0. .and. xi < 0.75) then
+              absorption_valy=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+            else if (X_val <= y_base_l .and. xi > 0.75 .and. xi <= 1.) then
+              absorption_valy=1./dt
+            else
+              absorption_valy=0.
+            endif
+          endif   
+        endif
+        
+        X_val=node_val(X_local,dim,ele)
+    	if (have_option(trim(absorption_path)//'/sponge_layer_scalar_absorption/z_sponge') .and. X_val > z_base) then
+          xi=(X_val - z_base)/(z_max - z_base)
+          if (X_val >= z_base .and. xi >= 0. .and. xi < 0.75) then
+            absorption_valz=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+          else if (X_val >= z_base .and. xi > 0.75 .and. xi <= 1.) then
+            absorption_valz=1./dt
+          else
+            absorption_valz=0.
+          endif
+        endif  
+
+        absorption_valx=coeff*sqrt((absorption_valx**2. + absorption_valy**2. + absorption_valz**2.)/real(dim))
+        call addto(s_field, ele, absorption_valx)
+      enddo
+    end if
+      
+    if (have_option(trim(absorption_path)//"/scalar_nudging")) then
+    
+      call get_option(trim(absorption_path)//"/scalar_nudging/time_scale", time_scale)
+      call addto(s_field, 1./time_scale)
+
+    end if
+    
+    call deallocate (X_local)
+
+  end subroutine calculate_atmosphere_forcing_scalar
+  
  end module simple_diagnostics

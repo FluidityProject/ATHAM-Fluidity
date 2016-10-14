@@ -28,6 +28,7 @@
 
 module slope_limiters_dg
 use fields
+use fefields
 use state_module
 use ieee_arithmetic
 use fldebug_parameters
@@ -38,6 +39,10 @@ use state_fields_module
 use bound_field_module
 use vtk_interfaces
 use transform_elements
+use node_boundary
+use global_parameters, only: FIELD_NAME_LEN
+use diagnostic_fields, only : safe_set
+
 implicit none
 
 private
@@ -48,15 +53,17 @@ integer, parameter :: LIMITER_COCKBURN=2
 integer, parameter :: LIMITER_HERMITE_WENO=3
 integer, parameter :: LIMITER_FPN=4
 integer, parameter :: LIMITER_VB=5
+integer, parameter :: LIMITER_VBJ=6
 
 public :: LIMITER_MINIMAL, LIMITER_COCKBURN, LIMITER_HERMITE_WENO,&
-     & LIMITER_FPN, LIMITER_VB
+     & LIMITER_FPN, LIMITER_VB, LIMITER_VBJ
 
 !!CockburnShuLimiter stuff
-real :: TVB_factor=5.0
-real :: Limit_factor=1.1
+real :: TVB_factor=0.1
+logical :: TVB_factor_absolute=.false., TVB_factor_relative=.false.
+real :: Limit_factor=1.1, tolerance=1.e-5
 real, dimension(:,:,:), pointer :: alpha => null()
-real, dimension(:,:), pointer :: dx2 => null(), A => null()
+real, dimension(:,:), pointer :: dx2 => null(), dxn2 => null(), A => null()
 integer :: CSL_adapt_counter = -666
 logical :: CSL_initialised = .false.
 logical :: tolerate_negative_weights
@@ -80,22 +87,51 @@ integer :: limit_count
 
 contains
 
-  subroutine limit_slope_dg(T, U, X, state, limiter)
+  subroutine limit_slope_dg(T, U, X, state, limiter, not_initialised)
     !! Assume 1D linear elements
     type(scalar_field), intent(inout) :: T
-    type(vector_field), intent(in) :: X, U
+    type(vector_field), intent(inout) :: X, U
     type(state_type), intent(inout) :: state
-    integer, intent(in) :: limiter
+    integer, intent(inout) :: limiter
+    logical, intent(in), optional :: not_initialised
 
     integer :: ele, stat
     type(scalar_field) :: T_limit
+    character(len=FIELD_NAME_LEN) :: limiter_name
 
     !assert(mesh_dim(coordinate)==1)
     !assert(field%mesh%continuity<0)
     !assert(field%mesh%shape%degree==1)
 
     ewrite(2,*) 'subroutiune limit_slope_dg'
+    
+    if (present(not_initialised)) then
+       ! Note unsafe for mixed element meshes
+       if (element_degree(T,1)==0) then
+          FLExit("Slope limiters make no sense for degree 0 fields")
+       end if
 
+       call get_option(trim(T%option_path)//"/prognostic/spatial_discretisation"//&
+            &"/discontinuous_galerkin/slope_limiter/name",limiter_name)
+
+       select case(trim(limiter_name))
+       case("Cockburn_Shu")
+          limiter=LIMITER_COCKBURN
+       case("Hermite_Weno")
+          limiter=LIMITER_HERMITE_WENO
+       case("minimal")
+          limiter=LIMITER_MINIMAL
+       case("FPN")
+          limiter=LIMITER_FPN
+       case("Vertex_Based")
+          limiter=LIMITER_VB
+       case("Vertex_Based_Julien")
+          limiter=LIMITER_VBJ
+       case default
+          FLAbort('No such limiter')
+       end select
+    endif
+    
     select case (limiter)
     case (LIMITER_MINIMAL)
        T_limit=extract_scalar_field(state, trim(T%name)//"Limiter", stat=stat)
@@ -113,8 +149,16 @@ contains
     case (LIMITER_COCKBURN)
 
        call get_option(trim(T%option_path)//"/prognostic/spatial_discretisation/&
-            &discontinuous_galerkin/slope_limiter::Cockburn_Shu/TVB_factor", &
-            &TVB_factor)
+            &discontinuous_galerkin/slope_limiter::Cockburn_Shu/TVB_factor_absolute", &
+            &TVB_factor,stat=stat)
+       TVB_factor_absolute=.true.
+       if (stat/=0) then
+         call get_option(trim(T%option_path)//"/prognostic/spatial_discretisation/&
+            &discontinuous_galerkin/slope_limiter::Cockburn_Shu/TVB_factor_relative", &
+            &TVB_factor,stat=stat)
+         TVB_factor_relative=.true.; TVB_factor_absolute=.false.
+       endif
+       
        call get_option(trim(T%option_path)//"/prognostic/spatial_discretisation/&
             &discontinuous_galerkin/slope_limiter::Cockburn_Shu/limit_factor", &
             &limit_factor)
@@ -125,7 +169,7 @@ contains
             &discontinuous_galerkin/slope_limiter::Cockburn_Shu/tolerate_negative_weights")
 
        call cockburn_shu_setup(T, X)
-       
+              
        do ele=1,element_count(T)
           
           call limit_slope_ele_cockburn_shu(ele, T, X)
@@ -212,6 +256,16 @@ contains
     case (LIMITER_VB)
        call limit_VB(state, T)
 
+    case (LIMITER_VBJ)
+       call get_option(trim(T%option_path)//"/prognostic/spatial_discretisation/&
+            &discontinuous_galerkin/slope_limiter::Vertex_Based_Julien/Limit_factor", &
+            &limit_factor,stat=stat)
+       call get_option(trim(T%option_path)//"/prognostic/spatial_discretisation/&
+            &discontinuous_galerkin/slope_limiter::Vertex_Based_Julien/tolerance", &
+            &tolerance,stat=stat)
+
+       call limit_VB_julien(state, X, T)
+
     case (LIMITER_FPN)
        call limit_fpn(state, T)      
 
@@ -230,25 +284,36 @@ contains
     type(scalar_field), intent(inout) :: T
     type(vector_field), intent(in) :: X
     type(scalar_field), intent(inout), optional :: T_limit
-    integer, dimension(:), pointer :: neigh, T_ele
-    real, dimension(X%dim) :: ele_centre
-    real :: ele_mean, miss_val
-    integer :: ele_2, ni, face, face2, d, i, j, jj, miss
+    integer, dimension(:), pointer :: neigh, neigh2, x_neigh, T_ele, face_nodes
+    real, dimension(X%dim) :: ele_centre, face2_centre
+    real :: ele_mean, miss_val, lim_value_l, lim_value_r
+    integer :: ele_2, ni, ni2, face, face2, d, deg, i, j, jj, ii, miss
     real, dimension(X%dim, ele_loc(X,ele)) :: X_val, X_val_2
     real, dimension(ele_loc(T,ele)) :: T_val, T_val_2
     real, dimension(X%dim, ele_face_count(T,ele)) :: neigh_centre, face_centre
-    real, dimension(ele_face_count(T,ele)) :: neigh_mean, face_mean
-    real, dimension(mesh_dim(T)+1) :: b, new_val
+    real, dimension(ele_face_count(T,ele)) :: neigh_mean, face_mean, new_val_f
+    integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices      
+    real, dimension(ele_loc(T,ele)) :: b, new_val
     logical :: limit
+    real :: alpha_l=1.
+    
+    if(associated(A)) then
+       deallocate(A)
+       A => null()
+    end if
 
     X_val=ele_val(X, ele)
     T_val=ele_val(T, ele)
     
-    ele_centre=sum(X_val,2)/size(X_val,2)
+    ele_vertices = local_vertices(T%mesh%shape)
 
-    ele_mean=sum(T_val)/size(T_val)
+    ele_centre=sum(X_val,2)/size(X_val,2)
+    
+    ele_mean=sum(T_val(ele_vertices))/size(ele_vertices)
     
     neigh=>ele_neigh(T, ele)
+    face_mean=0.0
+    x_neigh=>ele_neigh(X, ele)
 
     limit=.false.
 
@@ -267,11 +332,16 @@ contains
        ! Note that although face is calculated on field U, it is in fact
        ! applicable to any field which shares the same mesh topology.
        face=ele_face(T, ele, ele_2)
-       face2=ele_face(T, ele_2, ele)
+       face_nodes=>face_local_nodes(T%mesh, face)
 
        face_centre(:,ni) = sum(face_val(X,face),2)/size(face_val(X,face),2)
-
-       face_mean(ni) = sum(face_val(T,face))/size(face_val(T,face))
+       
+       face_mean(ni)=0.
+       do j = 1,size(face_nodes)
+         if (any(ele_vertices==face_nodes(j))) then    
+           face_mean(ni)=face_mean(ni)+T_val(face_nodes(j))/real(size(ele_vertices)-1)
+         endif
+       enddo
        
        if (ele_2<=0) then
           ! External face.
@@ -282,20 +352,19 @@ contains
        T_val_2=ele_val(T, ele_2)
 
        neigh_centre(:,ni)=sum(X_val_2,2)/size(X_val_2,2)
-
-       neigh_mean(ni)=sum(T_val_2)/size(T_val_2)
+       
+       neigh_mean(ni)=sum(T_val_2(ele_vertices))/size(ele_vertices)
     
        if ((face_mean(ni)-ele_mean)*(face_mean(ni)-neigh_mean(ni))>0.0) then
           ! Limit if face_mean does not lie between ele_mean and neigh_mean
           limit=.true.
           
-          if (face_mean(ni)>ele_mean) then
-             face_mean(ni) = max(ele_mean, neigh_mean(ni))
-          else
-             face_mean(ni) = min(ele_mean, neigh_mean(ni))
-          end if
+	  lim_value_l=(1.-alpha_l)*ele_mean + alpha_l*min(ele_mean,neigh_mean(ni))
+	  lim_value_r=(1.-alpha_l)*ele_mean + alpha_l*max(ele_mean,neigh_mean(ni))
+	  face_mean(ni)=max(min(face_mean(ni),lim_value_r),lim_value_l)
 
        end if
+
 
     end do searchloop
 
@@ -309,7 +378,7 @@ contains
     end if
     
     d=mesh_dim(T)
-    new_val=ele_mean
+    new_val_f=ele_mean
 
     do miss=1,d+1
        
@@ -342,7 +411,7 @@ contains
        call invert(A)
        b=matmul(A,b)
        
-       if (maxval(abs(b-ele_mean))>maxval(abs(new_val-ele_mean))) then
+       if (maxval(abs(b-ele_mean))>maxval(abs(new_val_f-ele_mean))) then
           !! The slope is larger than the current best guess.
           
           miss_val=0.0
@@ -355,13 +424,33 @@ contains
           if ((miss_val-ele_mean)*(miss_val-neigh_mean(miss))<=0.0) then
              ! The slope is legal.
              
-             new_val=b
+             new_val_f=b
 
           end if
 
        end if
 
     end do
+    
+    new_val=T_val
+    do ni=1,size(neigh)
+      ele_2=neigh(ni)
+      face=ele_face(T, ele, ele_2)
+      face_nodes=>face_local_nodes(T%mesh, face)
+      
+      do j = 1,size(face_nodes)
+        if (.not.any(ele_vertices==face_nodes(j))) &    
+              new_val(face_nodes(j))=face_mean(ni)
+      enddo
+    enddo
+    
+    jj=0
+    do j=1,ele_loc(T,ele)
+      if (any(ele_vertices==j)) then
+        jj=jj+1
+        new_val(j)=new_val_f(jj)
+      endif
+    enddo
    
     ! Success or non-boundary failure.
     T_ele=>ele_nodes(T,ele)
@@ -386,8 +475,10 @@ contains
     type(vector_field), intent(in) :: X
     !
     logical :: do_setup
-    integer :: cnt, d, i, j, ele
-
+    integer :: cnt, d, i, j, ele, deg, ele_2, face
+    integer, dimension(:), pointer :: face_nodes, neigh
+    integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices  
+    
     do_setup = .false.
     if(.not.CSL_initialised) then
        CALL GetEventCounter(EVENT_ADAPTIVITY, csl_adapt_counter)
@@ -415,6 +506,7 @@ contains
           deallocate(A)
           A => null()
        end if
+
        !!ATTENTION: This assumes that all elements have the same number of faces
        allocate(alpha(element_count(T),ele_face_count(T,1)&
             &,ele_face_count(T,1)))
@@ -435,9 +527,11 @@ contains
        end do
        
        call invert(A)
-
+       
        do ele = 1, element_count(T)
+
           call cockburn_shu_setup_ele(ele,T,X)
+	  
        end do
 
     end if    
@@ -449,18 +543,19 @@ contains
     type(scalar_field), intent(inout) :: T
     type(vector_field), intent(in) :: X
     
-    integer, dimension(:), pointer :: neigh, x_neigh
+    integer, dimension(:), pointer :: neigh, x_neigh, face_nodes
     real, dimension(X%dim) :: ele_centre, face_2_centre
     real :: max_alpha, min_alpha, neg_alpha
-    integer :: ele_2, ni, nj, face, face_2, i, nk, ni_skip, info, nl
+    integer :: ele_2, ni, nj, face, face_2, i, nk, ni_skip, info, nl, j
     real, dimension(X%dim, ele_loc(X,ele)) :: X_val, X_val_2
-    real, dimension(X%dim, ele_face_count(T,ele)) :: neigh_centre,&
-         & face_centre
+    real, dimension(X%dim, ele_face_count(T,ele)) :: neigh_centre, face_centre
     real, dimension(X%dim) :: alpha1, alpha2
     real, dimension(X%dim,X%dim) :: alphamat
     real, dimension(X%dim,X%dim+1) :: dx_f, dx_c
-    integer, dimension(mesh_dim(T)) :: face_nodes
-
+    integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices  
+    
+    ele_vertices = local_vertices(T%mesh%shape)
+    
     X_val=ele_val(X, ele)
     
     ele_centre=sum(X_val,2)/size(X_val,2)
@@ -479,10 +574,10 @@ contains
        ! Note that although face is calculated on field U, it is in fact
        ! applicable to any field which shares the same mesh topology.
        face=ele_face(T, ele, ele_2)
-       face_nodes=face_local_nodes(T, face)
+       face_nodes=>face_local_nodes(X%mesh, face)
 
        face_centre(:,ni) = sum(X_val(:,face_nodes),2)/size(face_nodes)
-       
+
        if (ele_2<=0) then
           ! External face.
           neigh_centre(:,ni)=face_centre(:,ni)
@@ -496,8 +591,9 @@ contains
           ! Periodic boundary case. We have to cook up the coordinate by
           ! adding vectors to the face from each side.
           face_2=ele_face(T, ele_2, ele)
-          face_2_centre = &
-               sum(face_val(X,face_2),2)/size(face_val(X,face_2),2)
+          face_nodes=>face_local_nodes(X%mesh, face_2)
+	  
+          face_2_centre = sum(X_val_2(:,face_nodes),2)/size(face_nodes)
           neigh_centre(:,ni)=face_centre(:,ni) + &
                (neigh_centre(:,ni) - face_2_centre)
        end if
@@ -506,11 +602,11 @@ contains
 
     do ni = 1, size(neigh)
        dx_c(:,ni)=neigh_centre(:,ni)-ele_centre !Vectors from ni centres to
-       !                                         !ele centre
+                                                !ele centre
        dx_f(:,ni)=face_centre(:,ni)-ele_centre !Vectors from ni face centres
-                                              !to ele centre
+                                               !to ele centre
     end do
-
+    
     alpha_construction_loop: do ni = 1, size(neigh)
        !Loop for constructing Delta v(m_i,K_0) as described in C&S
        alphamat(:,1) = dx_c(:,ni)
@@ -594,7 +690,7 @@ contains
           nl = nl + 1
           alpha(ele,ni,nj) = alpha1(nl)
        end do
-
+       
        dx2(ele,ni) = norm2(dx_c(:,ni))
 
     end do alpha_construction_loop
@@ -608,23 +704,32 @@ contains
     type(scalar_field), intent(inout) :: T
     type(vector_field), intent(in) :: X
     
-    integer, dimension(:), pointer :: neigh, x_neigh, T_ele
+    integer, dimension(:), pointer :: neigh, x_neigh, T_ele, face_nodes
     real :: ele_mean
-    real :: pos, neg
-    integer :: ele_2, ni, face
+    real :: pos, neg, sum
+    logical :: limit
+    integer :: ele_2, ni, ni2, face, d, deg, i, j, jj
+    real, dimension(X%dim,ele_loc(X,ele)) :: X_val
     real, dimension(ele_loc(T,ele)) :: T_val, T_val_2
+    real, dimension(ele_loc(T,ele)) :: new_val
     real, dimension(ele_face_count(T,ele)) :: neigh_mean, face_mean
     real, dimension(mesh_dim(T)+1) :: delta_v
-    real, dimension(mesh_dim(T)+1) :: Delta, new_val
-    integer, dimension(mesh_dim(T)) :: face_nodes
-
+    real, dimension(mesh_dim(T)+1) :: Delta, new_val_f
+    integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices  
+      
     T_val=ele_val(T, ele)
+    X_val=ele_val(X, ele)
     
-    ele_mean=sum(T_val)/size(T_val)
+    ele_vertices = local_vertices(T%mesh%shape)
+    
+    ele_mean=sum(T_val(ele_vertices))/size(ele_vertices)
     
     neigh=>ele_neigh(T, ele)
+    face_mean=0.0
     ! x_neigh/=t_neigh only on periodic boundaries.
     x_neigh=>ele_neigh(X, ele)
+    
+    limit=.false.
 
     searchloop: do ni=1,size(neigh)
 
@@ -636,9 +741,14 @@ contains
        ! Note that although face is calculated on field U, it is in fact
        ! applicable to any field which shares the same mesh topology.
        face=ele_face(T, ele, ele_2)
-       face_nodes=face_local_nodes(T, face)
-       
-       face_mean(ni) = sum(T_val(face_nodes))/size(face_nodes)
+       face_nodes=>face_local_nodes(T%mesh, face)
+    
+       face_mean(ni)=0.
+       do j = 1,size(face_nodes)
+         if (any(ele_vertices==face_nodes(j))) then    
+           face_mean(ni)=face_mean(ni)+T_val(face_nodes(j))/mesh_dim(T)
+         endif
+       enddo
        
        if (ele_2<=0) then
           ! External face.
@@ -648,18 +758,28 @@ contains
 
        T_val_2=ele_val(T, ele_2)
 
-       neigh_mean(ni)=sum(T_val_2)/size(T_val_2)
-
+       neigh_mean=sum(T_val_2(ele_vertices))/size(ele_vertices)
+    
     end do searchloop
 
     delta_v = matmul(alpha(ele,:,:),neigh_mean-ele_mean)
 
     delta_loop: do ni=1,size(neigh)
 
-       Delta(ni)=TVB_minmod(face_mean(ni)-ele_mean, &
-            Limit_factor*delta_v(ni), dx2(ele,ni))
+       Delta(ni)=TVB_minmod(face_mean(ni)-ele_mean, Limit_factor*delta_v(ni), dx2(ele,ni))
 
     end do delta_loop
+        
+    ! Apply limiting in the element only if actually needed
+    sum=0.0
+    do ni = 1, size(neigh)
+      sum = sum+Delta(ni)+ele_mean
+    enddo
+    limit=(sum(face_mean)/=sum)
+    
+    if (.not.limit) then
+       return
+    end if
 
     if (abs(sum(Delta))>1000.0*epsilon(0.0)) then
        ! Coefficients do not sum to 0.0
@@ -668,18 +788,39 @@ contains
        neg=sum(max(0.0, -Delta))
        
        Delta = min(1.0,neg/pos)*max(0.0,Delta) &
-            -min(1.0,pos/neg)*max(0.0,-Delta)
+             - min(1.0,pos/neg)*max(0.0,-Delta)
        
     end if
 
-    new_val=matmul(A,Delta+ele_mean)
+    new_val_f=matmul(A,Delta+ele_mean)
     
+    new_val=T_val
+    do ni=1,size(ele_vertices)
+      new_val(ele_vertices(ni))=new_val_f(ni)
+    enddo
+      
     ! Success or non-boundary failure.
     T_ele=>ele_nodes(T,ele)
     
     call set(T, T_ele, new_val)
 
   end subroutine limit_slope_ele_cockburn_shu
+
+  function TVB_minmod(a1,a2, dx)
+    real :: TVB_minmod
+    real, intent(in) :: a1, a2, dx
+
+    if (TVB_factor_absolute .and. abs(a1)<TVB_factor) then
+       TVB_minmod=a1
+    else if (TVB_factor_relative .and. abs(a1)<TVB_factor*dx**2) then
+       TVB_minmod=a1
+    else if (abs(a1)<abs(a2)) then
+       TVB_minmod=a1
+    else
+       TVB_minmod=a2
+    end if
+
+  end function TVB_minmod
 
   !11:25 <Guest54276>     do ele_A=1,ele_count(old_position)
   !11:25 <Guest54276>       call local_coords_matrix(old_position, ele_A, 
@@ -697,12 +838,13 @@ contains
     type(scalar_field), intent(inout) :: T_limit
     type(vector_field), intent(in) :: X, U
 
-    integer, dimension(:), pointer :: neigh, x_neigh, T_ele
+    integer, dimension(:), pointer :: neigh, x_neigh, T_ele, face_nodes
     real :: ele_mean, ele_mean_2
     real, dimension(ele_face_count(T,ele)) :: ele_means
     real :: residual
     integer :: ele_2, ni, nj, face, face_2,i, nk, info, nl
     integer :: l_face, l_face_2
+    logical :: limit_slope
     real, dimension(ele_loc(T,ele)) :: T_val, T_val_2
     real, dimension(face_loc(T,1)) :: T_val_face
     real, dimension(face_ngi(T,1)) :: T_face_quad
@@ -711,22 +853,21 @@ contains
     real, dimension(X%dim, ele_loc(X,ele)) :: X_val
     real, dimension(ele_face_count(T,ele)) :: neigh_mean, face_mean
     real, dimension(ele_loc(T,ele)) :: new_val
-    integer, dimension(mesh_dim(T)) :: face_nodes
-    logical :: limit_slope
-    real, dimension(ele_loc(T, ele), ele_ngi(T, ele), &
-         &mesh_dim(T)) :: du_t
+    
+    type(element_type), pointer :: shape_T
+    real, dimension(ele_loc(T, ele), ele_ngi(T, ele), mesh_dim(T)) :: du_t
     real, dimension(ele_ngi(T,ele)) :: detwei
     real, dimension(ele_ngi(T,ele)) :: p_quad, T_quad
     real, dimension(1+2*ele_loc(T,ele),ele_loc(T,ele)) :: Polys
     real, dimension(ele_loc(T,ele)*2+1) :: Polys_o, Polys_w
-    real, dimension(mesh_dim(T),ele_ngi(T,ele)) :: dp_quad
     logical, dimension(ele_face_count(T,ele)) :: boundaries
     logical, dimension(ele_face_count(T,ele)) :: construct_Lagrange
-    type(element_type), pointer :: shape_T
     real, dimension(ele_loc(T,ele),ele_loc(T,ele)) :: Imat
     real, dimension(ele_loc(T,ele)) :: Irhs
     real, dimension(ele_loc(X,ele)) :: local_coords
     integer, dimension(face_loc(T,1)) :: l_face_list,l_face_list_2
+    real, dimension(mesh_dim(T),ele_ngi(T,ele)) :: dp_quad
+    integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices  
 
     real :: Discontinuity_indicator, inflow_integral, h
     real, dimension(ele_loc(T,ele)) :: ones
@@ -750,6 +891,8 @@ contains
     neigh=>ele_neigh(T, ele)
     ! x_neigh/=t_neigh only on periodic boundaries.
     x_neigh=>ele_neigh(X, ele)
+    
+    ele_vertices = local_vertices(T%mesh%shape)
 
     discontinuity_option = 2
 
@@ -779,10 +922,6 @@ contains
           face_max = maxval(T_face_quad)
           face_min = minval(T_face_quad)
           ele_mean_2 = sum(T_val_2)/size(T_val_2)
-
-          !ewrite(3,*) T_face_quad
-          !ewrite(3,*) T_val
-          !ewrite(3,*) T_val_2
 
           if(face_max>max(ele_mean,ele_mean_2)+disc_tol) limit_slope = .true.
           if(face_min<min(ele_mean,ele_mean_2)-disc_tol) limit_slope = .true.
@@ -833,7 +972,7 @@ contains
        inflow_integral = abs(inflow_integral)
 
        !Compute h
-       h = get_H(X_val)
+       h = get_H(ele_vertices, X_val)
 
        !Get max norm in element of T
        T_quad = ele_val_at_quad(T,ele)
@@ -854,7 +993,6 @@ contains
     end select
 
     if(limit_slope) then
-       ewrite(2,*) 'cjc: limiting slope'
        limit_count = limit_count + 1
 
        !Apply HWENO limiter
@@ -880,7 +1018,7 @@ contains
           ! applicable to any field which shares the same mesh topology.
           face=ele_face(T, ele, ele_2)
           face_2=ele_face(T, ele_2, ele)
-          face_nodes=face_local_nodes(T, face)
+          face_nodes=>face_local_nodes(T%mesh, face)
 
           face_mean(ni) = sum(T_val(face_nodes))/size(face_nodes)
 
@@ -1028,8 +1166,7 @@ contains
 
              !Compute local coordinates (relative to ele)
              !of vertex in ele_2 which is opposite the face
-             local_coords = local_coords_interpolation(X,ele&
-                  &,X_vals(ni,:,l_face_2))
+             local_coords = local_coords_interpolation(X,ele,X_vals(ni,:,l_face_2))
 
              !Solve 1D linear system to get polynomial value
              !from
@@ -1139,19 +1276,77 @@ contains
 
   end subroutine limit_slope_ele_hermite_weno
 
-  function TVB_minmod(a1,a2, dx)
-    real :: TVB_minmod
-    real, intent(in) :: a1, a2, dx
+  subroutine Discontinuity_indicator_face(Discontinuity_indicator, &
+       & Inflow_integral, &
+       & U,T,X,ele,face,face_2)
+    real, intent(inout) :: Discontinuity_indicator, Inflow_integral
+    type(vector_field), intent(in) :: U,X
+    type(scalar_field), intent(in) :: T
+    integer, intent(in) :: ele, face, face_2
+    !
+    real, dimension(face_ngi(T,face)) :: detwei
+    real, dimension(mesh_dim(T),face_ngi(T,face)) :: normal
+    real, dimension(mesh_dim(U),face_ngi(U,face)) :: U_flux
+    integer, dimension(face_ngi(U,face)) :: inflow
+    real :: Area
 
-    if (abs(a1)<TVB_factor*dx**2) then
-       TVB_minmod=a1
-    else if (abs(a1)<abs(a2)) then
-       TVB_minmod=a1
-    else
-       TVB_minmod=a2
-    end if
+    call transform_facet_to_physical( X, face,&
+    	 & detwei_f=detwei,normal=normal)
+    
+    U_flux = 0.5*(face_val_at_quad(U,face)+ &
+    	 & face_val_at_quad(U,face_2))
+    
+    !We only compute on inflow boundaries    
+    inflow = merge(1.0,0.0,sum(U_flux*normal,1)<0.0)
 
-  end function TVB_minmod
+    Discontinuity_indicator = &
+    	 & Discontinuity_indicator + &
+    	 abs(sum( (face_val_at_quad(T, face) &
+    	 - face_val_at_quad(T,face_2))*detwei*inflow ))
+
+    Area = abs(sum(detwei*inflow))
+    Inflow_integral = Inflow_integral + Area
+
+  end subroutine Discontinuity_indicator_face
+
+  function get_H(vertices, X) result (h)
+    real, dimension(:,:), intent(in) :: X
+    integer, dimension(:), intent(in) :: vertices
+    real :: h
+    !
+    integer, dimension(size(X,1)+1) :: ind
+    integer :: i,j,dim
+    real :: a,b,c
+
+    dim = size(X,1)
+    
+    do i = 1,dim+1
+      ind(i) = vertices(i)
+    enddo
+
+    select case(dim)
+    case (1)
+       !Just take the difference
+       h = abs(X(1,ind(1))-X(1,ind(2)))
+    case (2)
+       !Circumradius
+       a = sqrt(sum((X(:,ind(2))-X(:,ind(1)))**2))
+       b = sqrt(sum((X(:,ind(3))-X(:,ind(2)))**2))
+       c = sqrt(sum((X(:,ind(1))-X(:,ind(3)))**2))
+       h = a*b*c/sqrt((a+b+c)*(b+c-a)*(c+a-b)*(a+b-c))
+    case (3)
+       !This should be circumradius too but I didn't code it
+       h = 0.0
+       do i = 1, size(X,ind(2))
+          do j = 2, size(X,ind(2))
+             h = max(h,sqrt(sum( (X(:,ind(i))-X(:,ind(j)))**2 )))
+          end do
+       end do
+    case default
+       FLExit('dont know that dimension.')
+    end select
+    
+  end function get_H
 
   subroutine limit_slope_ele_dg_1d(ele, T, X)
     
@@ -1231,127 +1426,6 @@ contains
 
   end subroutine limit_slope_ele_dg_1d
 
-  subroutine Discontinuity_indicator_face(Discontinuity_indicator, &
-       & Inflow_integral, &
-       & U,T,X,ele,face,face_2)
-    real, intent(inout) :: Discontinuity_indicator, Inflow_integral
-    type(vector_field), intent(in) :: U,X
-    type(scalar_field), intent(in) :: T
-    integer, intent(in) :: ele, face, face_2
-    !
-    real, dimension(face_ngi(T,face)) :: detwei
-    real, dimension(mesh_dim(T),face_ngi(T,face)) :: normal
-    real, dimension(mesh_dim(U),face_ngi(U,face)) :: U_flux
-    integer, dimension(face_ngi(U,face)) :: inflow
-    logical :: use_mean_inflow
-    !stuff for local calculations
-    real, dimension(U%dim,ele_loc(X,ele)) :: X_val
-    real, dimension(face_loc(T,face)) :: T_face_val
-    real, dimension(U%dim,face_loc(X,face)) :: X_face_val
-    real, dimension(U%dim) :: centroid2face, normal_vec, Vec1, Vec2
-    real, dimension(U%dim,face_loc(U,face)) :: U_face_val
-    real :: Area
-
-    X_val = ele_val(X,ele)
-    x_face_val = face_val(X,face)
-
-    use_mean_inflow = .false.
-
-    if(use_mean_inflow) then
-
-       !We only compute on mean inflow boundaries
-       !This means we can avoid transforming to physical
-       !only works on flat elements
-
-       !compute normals
-       select case (U%dim)
-       case (2)
-          Vec1 = x_face_val(:,1) - x_face_val(:,2)
-          normal_vec(1) = -Vec1(2)
-          normal_vec(2) = Vec1(1)
-          Area = sqrt(sum(Vec1**2))
-       case (3)
-          Vec1 = x_face_val(:,1) - x_face_val(:,2)
-          Vec2 = x_face_val(:,1) - x_face_val(:,3)
-          normal_vec(1) = Vec1(2)*Vec2(3)-Vec1(3)*Vec2(2)
-          normal_vec(2) = -Vec1(1)*Vec2(3)+Vec1(3)*Vec2(1)
-          normal_vec(3) = Vec1(1)*Vec2(2)-Vec1(2)*Vec2(1)
-          Area = 0.5*sqrt(sum(normal_vec**2))
-       case default
-          FLExit('cant handle that case - that dimension is not supported')
-       end select
-       normal_vec = normal_vec / sqrt(sum(normal_vec**2))
-       centroid2face = sum(X_face_val,2)/size(X_face_val,2) - &
-            & sum(X_val,2)/size(X_val,2)
-       if(sum(normal_vec*centroid2face)<0.0) normal_vec = -normal_vec
-
-       !Check if have mean inflow on this faec
-       U_face_val = face_val(U,face)
-       if(sum(sum(U_face_val,2)/size(U_face_val,2)*normal_vec)<1.0e-15) then
-
-          T_face_val = face_val(T,face) - face_val(T,face_2)
-
-          Discontinuity_indicator = Discontinuity_indicator + &
-               sum(T_face_val)/size(T_face_val)*Area
-
-          Inflow_integral = Inflow_integral + Area
-       end if
-
-    else
-
-       call transform_facet_to_physical( X, face,&
-            & detwei_f=detwei,normal=normal)
-       
-       U_flux = 0.5*(face_val_at_quad(U,face)+ &
-            & face_val_at_quad(U,face_2))
-       
-       !We only compute on inflow boundaries    
-       inflow = merge(1.0,0.0,sum(U_flux*normal,1)<0.0)
-
-       Discontinuity_indicator = &
-            & Discontinuity_indicator + &
-            abs(sum( (face_val_at_quad(T, face) &
-            - face_val_at_quad(T,face_2))*detwei*inflow ))
-
-       Area = abs(sum(detwei*inflow))
-       Inflow_integral = Inflow_integral + Area
-    end if
-
-  end subroutine Discontinuity_indicator_face
-
-  function get_H(X) result (h)
-    real, dimension(:,:), intent(in) :: X
-    real :: h
-    !
-    integer :: i,j,dim
-    real :: a,b,c
-
-    dim = size(X,1)
-
-    select case(dim)
-    case (1)
-       !Just take the difference
-       h = abs(X(1,1)-X(1,2))
-    case (2)
-       !Circumradius
-       a = sqrt(sum((X(:,2)-X(:,1))**2))
-       b = sqrt(sum((X(:,3)-X(:,2))**2))
-       c = sqrt(sum((X(:,1)-X(:,3))**2))
-       h = a*b*c/sqrt((a+b+c)*(b+c-a)*(c+a-b)*(a+b-c))
-    case (3)
-       !This should be circumradius too but I didn't code it
-       h = 0.0
-       do i = 1, size(X,2)
-          do j = 2, size(X,2)
-             h = max(h,sqrt(sum( (X(:,i)-X(:,j))**2 )))
-          end do
-       end do
-    case default
-       FLExit('dont know that dimension.')
-    end select
-    
-  end function get_H
-
   subroutine limit_vb(state, t)
     !Vertex-based (not Victoria Bitter) limiter from
     !Kuzmin, J. Comp. Appl. Math., 2010
@@ -1425,15 +1499,15 @@ contains
        T_val_slope = T_val - Tbar
        T_val_max = ele_val(T_max,ele)
        T_val_min = ele_val(T_min,ele)
-       
+
        !loop over nodes, adjust alpha
        do node = 1, size(T_val)
-         !check whether to use max or min, and avoid floating point algebra errors due to round-off and underflow
-         if(T_val(node)>Tbar*(1.0+sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar > tiny(0.0)*1e10) then
-           alpha = min(alpha,(T_val_max(node)-Tbar)/(T_val(node)-Tbar))
-         else if(T_val(node)<Tbar*(1.0-sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar < -tiny(0.0)*1e10) then
-           alpha = min(alpha,(T_val_min(node)-Tbar)/(T_val(node)-Tbar))
-         end if
+	 !check whether to use max or min, and avoid floating point algebra errors due to round-off and underflow
+	 if(T_val(node)>Tbar*(1.0+sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar > tiny(0.0)*1e10) then
+	   alpha = min(alpha,(T_val_max(node)-Tbar)/(T_val(node)-Tbar))
+	 else if(T_val(node)<Tbar*(1.0-sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar < -tiny(0.0)*1e10) then
+	   alpha = min(alpha,(T_val_min(node)-Tbar)/(T_val(node)-Tbar))
+	 end if
        end do
 
        call set(T_limit, T_ele, Tbar + alpha*T_val_slope)
@@ -1449,6 +1523,264 @@ contains
 
   end subroutine limit_vb
 
+  subroutine limit_vb_julien(state, X, T)
+    implicit none
+    type(state_type), intent(inout) :: state
+    type(vector_field), intent(inout) :: X
+    type(scalar_field), intent(inout) :: T
+    !
+    ! This is the limited version of the field, we have to make a copy
+    type(scalar_field) :: DT_limit, T_proj, T_rem
+    type(vector_field) :: X_proj
+    type(scalar_field), pointer :: sfield
+    type(vector_field), pointer :: vfield
+    type(mesh_type), pointer :: vmesh
+    
+    ! counters
+    integer :: deg, stat, ele, ele_2, face, ni, nj, nl, nf, nv, l
+    logical :: limit
+    
+    ! local
+    integer, dimension(:), pointer :: neigh, nodes, nodes_x, face_nodes, face_nodes_x, ele_neighbours
+    integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices 
+    integer, dimension(X%mesh%faces%shape%loc) :: face_global
+    integer, dimension(ele_loc(T,ele)) :: flag
+             
+    real, dimension(ele_loc(T,ele)) :: T_neigh_max, T_neigh_min, T_val, T_val_n, new_val
+    real, dimension(X%dim,ele_loc(T,ele)) :: X_proj_val
+    real, dimension(X%dim,ele_loc(X,ele)) :: X_val, X_val_n
+    real, dimension(ele_loc(X,ele)) :: base, Delta, Delta_low, T_proj_val, T_rem_val, T_low
+    real, dimension(X%dim) :: X_neigh, X_mean
+    real :: pos, neg, sum, T_mean, T_neigh, alpha
+
+    deg=T%mesh%shape%degree
+    ele_vertices = local_vertices(T%mesh%shape) 
+    
+    vfield=>extract_vector_field(state, "Velocity")
+    vmesh=>vfield%mesh
+
+    call allocate(X_proj, X%dim, T%mesh, "ProjectedMesh")
+    call allocate(DT_limit, T%mesh, "DeltaLimitedScalar")
+    call allocate(T_proj, vmesh, "ProjectedScalar")
+    call allocate(T_rem, vmesh, "RemappedScalar")
+    
+    call remap_field(X, X_proj)
+    call safe_set(state, T_proj, T)
+    call zero(DT_limit)
+
+    ! Find min/max values on each node
+    do ele = 1, ele_count(T)
+
+      neigh => ele_neigh(T,ele)      
+      nodes => ele_nodes(T,ele)
+      nodes_x => ele_nodes(X,ele)
+      
+      ! Exclude boundary elements
+      if ( any(neigh <= 0) ) cycle
+      
+      T_val=ele_val(T,ele)
+      T_proj_val=ele_val(T_proj,ele)
+      T_mean=sum(T_proj_val)/size(T_proj_val)
+
+      X_val=ele_val(X, ele)	  
+      X_proj_val=ele_val(X_proj, ele)
+      X_mean=sum(X_val,2)/size(X_val)
+                  
+      ! Find extrema at nodes
+      flag=0
+      T_neigh_max=-huge(0.0)
+      T_neigh_min=huge(0.0)
+      do nf = 1, size(neigh)
+        ele_2=neigh(nf)
+        face=ele_face(T, ele, ele_2)
+        face_nodes=>face_local_nodes(T%mesh, face)
+		
+	nv=0	
+	do nj = 1, size(face_nodes)
+	  ni=face_nodes(nj)	  
+	  if ( flag(ni) == 1 .or. .not.any(ele_vertices == ni) ) cycle
+	  flag(ni)=1
+
+	  nv=nv+1
+          face_global=face_global_nodes(X%mesh, face)
+          ele_neighbours=>node_neigh(X%mesh, face_global(nv))
+          
+          ! Get min/max limiting values
+          do l = 1, size(ele_neighbours)
+            if ( ele_neighbours(l) == ele ) cycle
+            T_val_n=ele_val(T,ele_neighbours(l))
+            T_neigh_max(ni)=max(T_neigh_max(ni),maxval(T_val_n))
+            T_neigh_min(ni)=min(T_neigh_min(ni),minval(T_val_n))
+     	  enddo
+        enddo
+	
+	do nj = 1, size(face_nodes)
+	  ni=face_nodes(nj)	  
+	  if ( flag(ni) == 0 .and. .not.any(ele_vertices == ni) ) then
+	    flag(ni)=1
+	    T_neigh_max(ni)=maxval(T_neigh_max(face_nodes))
+	    T_neigh_min(ni)=minval(T_neigh_min(face_nodes))
+	  endif
+	enddo
+      enddo
+     
+      ! Limiter indicator based on higher-order terms
+      limit=.false.
+      nj=0
+      do ni = 1, size(T_val)
+        if ( abs(T_val(ni)-T_mean)/abs(T_mean) <= tolerance ) cycle
+      
+     	if (T_neigh_max(ni) < T_neigh_min(ni)) then
+	  T_neigh_max(ni)=T_val(ni); T_neigh_min(ni)=T_val(ni)
+	endif
+	
+	if (deg > 1) then
+	  if ( T_val(ni)-T_mean < (0.333*(limit_factor-1)+1)*(T_neigh_min(ni)-T_mean) &
+	  .or. T_val(ni)-T_mean > (0.333*(limit_factor-1)+1)*(T_neigh_max(ni)-T_mean) ) &
+	     limit=.true.
+	else
+	  limit=.true.
+	endif
+      enddo
+      
+      if ( .not.limit ) cycle
+      
+      nj=0
+      do ni = 1, size(nodes)
+        if ( any(ele_vertices == ni) ) then
+          nj=nj+1
+	  Delta_low(nj)=minmod(T_neigh_max(ni)-T_mean,T_neigh_min(ni)-T_mean,T_proj_val(nj)-T_mean,limit_factor)
+        endif
+      enddo   
+      
+      if (sum(T_mean+Delta_low) == sum(T_proj_val)) cycle
+      
+      ! Enforce mass conservation on low order limiter
+      if (abs(sum(Delta_low))>1000.0*epsilon(0.0)) then
+        pos=sum(max(0.0, Delta_low))
+        neg=sum(max(0.0, -Delta_low))
+      
+        Delta_low = min(1.0,neg/pos)*max(0.0,Delta_low)   &
+              - min(1.0,pos/neg)*max(0.0,-Delta_low)
+      end if
+            
+      ! Apply limiter to vertices
+      nj=0
+      do ni = 1, size(nodes)
+        if ( any(ele_vertices == ni) ) then
+          nj=nj+1
+	  new_val(ni) = T_mean + Delta_low(nj)
+	  T_low(nj) = new_val(ni)
+        endif
+      enddo   
+	
+      ! Apply limiter to mid-face nodes
+      do nf = 1, size(neigh)
+        ele_2=neigh(nf)
+        face=ele_face(T, ele, ele_2)
+        face_nodes=>face_local_nodes(T%mesh, face)
+		
+	do nj = 1, size(face_nodes)
+	  ni=face_nodes(nj)	  
+          if ( .not.any(ele_vertices == ni) ) then
+            base=create_basis(face,X_proj_val(:,ni),X_val,X_mean)
+	    new_val(ni) = sum(base*T_low)
+          endif
+	enddo
+      enddo 
+      
+      call set(DT_limit, ele_nodes(T,ele), new_val-T_val)
+       
+    enddo 
+    ewrite_minmax(DT_limit)
+
+    !Deallocate copy of field
+    call addto(T, DT_limit)
+    call halo_update(T)
+ 
+    if (trim(T%name)=="PotentialTemperature") then  
+      sfield=>extract_scalar_field(state, "DeltaLimitPotentialTemperature", stat)
+      if (stat==0) call set(sfield, DT_limit)
+    endif
+    
+    call deallocate(X_proj)
+    call deallocate(T_proj)
+    call deallocate(DT_limit)
+
+contains
+
+    function minmod(phi_max,phi_min,lim,limit_factor)
+      real :: phi_max, phi_min, lim
+      real :: minmod
+      real :: limit_factor
+      
+      if ( sign(1.0,phi_max) == sign(1.0,phi_min) .and. sign(1.0,phi_max) == sign(1.0,lim) ) then
+        minmod=sign(1.0,lim)*min(limit_factor*max(abs(phi_max),abs(phi_min)),abs(lim))
+      else if ( sign(1.0,phi_max) /= sign(1.0,phi_min) .and. sign(1.0,phi_max) == sign(1.0,lim) ) then
+        minmod=min(limit_factor*phi_max,lim)
+      else if ( sign(1.0,phi_max) /= sign(1.0,phi_min) .and. sign(1.0,phi_min) == sign(1.0,lim) ) then
+        minmod=max(limit_factor*phi_min,lim)
+      else
+	minmod=0.0
+      endif
+      
+      return
+    end function minmod  
+
+    function sweby(phi_max,phi_min,lim,limit_factor)
+      real :: phi_max, phi_min, lim, dx2
+      real :: minmod, sweby
+      real :: limit_factor
+      
+      if (sign(1.0,phi_max) == sign(1.0,phi_min)) then
+        minmod=min(limit_factor*max(phi_max,phi_min),abs(lim))
+      else 
+        minmod=0.0
+      endif
+      
+      if ( minmod == abs(lim) ) return
+      
+      if (sign(1.0,phi_max) == sign(1.0,phi_min) .and. sign(1.0,phi_max) == sign(1.0,lim)) then
+        sweby=min(limit_factor*abs(phi_max),limit_factor*abs(phi_min),abs(lim))
+        sweby=sign(1.0,lim)*max(0.,sweby,minmod)
+      else 
+        sweby=0.0
+      endif
+      
+      return
+    end function sweby  
+
+    function create_basis(face,X_proj,X_val,X_mean)
+      real, dimension(:), intent(in) :: X_mean,X_proj
+      real, dimension(:,:), intent(in) :: X_val
+      real, dimension(size(X_val,2)) :: create_basis
+      integer :: face
+      
+      integer, dimension(:), pointer :: face_nodes
+      integer :: info, ni
+      real, dimension(size(X_val,1),size(X_val,1)) :: phimat
+      real, dimension(size(X_val,1)) :: phi
+      real :: dx_max
+
+      face_nodes=>face_local_nodes(X%mesh, face)
+
+      do ni=1,size(face_nodes)
+        phimat(:,ni)=X_val(:,face_nodes(ni))-X_mean
+      enddo
+      phi=X_proj-X_mean
+
+      !Solve for basis coefficients
+      call solve(phimat,phi,info)
+
+      create_basis=0.0
+      do ni=1,size(face_nodes)
+        create_basis(face_nodes(ni))=phi(ni)
+      enddo   
+
+    end function create_basis
+
+  end subroutine limit_vb_julien
+  
   subroutine limit_fpn(state, t)
 
     type(state_type), intent(inout) :: state

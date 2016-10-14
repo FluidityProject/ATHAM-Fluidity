@@ -1,0 +1,56 @@
+### Makefile.in --- 
+
+## Author: origimbo@unknown-00-1b-63-00-2c-86.home
+## Version: $Id: Makefile,v 0.0 2012/03/05 15:56:07 origimbo Exp $
+## Keywords: 
+## X-URL: 
+
+FC=@FC@
+FCFLAGS=@FCFLAGS@ -Iinclude
+MLIB_DIR=
+MLIB=
+MOBJ=
+
+OBJS=FW_data_type.o FW_data.o
+
+VPATH=src:include
+MAKE=@MAKE@
+AR=@AR@
+ARFLAGS=@ARFLAGS@
+
+
+.SUFFIXES: .F90 .o
+
+
+$(OBJS): %.o: %.F90
+	echo $@
+	$(FC) $(FCFLAGS) -c  -fPIC $< -o $@ 
+	mv *.o include
+	mv *.mod include
+	cd ..
+
+microphysics_example.o: %.o: %.F90
+	echo $@
+	$(FC) $(FCFLAGS) -c  -fPIC $< -o $@ 
+	mv *.o include
+	cd ..
+
+types:  FW_data_type.o
+
+clean:
+	rm -f *.so include/*.o include/*.mod
+
+initialise: src/FW_data_type.o 
+	python FW.py
+
+library: $(OBJS)
+
+example: microphysics_example.o
+
+microphysics: library
+	f2py -c -m _FortranMicrophysics -Iinclude --f90exec=$(FC) include/*.o $(MOBJ) src/FW_auto.F90 $(MLIB_DIR) $(MLIB)
+%.o: %.mod
+
+
+
+### Makefile ends here

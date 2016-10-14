@@ -17,7 +17,7 @@ contains
   subroutine lagrangian_advection(old_position, velocity, dt, &
                                   old_fields, new_fields)
 
-    type(vector_field), intent(in) :: old_position
+    type(vector_field), intent(inout) :: old_position
     type(vector_field), intent(in) :: velocity
     real, intent(in) :: dt
     type(scalar_field), dimension(:), intent(in), target :: old_fields

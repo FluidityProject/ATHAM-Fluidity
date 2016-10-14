@@ -27,6 +27,7 @@
   USA
 */
 
+#include "mpi.h"
 #include "Adaptivity.h"
 #include "cinterfaces.h"
 

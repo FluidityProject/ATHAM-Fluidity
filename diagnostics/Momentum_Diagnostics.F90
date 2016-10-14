@@ -32,6 +32,7 @@ module momentum_diagnostics
   use boundary_conditions
   use coriolis_module, only : two_omega => coriolis
   use diagnostic_source_fields
+  use diagnostic_fields
   use field_derivatives
   use field_options
   use fields
@@ -43,22 +44,23 @@ module momentum_diagnostics
   use sparsity_patterns_meshes
   use spud
   use state_fields_module
-  use state_module
   use sediment, only : get_n_sediment_fields, get_sediment_item
+  use state_module
+  use initialise_fields_module
+  use parallel_tools
   
   implicit none
   
   private
   
   public :: calculate_strain_rate, calculate_bulk_viscosity, calculate_strain_rate_second_invariant, &
-            calculate_sediment_concentration_dependent_viscosity, &
-            calculate_buoyancy, calculate_coriolis, calculate_tensor_second_invariant, &
-            calculate_imposed_material_velocity_source, &
+	    calculate_sediment_concentration_dependent_viscosity, &
+	    calculate_buoyancy, calculate_coriolis, calculate_tensor_second_invariant, &
+	    calculate_imposed_material_velocity_source, &
             calculate_imposed_material_velocity_absorption, &
             calculate_scalar_potential, calculate_projection_scalar_potential, &
-            calculate_geostrophic_velocity, calculate_viscous_dissipation
+            calculate_geostrophic_velocity, calculate_atmosphere_forcing_vector, calculate_viscous_dissipation
            
-  
 contains
 
   subroutine calculate_strain_rate(state, t_field)
@@ -123,39 +125,39 @@ contains
     sediment_classes = get_n_sediment_fields()
 
     if (sediment_classes > 0) then
-        allocate(sediment_concs(sediment_classes))
-        
-        call get_sediment_item(state, 1, sediment_concs(1)%ptr)
-        
-        call allocate(rhs, sediment_concs(1)%ptr%mesh, name="Rhs")
-        call set(rhs, 1.0)
-        
-        ! get sediment concentrations and remove c/0.65 from rhs
-        do i=1, sediment_classes
-           call get_sediment_item(state, i, sediment_concs(i)%ptr)
-           call addto(rhs, sediment_concs(i)%ptr, scale=-(1.0/0.65))
-        end do
-        
-        ! raise rhs to power of -1.625
-        do i = 1, node_count(rhs)
-           call set(rhs, i, node_val(rhs, i)**(-1.625))
-        end do
-        
-        ! check for presence of ZeroSedimentConcentrationViscosity field
-        if (.not. has_tensor_field(state, "ZeroSedimentConcentrationViscosity")) then
-           FLExit("You must specify an zero sediment concentration viscosity to be able &
-                &to calculate sediment concentration dependent viscosity field values")
-        endif
-        zero_conc_viscosity => extract_tensor_field(state, 'ZeroSedimentConcentrationViscosity')
-        
-        call set(t_field, zero_conc_viscosity)
-        call scale(t_field, rhs)
-        ewrite_minmax(t_field) 
+	allocate(sediment_concs(sediment_classes))
+	
+	call get_sediment_item(state, 1, sediment_concs(1)%ptr)
+	
+	call allocate(rhs, sediment_concs(1)%ptr%mesh, name="Rhs")
+	call set(rhs, 1.0)
+	
+	! get sediment concentrations and remove c/0.65 from rhs
+	do i=1, sediment_classes
+	   call get_sediment_item(state, i, sediment_concs(i)%ptr)
+	   call addto(rhs, sediment_concs(i)%ptr, scale=-(1.0/0.65))
+	end do
+	
+	! raise rhs to power of -1.625
+	do i = 1, node_count(rhs)
+	   call set(rhs, i, node_val(rhs, i)**(-1.625))
+	end do
+	
+	! check for presence of ZeroSedimentConcentrationViscosity field
+	if (.not. has_tensor_field(state, "ZeroSedimentConcentrationViscosity")) then
+	   FLExit("You must specify an zero sediment concentration viscosity to be able &
+		&to calculate sediment concentration dependent viscosity field values")
+	endif
+	zero_conc_viscosity => extract_tensor_field(state, 'ZeroSedimentConcentrationViscosity')
+	
+	call set(t_field, zero_conc_viscosity)
+	call scale(t_field, rhs)
+	ewrite_minmax(t_field) 
 
-        deallocate(sediment_concs)
-        call deallocate(rhs)
+	deallocate(sediment_concs)
+	call deallocate(rhs)
     else
-        ewrite(1,*) 'No sediment in problem definition'
+	ewrite(1,*) 'No sediment in problem definition'
     end if  
   end subroutine calculate_sediment_concentration_dependent_viscosity
   
@@ -224,17 +226,17 @@ contains
     do node=1,node_count(s_field)
        val = 0.
        do dim1 = 1, velocity%dim
-          do dim2 = 1, velocity%dim
-             if(dim1==dim2) then
-                ! Add divergence of velocity term to diagonal only: 
-                val = val + 2.*node_val(viscosity_component_remap, node) * & 
-                     & (node_val(strain_rate_tensor,dim1,dim2,node)      - &
-                     & 1./3. * node_val(velocity_divergence, node))**2
-             else
-                val = val + 2.*node_val(viscosity_component_remap, node) * & 
-                     & node_val(strain_rate_tensor,dim1,dim2,node)**2   
-             end if
-          end do
+	  do dim2 = 1, velocity%dim
+	     if(dim1==dim2) then
+		! Add divergence of velocity term to diagonal only: 
+		val = val + 2.*node_val(viscosity_component_remap, node) * & 
+		     & (node_val(strain_rate_tensor,dim1,dim2,node)	 - &
+		     & 1./3. * node_val(velocity_divergence, node))**2
+	     else
+		val = val + 2.*node_val(viscosity_component_remap, node) * & 
+		     & node_val(strain_rate_tensor,dim1,dim2,node)**2	
+	     end if
+	  end do
        end do
        call set(s_field, node, val)
     end do
@@ -251,17 +253,157 @@ contains
   subroutine calculate_bulk_viscosity(states, t_field)
     type(state_type), dimension(:), intent(inout) :: states
     type(tensor_field), intent(inout) :: t_field
-
     character(len = OPTION_PATH_LEN) :: mean_type
     
     call get_option(trim(complete_field_path(trim(t_field%option_path))) // &
-                    "/algorithm[0]/mean/name", mean_type, default="arithmetic")
+		    "/algorithm[0]/mean/name", mean_type, default="arithmetic")
 
     call calculate_bulk_property(states, t_field, "MaterialViscosity", &
       & mean_type = mean_type, momentum_diagnostic = .true.)
-  
+
   end subroutine calculate_bulk_viscosity
+    
+  subroutine calculate_atmosphere_forcing_vector(state, v_field, dt)
+    type(state_type), intent(inout) :: state
+    type(vector_field), intent(inout) :: v_field
+    real, intent(in) :: dt
+    
+    integer :: i, j, stat, ele, dim
+    real  :: time_scale, z_base, x_base_r, x_base_l, y_base_r, y_base_l, z_max, x_max, x_min, y_max, y_min, xi, X_val, coeff
+    real, allocatable, dimension(:) :: absorption_valx, absorption_valz, absorption_valy, time_scale_tab
+    type(vector_field), pointer :: X
+    type(vector_field) :: X_local
+    character(len=OPTION_PATH_LEN) :: absorption_path
+    
+    ewrite(2,*) 'Inside calculate_atmosphere_forcing_vector '//trim(v_field%name)
   
+    call zero(v_field)
+    
+    X=>extract_vector_field(state,"Coordinate")
+    call allocate(X_local,X%dim,v_field%mesh,"LocalMesh")
+    X_local = get_remapped_coordinates(X, v_field%mesh)
+
+    absorption_path = trim(v_field%option_path)//"/diagnostic/algorithm::atmosphere_forcing_vector"
+    
+    if (have_option(trim(absorption_path)//"/sponge_layer_velocity_absorption")) then
+    
+      call get_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/coefficient',coeff)
+    
+      if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/x_sponge_right')) &
+          call get_option (trim(absorption_path)//'/sponge_layer_velocity_absorption/x_sponge_right',x_base_r)
+      if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/x_sponge_left')) &
+          call get_option (trim(absorption_path)//'/sponge_layer_velocity_absorption/x_sponge_left',x_base_l)
+      if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/y_sponge_right')) &
+          call get_option (trim(absorption_path)//'/sponge_layer_velocity_absorption/y_sponge_right',y_base_r)
+      if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/y_sponge_left')) &
+          call get_option (trim(absorption_path)//'/sponge_layer_velocity_absorption/y_sponge_left',y_base_l)
+      if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/z_sponge')) &
+          call get_option (trim(absorption_path)//'/sponge_layer_velocity_absorption/z_sponge',z_base)
+
+      allocate(absorption_valx(1:X_local%dim), absorption_valy(1:X_local%dim), absorption_valz(1:X_local%dim))
+
+      dim=X%dim
+      x_max=maxval(X_local%val(1,:))	  
+      x_min=minval(X_local%val(1,:))	  
+      y_max=maxval(X_local%val(2,:))	  
+      y_min=minval(X_local%val(2,:))	  
+      z_max=maxval(X_local%val(dim,:))
+
+      call allmax(x_max)
+      call allmax(y_max)
+      call allmax(z_max)
+      call allmin(x_min)
+      call allmin(y_min)
+
+      do ele=1,node_count(v_field)
+        absorption_valx=0.
+        absorption_valy=0.
+        absorption_valz=0.
+        
+        X_val=node_val(X_local,1,ele)
+        if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/x_sponge_right') .and. X_val > x_base_r) then
+          xi=(X_val - x_base_r)/(x_max - x_base_r)
+          if (X_val >= x_base_r .and. xi >= 0. .and. xi < 0.75) then
+            absorption_valx=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+          else if (X_val >= x_base_r .and. xi > 0.75 .and. xi <= 1.) then
+            absorption_valx=1./dt
+          else
+            absorption_valx=0.
+          endif
+        endif
+
+        if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/x_sponge_left') .and. X_val < x_base_l) then
+          xi=(x_base_l - X_val)/(x_base_l - x_min)
+          if (X_val <= x_base_l .and. xi >= 0. .and. xi < 0.75) then
+            absorption_valx=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+          else if (X_val <= x_base_l .and. xi > 0.75 .and. xi <= 1.) then
+            absorption_valx=1./dt
+          else
+            absorption_valx=0.
+          endif
+        endif	
+        
+        if (dim > 2) then
+          X_val=node_val(X_local,2,ele)
+          if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/y_sponge_right') .and. X_val > y_base_r) then
+            xi=(X_val - y_base_r)/(y_max - y_base_r)
+            if (X_val >= y_base_r .and. xi >= 0. .and. xi < 0.75) then
+              absorption_valy=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+            else if (X_val >= y_base_r .and. xi > 0.75 .and. xi <= 1.) then
+              absorption_valy=1./dt
+            else
+              absorption_valy=0.
+            endif
+          endif
+
+          if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/y_sponge_left') .and. X_val < y_base_l) then
+            xi=(y_base_l - X_val)/(y_base_l - y_min)
+            if (X_val <= y_base_l .and. xi >= 0. .and. xi < 0.75) then
+              absorption_valy=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+            else if (X_val <= x_base_l .and. xi > 0.75 .and. xi <= 1.) then
+              absorption_valy=1./dt
+            else
+              absorption_valy=0.
+            endif
+          endif   
+        endif
+        
+        X_val=node_val(X_local,X_local%dim,ele)
+        if (have_option(trim(absorption_path)//'/sponge_layer_velocity_absorption/z_sponge') .and. X_val > z_base) then
+          xi=(X_val - z_base)/(z_max - z_base)
+          if (X_val >= z_base .and. xi >= 0. .and. xi < 0.75) then
+            absorption_valz=1./dt*sin(3.1416/2.*xi/0.75)*sin(3.1416/2.*xi/0.75)
+          else if (X_val >= z_base .and. xi > 0.75 .and. xi <= 1.) then
+            absorption_valz=1./dt
+          else
+            absorption_valz=0.
+          endif
+        endif  
+
+        absorption_valx=coeff*sqrt((absorption_valx**2. + absorption_valy**2. + absorption_valz**2.)/real(dim))
+        call addto(v_field, ele, absorption_valx)
+      enddo
+    
+      deallocate (absorption_valx, absorption_valy, absorption_valz)
+    end if 
+    
+    if (have_option(trim(absorption_path)//"/velocity_nudging")) then
+
+      allocate(time_scale_tab(1:X_local%dim))
+      call get_option(trim(absorption_path)//"/velocity_nudging/time_scale", time_scale)
+      do j=1,X_local%dim
+        time_scale_tab(j)=1./time_scale
+      enddo
+
+      call addto(v_field, time_scale_tab)    
+      deallocate(time_scale_tab)
+    
+    end if
+    
+    call deallocate (X_local)
+    
+  end subroutine calculate_atmosphere_forcing_vector
+
   subroutine calculate_imposed_material_velocity_source(states, state_index, v_field)
     type(state_type), dimension(:), intent(inout) :: states
     integer, intent(in) :: state_index

@@ -21,7 +21,7 @@ module interpolation_module
   end interface
 
   interface quadratic_interpolation
-    module procedure quadratic_interpolation_eqf
+    module procedure quadratic_interpolation_eqf_single, quadratic_interpolation_eqf
   end interface
 
   interface cubic_interpolation
@@ -113,6 +113,69 @@ module interpolation_module
 
   end subroutine quadratic_interpolation_qf
 
+  subroutine quadratic_interpolation_qf_single(old_fields, old_position, new_fields, new_position, map)
+    !!< Interpolate the fields defined on the old_fields mesh
+    !!< onto the new_fields mesh.
+    !!< This routine assumes new_fields have all been allocated.
+
+    type(scalar_field), intent(in) :: old_fields
+    type(vector_field), intent(inout) :: old_position
+    type(scalar_field), intent(inout) :: new_fields
+    type(vector_field), intent(in) :: new_position
+    integer, dimension(:), optional, intent(in), target :: map
+
+    type(mesh_type) :: old_mesh, new_mesh
+    integer, dimension(:), pointer :: lmap
+    integer :: old_node
+    integer :: new_node
+    integer :: ele
+    integer, dimension(:), pointer :: node_list
+    integer :: i
+    real, dimension(MATRIX_SIZE_QF) :: qf_expansion
+    real :: val
+
+    old_mesh = old_fields%mesh
+    new_mesh = new_fields%mesh
+
+    call add_nelist(old_mesh)
+    if (present(map)) then
+      assert(node_count(new_position) == size(map))
+      lmap => map
+    else
+      allocate(lmap(node_count(new_position)))
+      lmap = get_element_mapping(old_position, new_position)
+    end if
+    
+    ! Zero the new fields.
+
+    call zero(new_fields)
+
+    ! Loop over the nodes of the new mesh.
+    do new_node=1,node_count(new_mesh)
+      
+      ! In what element of the old mesh does the new node lie?
+      ele = lmap(new_node)
+      node_list => ele_nodes(old_mesh, ele)
+
+      ! Loop over the nodes of that element,
+      ! get the quadratic expansion of that field,
+      ! evaluate at the point and average.
+      val = 0.0
+      do i=1,size(node_list)
+        old_node = node_list(i)
+        qf_expansion = get_quadratic_fit_qf(old_fields, old_position, old_node)
+        val = val + evaluate_qf(qf_expansion, node_val(new_position, new_node))
+      end do
+      val = val / size(node_list)
+      call set(new_fields, new_node, val)
+    end do
+    
+    if (.not. present(map)) then
+      deallocate(lmap)
+    end if
+    
+  end subroutine quadratic_interpolation_qf_single
+  
   subroutine quadratic_interpolation_eqf(old_fields, old_position, new_fields, new_position)
     !!< Interpolate the fields defined on the old_fields mesh
     !!< onto the new_fields mesh.
@@ -170,6 +233,65 @@ module interpolation_module
     
   end subroutine quadratic_interpolation_eqf
 
+  subroutine quadratic_interpolation_eqf_single(old_fields, old_position, new_fields, new_position, map)
+    !!< Interpolate the fields defined on the old_fields mesh
+    !!< onto the new_fields mesh.
+    !!< This routine assumes new_fields have all been allocated.
+
+    type(scalar_field), intent(in) :: old_fields
+    type(vector_field), intent(inout) :: old_position
+    type(scalar_field), intent(inout) :: new_fields
+    type(vector_field), intent(in) :: new_position
+    integer, dimension(:), optional, intent(in), target :: map
+
+    type(mesh_type) :: old_mesh, new_mesh
+    integer, dimension(:), pointer :: lmap
+    integer :: new_node
+    integer :: ele
+    real, dimension(MATRIX_SIZE_QF) :: fit
+    real :: val
+    type(vector_field) :: gradient
+
+    old_mesh = old_fields%mesh
+    new_mesh = new_fields%mesh
+
+    call allocate(gradient, 3, old_mesh, "Gradient")
+
+    call add_nelist(old_mesh)
+    if (present(map)) then
+      assert(node_count(new_position) == size(map))
+      lmap => map
+    else
+      allocate(lmap(node_count(new_position)))
+      lmap = get_element_mapping(old_position, new_position)
+    end if
+
+    ! Zero the new fields.
+
+    call zero(new_fields)
+
+    ! Loop over the nodes of the new mesh.
+
+    call grad(old_fields, old_position, gradient)
+    
+    do new_node=1,node_count(new_mesh)
+
+      ! In what element of the old mesh does the new node lie?
+      ele = lmap(new_node)
+      fit = get_quadratic_fit_eqf(old_fields, old_position, ele, transpose(ele_val(gradient, ele)))
+      val = evaluate_qf(fit, node_val(new_position, new_node))
+
+      call set(new_fields, new_node, val)
+    end do
+
+    call deallocate(gradient)
+    
+    if (.not. present(map)) then
+      deallocate(lmap)
+    end if
+    
+  end subroutine quadratic_interpolation_eqf_single
+
   subroutine linear_interpolation_scalar(old_field, old_position, new_field, new_position, map)
     type(scalar_field), intent(in) :: old_field
     type(vector_field), intent(in) :: old_position
@@ -189,6 +311,7 @@ module interpolation_module
     call insert(new_state, new_field%mesh, "Mesh")
 
     call linear_interpolation_state(old_state, new_state, map = map)
+
     call deallocate(old_state)
     call deallocate(new_state)
 
@@ -233,7 +356,7 @@ module interpolation_module
     type(state_type) :: old_state, new_state
 
     call insert(old_state, old_field, old_field%name)
-    call insert(new_state, new_field, new_field%name)
+    call insert(new_state, new_field, old_field%name)
 
     call insert(old_state, old_position, "Coordinate")
     call insert(new_state, new_position, "Coordinate")

@@ -26,6 +26,7 @@
    USA
 */
 
+#include "mpi.h"
 #include "Profiler.h"
 
 using namespace std;

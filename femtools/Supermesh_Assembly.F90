@@ -829,9 +829,9 @@ contains
   
   subroutine galerkin_projection_scalars(states_a, positions_a, states_b, positions_b)
     type(state_type), dimension(:), intent(in) :: states_a
-    type(vector_field), intent(in) :: positions_a
+    type(vector_field), intent(inout) :: positions_a
     type(state_type), dimension(size(states_a)), intent(inout) :: states_b
-    type(vector_field), intent(in) :: positions_b
+    type(vector_field), intent(inout) :: positions_b
         
     integer :: ele_b, ele_c, field_count, i, j
     type(csr_matrix), pointer :: mass_matrix
@@ -995,8 +995,8 @@ contains
   end subroutine assemble_galerkin_projection_scalars_dg_ele
   
   function compute_inner_product_sa(positions_a, positions_b, a, b) result(val)
-    type(vector_field), intent(in) :: positions_a
-    type(vector_field), intent(in) :: positions_b
+    type(vector_field), intent(inout) :: positions_a
+    type(vector_field), intent(inout) :: positions_b
     type(scalar_field), intent(in) :: a
     type(scalar_field), intent(in) :: b
     

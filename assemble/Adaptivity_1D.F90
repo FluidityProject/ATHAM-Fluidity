@@ -94,11 +94,11 @@ contains
     call toc(TICTOC_ID_SERIAL_ADAPT)
 
     call deallocate(sizing)
-    
+
     if (.not. descending_coordinate_ordered(new_positions)) then
       ewrite(-1,*) "To use 1D adaptivity you need an input mesh for which the ordering of the nodes is such that " // &
-        "their coordinates decrease with increasing node number. If you use the 'interval' script to produce a " // &
-        "mesh, you can achieve this by adding the '--reverse' option."
+	"their coordinates decrease with increasing node number. If you use the 'interval' script to produce a " // &
+	"mesh, you can achieve this by adding the '--reverse' option."
       FLExit("To be adapted 1D mesh not in descending order.")
     end if
     

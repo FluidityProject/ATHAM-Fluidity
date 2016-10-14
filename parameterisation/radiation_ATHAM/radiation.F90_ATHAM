@@ -1,0 +1,542 @@
+!-*- F90 -*- so emacs thinks this is an f90 file
+module radiation_mod
+  !--------------------------------------------------------------------!
+  ! author:   Tobias Gerken                                            !
+  !                                                                    !
+  ! this file provides an interface to the SW and LW radiation codes   !
+  ! availibe for ATHAM                                                 !
+  !                                                                    !
+  ! date: October 2010                                                 !
+  !--------------------------------------------------------------------!
+
+  use precision,           only: kint, kreal
+  use sw_radiation_atham,  only: shortwave_radiation_atham,  &
+                                 sw_radiation_atham_init
+  use lw_radiation_nasa,   only: longwave_radiation_nasa,    &
+                                 lw_radiation_nasa_init
+  use rrtmg_lw_rad,        only: rrtmg_lw
+  use rrtmg_lw_init,       only: rrtmg_lw_ini
+
+  implicit none
+  private
+
+  public :: radiation_init, radiation_preset, solar_angle
+  public :: shortwave_radiation, longwave_radiation, radiation_stop
+  public :: coszen, sf, co2
+  public :: flxdn_sw_gr_tot, flxdn_sw_gr_dir, flxdn_lw_gr_tot
+
+  integer(kint), save            :: start_time(6), flg_cop, &
+                                    flg_cld, flg_ice, flg_liq
+  real(kreal), save              :: coszen, thresh, time_zone, sf
+  real(kreal), save, allocatable, dimension(:,:) :: flxdn_sw_gr_tot,   &
+       flxdn_sw_gr_dir, flxdn_lw_gr_tot
+  real(kreal), save              :: mm_co2, mm_o2, rad_ice, rad_wat
+  real(kreal), save              :: co2, o2, n2o, ch4, cfc11, cfc12,  &
+                                    ccl4, cfc22
+  real(kreal), allocatable, dimension(:,:,:,:), save :: aod
+  real(kreal), allocatable, dimension(:,:,:),   save :: vm_co2, vm_n2o, &
+                         vm_ch4, mm_o3, pres, r_ice, r_wat, ci_wp, cl_wp
+  real(kreal), allocatable, dimension(:), save       :: rad_down
+  logical, save                  :: lw_radiation_in
+
+contains 
+
+  !=====================================================================
+  subroutine radiation_init(totalK, sw_radiation, lw_radiation,         &
+                            sw_rad_atham, lw_rad_nasa, lw_rad_rrtmg)
+    !------------------------------------------------------------------!
+    ! Allocates arrays                                                 !
+    ! Reads in data from INPUT_radiation and INPUT_profile_ozone       !
+    !------------------------------------------------------------------!
+    use atham_module,   only: cylindric_geometry
+    use atham_module,   only: nx, ny, nz, zstart, ztotal
+    use atham_module,   only: myrank, ozone, p0
+    use phys_constants, only: r0, cpair
+    use atham_module,   only: sim_d_YYYY, sim_d_MM, sim_d_DD,           &
+                              sim_t_hh, sim_t_mm, sim_t_ss, timezone
+
+
+    real(kreal), dimension(:), intent(inout) :: totalk
+    real(kreal), dimension(140,240)          :: rad_dump
+    integer(kint)                            :: i, k
+    integer(kint)                            :: level_in
+
+    logical, intent(in) :: sw_rad_atham, lw_rad_nasa, lw_rad_rrtmg,     &
+                           sw_radiation, lw_radiation 
+
+    namelist /radiation_setup/                                          &
+         rad_ice, rad_wat, co2, o2, n2o, ch4, cfc11,                    &
+         cfc12, cfc22, ccl4, thresh 
+
+    namelist /radiation_setup_lw/                                       &
+         flg_cld, flg_cop, flg_ice, flg_liq, lw_radiation_in
+
+    lw_radiation_in = .false.
+    !------------------------------------------------------------------!
+    ! set simulation onset time and date                               !
+    !------------------------------------------------------------------!
+    start_time(1) = sim_d_YYYY
+    start_time(2) = sim_d_MM
+    start_time(3) = sim_d_DD
+    start_time(4) = sim_t_hh
+    start_time(5) = sim_t_mm
+    start_time(6) = sim_t_ss
+    time_zone     = timezone
+    !------------------------------------------------------------------!
+    ! call specific initialization routines                            !
+    !------------------------------------------------------------------!
+    allocate(flxdn_sw_gr_tot(nx,ny), flxdn_sw_gr_dir(nx,ny), &
+          flxdn_lw_gr_tot(nx,ny))
+ 
+    flxdn_sw_gr_tot = r0
+    flxdn_lw_gr_tot = r0
+    flxdn_sw_gr_dir = r0
+    !------------------------------------------------------------------------!
+    ! atmospheric trace gas concentrations (part/part)                       !
+    ! NOTE: rrtm requires by default volume mixing ratios (Documentation)    !
+    ! rrtm code was changed to mm by activating predefined coeffs in rrtm    !
+    !------------------------------------------------------------------------!
+    
+    !------------------------------------------------------------------!
+    ! set defaults                                                     !
+    !------------------------------------------------------------------!
+    rad_ice = 50._kreal
+    rad_wat = 10._kreal
+    thresh  = 1.0e-9
+    co2     = 350.e-6
+    o2      = 0.2095
+    n2o     = 0.28e-6
+    ch4     = 1.75e-6
+    cfc11   = 0.3e-9   ! original rrtm_lw is capable of processing full  
+    cfc12   = 0.5e-9   ! matrices of trace gas concentrations: code was  
+    cfc22   = 0.2e-9   ! changed assuming that cfcs are well mixed -->
+    ccl4    = 0.1e-9   ! only one value 
+    mm_o2   = r0
+    mm_co2  = r0
+   
+
+    !------------------------------------------------------------------!
+    ! read namelist file INPUT_radiation                               !
+    !------------------------------------------------------------------!
+    open(56,file='input/INPUT_radiation',form='formatted',status='old',err=2889)
+    read(56,radiation_setup,end=2889)
+      
+    goto 2888
+2889 if (myrank==0) print 2100, 'NO namelist from INPUT_radiation read, NO DEFAULTS!!!'
+2100 format ('***********************************************',/,a,/,    &
+            '***********************************************')
+2888 close(56)     
+
+    if (sw_radiation) then
+       if (sw_rad_atham) then
+          mm_o2  = o2 * 1.104801_kreal      ! conversion factor from vm to mm
+          mm_co2 = co2* 1.519149_kreal      ! taken from rrtm_lw
+          
+          call sw_radiation_atham_init(nx,ny,nz)
+       endif
+    endif
+
+    if (lw_radiation) then
+       if (lw_rad_rrtmg) then
+          
+          allocate(vm_co2(nx,ny,nz),vm_n2o(nx,ny,nz),vm_ch4(nx,ny,nz), &
+                   aod(nx,ny,nz,16) )
+          allocate(r_ice(nx,ny,nz) , r_wat(nx,ny,nz), pres(nx,ny,nz), &
+               ci_wp(nx,ny,nz), cl_wp(nx,ny,nz), mm_o3(nx,ny,nz), rad_down(140))
+          aod(:,:,:,:) = r0  ! areosol optical depth
+          rad_down(:) = r0 
+          !-----------------------------------------------------------------!
+          ! set defaults for rrtmg options                                  !
+          !-----------------------------------------------------------------!
+          flg_cld  = 2       ! set max rand overlap  
+          flg_cop  = 2       ! parameterization for cloud optical parameters
+          flg_ice  = 3       ! parameterization for cloud ice treatment
+          flg_liq  = 1       ! parameterization for cloud water treatment
+
+          lw_radiation_in =.false.
+
+          vm_co2(:,:,:)   = co2
+          vm_n2o(:,:,:)   = n2o
+          vm_ch4(:,:,:)   = ch4 
+          mm_o3(:,:,:)    =r0
+          !------------------------------------------------------------------!
+          ! read namelist file INPUT_radiation_lw_rrtmg                      !
+          !------------------------------------------------------------------!
+          open(56,file='input/INPUT_radiation_lw_rrtmg',form='formatted',status='old',err=2999)
+          read(56,radiation_setup_lw,end=2999)
+      
+          goto 2998
+2999      if (myrank==0) print 2300, 'NO namelist from INPUT_rad_rrtmg read, NO DEFAULTS!!!'
+2300      format ('***********************************************',/,a,/,    &
+               '***********************************************')
+2998      close(56)     
+
+          if (lw_radiation_in) then
+             open(10,file='input/LWRIN',form='unformatted',status='old',err=988)
+             read(10,err=988) ((rad_dump(i,k), i=1,140), k=1,240)
+             close(10)
+
+             goto 101
+             
+988          if (myrank==0) print 2200, 'error with LWRIN file '
+2200         format ('***********************************************',/,a,/,    &
+                  '***********************************************')
+
+101          level_in = nint((zstart+ztotal-125._kreal)/250._kreal)       
+             rad_down(:) = rad_dump(:,level_in) 
+                          
+          endif
+          
+          call rrtmg_lw_ini(cpair)
+          
+       elseif (lw_rad_nasa) then
+          call lw_radiation_nasa_init(nx,ny,nz)
+       end if
+    end if
+   
+  end subroutine radiation_init
+!------------------------------------------------------------------------------  
+  subroutine radiation_preset(lw_rad_rrtmg)
+    !------------------------------------------------------------------!
+    ! define ozone profile                                             !
+    !------------------------------------------------------------------!
+    use atham_module,   only: ozone !, nc_profiles
+    use atham_module,   only: z, nz, nx,ny
+
+    logical, intent(in)         :: lw_rad_rrtmg
+
+    !------------------------------------------------------------------!
+    ! local variables                                                  !
+    !------------------------------------------------------------------!
+    integer(kint)               :: nmar, k, km
+    real(kreal)                 :: zh1,zh2,dh,dhr,dom
+    real(kreal), dimension(750) :: zmar, omar
+    !------------------------------------------------------------------!
+    ! read ozone data                                                  !
+    !------------------------------------------------------------------!  
+    open(9,file='input/INPUT_profile_ozone', form='formatted', status='old',err=999)
+    read(9,100,end=999) nmar 
+    do k=1,nmar
+       read(9,111,end=999) zmar(k), omar(k)
+    enddo
+    close(9)
+    !------------------------------------------------------------------!
+    ! interpolate to model layer                                       !
+    !------------------------------------------------------------------!
+    do km=1,nmar-1
+       do k=1,nz
+          if (z(k)>=zmar(km) .and. z(k)<zmar(km+1))then
+             zh1=zmar(km)
+             zh2=zmar(km+1)
+             dh =zh2-zh1
+             dhr=z(k)-zh1
+             dom=(-omar (km)+omar (km+1))/dh
+             ozone(k)=omar(km)+dhr*dom
+          endif
+       enddo
+    enddo
+
+    return
+100 format(20x,i4,/,/,/,/)
+111 format(f8.1,42x,f10.4)
+999 write(*,*) 'No OZONE profile!!'
+    
+  end subroutine radiation_preset
+!-----------------------------------------------------------------------------
+  subroutine shortwave_radiation(dt, totalK, sw_rad_atham)
+    !=======================================================================!
+    !                                                                       !
+    ! calls the sw_radiation module and                                     !
+    ! passes the necessary arguments                                        !
+    !                                                                       !
+    ! returns heatingrates to main                                          !
+    !                                                                       !
+    !=======================================================================!
+    use atham_module,   only: nx, ny, nz, nyv, nyh, nxl, nxr, zv, xv, xtotal, &
+                              icenter, jcenter
+    use atham_module,   only: density, tempnew, cptot, tetflx, cptgas, rgasnew
+    use atham_module,   only: tracnew, ntrac, tgasnew, ntgas, p0, pnew, ozone
+    use atham_module,   only: iflgs, ifeld, landseamask
+    use process_data,   only: watcnew, wetnew, icenew
+    use process_data,   only: surface_model, use_dynamic_osa
+    use process_data,   only: al_ATHAM
+
+    real(kreal), intent(in)                   :: dt
+    real(kreal), dimension(nz), intent(inout) :: totalK
+    logical, intent(in)                       :: sw_rad_atham
+    !-----------------------------------------------------------------------!
+    ! local variables                                                       !
+    !-----------------------------------------------------------------------!
+    if (sw_rad_atham) then
+       call shortwave_radiation_atham                                       &
+                                 (nx, ny, nz, nyv, nyh, nxl, nxr, zv, xv,   &
+                                  icenter, density, cptot, &
+                                  tetflx, cptgas, rgasnew, tracnew, ntrac,  &
+                                  tgasnew, ntgas, p0, pnew, iflgs, ifeld,   &
+                                  landseamask, coszen,                      &
+                                  watcnew, wetnew, icenew,                  &
+                                  mm_o2, mm_co2, ozone, dt,                 &
+                                  surface_model, use_dynamic_osa, al_ATHAM, &
+                                  flxdn_sw_gr_dir, flxdn_sw_gr_tot, totalK)
+    endif
+    sf = 1.4_kreal / (1.0_kreal + 0.4_kreal * coszen)
+
+  end subroutine shortwave_radiation
+  !------------------------------------------------------------------------------
+  subroutine longwave_radiation(dt, totalK, lw_rad_nasa, lw_rad_rrtmg)
+    !=======================================================================!
+    !                                                                       !
+    ! calls the lw_radiation module and                                     !
+    ! passes the necessary arguments                                        !
+    !                                                                       !
+    ! returns heatingrates to main                                          !
+    !                                                                       !
+    !=======================================================================!
+    use atham_module,   only: nx, ny, nz, nyv, nyh, nxl, nxr, z, zv, xv, &
+                              icenter, jcenter, myrank
+    use atham_module,   only: density, tempnew, cptot, tetflx
+    use atham_module,   only: ozone, p0, pnew
+    use atham_module,   only: iflgs, ifeld, ntrac, ntgas
+    use atham_module,   only: tracnew, tgasnew, rgasnew, cptgas
+    use process_data,   only: wetnew, watcnew, watpnew, rhowat, icenew, granew
+    use process_data,   only: surface_model
+    use process_data,   only: es_ATHAM, Ts_ATHAM
+    use phys_constants, only: gasmin, epsmach, cpair, r0, r1, ps0
+
+    real(kreal), intent(in)                   :: dt
+    real(kreal), dimension(nz), intent(inout) :: totalK
+    logical, intent(in)                       :: lw_rad_nasa, lw_rad_rrtmg
+    !------------------------------------------------------------------------!
+    ! local variables                                                        !
+    !------------------------------------------------------------------------!
+    real(kreal), dimension(nx,ny)      :: tsfc
+    real(kreal), dimension(nx,ny,16)   :: emis  
+    real(kreal), dimension(nx,ny,nz)   :: heatrate_lw
+    real(kreal), dimension(nx,ny,nz)   :: uflux, dflux, uclflux, dclflux, &
+                                          clhtr
+    real(kreal)                        :: gasnew, drynew, totgas, totinv, &
+                                          cp, pcom, klow, dayinv 
+    real(kreal), dimension(nx,ny,nz)   :: plev, tlev, icld , wcld, &
+                                          ccld, frcld
+    integer(kint)                      :: i, j, k, count
+
+    heatrate_lw = r0
+    dflux       = r0
+    do j = nyv, nyh
+       do i=nxl,nxr
+          if (surface_model) then
+             emis(i,j,:) = es_atham(i,j)        ! ground emissivity from surfacemodel
+             tsfc(i,j) = ts_atham(i,j)          ! surface temp from surfacemodel  
+          else
+             emis(i,j,:) = r1                   ! black body emissivity
+             tsfc(i,j) =tempnew(i,j,ifeld(i,j)) ! use first model layer as tsfc
+          endif
+       enddo
+    enddo
+
+    ! cloud fraction 
+    frcld(:,:,:)   = r0
+    plev(:,:,:)    = r0 
+    tlev(:,:,:)    = r0
+    wcld(:,:,:)    = r0
+    icld(:,:,:)    = r0
+
+    do k = 2, nz
+       do i = nxl, nxr
+          do j = nyv, nyh
+             plev(i,j,k)       = ((p0(k-1)+pnew(i,j,k-1))*(z(k)-zv(k-1))  &
+                                   +(p0(k)+pnew(i,j,k))*(zv(k-1)-z(k-1))) &
+                                   /(z(k)-z(k-1)) 
+             tlev(i,j,k)       = ((tempnew(i,j,k-1))*(z(k)-zv(k-1))       &
+                                   +(tempnew(i,j,k))*(zv(k-1)-z(k-1)))    &
+                                   /(z(k)-z(k-1)) 
+
+             if (icenew (i,j,k) .ge. thresh) then
+                icld(i,j,k)   = icenew(i,j,k) +granew(i,j,k) !ice
+                frcld(i,j,k)  = r1
+             else
+                icld(i,j,k)   = r0
+             end if
+                if (watcnew(i,j,k) .ge. thresh) then
+                wcld(i,j,k)   = watcnew(i,j,k)            !cloud water
+                frcld(i,j,k)  = r1                        !cloud fraction
+             else
+                wcld(i,j,k)   = r0 
+             endif
+          enddo
+       enddo
+    enddo                 ! no sub grid cloudiness assumed
+    
+    if (lw_rad_nasa) then
+       call longwave_radiation_nasa                                        & 
+                               (nx, ny, nz, nyv, nyh, nxl, nxr, z, zv, xv, &
+                                tempnew, p0, pnew, plev, iflgs, ifeld,     &
+                                wetnew, watcnew, icenew,                   &
+                                co2, n2o, ch4,o2, cfc11, cfc12,            &
+                                cfc22,ccl4, ozone,                         &
+                                frcld, icld, wcld, rad_ice, rad_wat,       &
+                                emis, tsfc, surface_model, heatrate_lw,    &
+                                flxdn_lw_gr_tot)
+     
+    elseif (lw_rad_rrtmg) then 
+       ci_wp = r0
+       cl_wp = r0
+       do j=nyv,nyh
+          do i=nxl,nxr
+             do k=2,nz
+                !conversion to hPa
+                pres(i,j,k) = (p0(k) + pnew(i,j,k))*0.01_kreal
+                !--------------------------------------------------------!
+                ! ci/cl_wp are in cloud ice/water paths                  !
+                ! being the colum amount of ice/water cloud mass in g/m2 !
+                !--------------------------------------------------------!
+                ci_wp(i,j,k)=icenew (i,j,k)*density(i,j,k)*(z(k)-z(k-1))*1000._kreal
+                cl_wp(i,j,k)=watcnew(i,j,k)*density(i,j,k)*(z(k)-z(k-1))*1000._kreal       
+                mm_o3(i,j,k)=ozone(k)
+             enddo
+          enddo
+       enddo
+       r_ice(:,:,:) = rad_ice
+       r_wat(:,:,:) = rad_wat
+       call rrtmg_lw          (nx, nxl, nxr, ny, nyv, nyh, nz,               &
+                               flg_cld, pres, plev*0.01_kreal,               &
+                               tempnew, tlev, tsfc, wetnew, mm_o3,           &
+                               vm_co2, vm_n2o, vm_ch4, o2, cfc11, cfc12,     &
+                               cfc22, ccl4, emis, ifeld,                     &
+                               flg_cop , flg_ice, flg_liq,                   &
+                               frcld, ci_wp, cl_wp, r_ice, r_wat,            &
+                               aod(nxl:nxr,:,:,:),                           &
+                               uflux, dflux, heatrate_lw,                    &
+                               uclflux, dclflux, clhtr, rad_down)
+
+! for using arrays of o2, and cfc
+!        call rrtmg_lw           (nx, nxl, nxr, ny, nyv, nyh, nz, &
+!                                flg_cld, pres, plev*0.01_kreal, &
+!                                tempnew, tlev, tsfc, wetnew, mm_o3,          &
+!                                vm_co2, vm_n2o, vm_ch4, o2, cfc11, cfc12,    & 
+!                                cfc22, ccl4, emis, ifeld,                    &
+!                                flg_cop , flg_ice, flg_liq,                  &
+!                                aod(nxl:nxr,j,:,:),                          &
+!                                uflux, dflux, heatrate_lw,                   &
+!                                uclflux, dclflux, clhtr,                     &
+!                                o2vmr_a(:,:,:), cfc11vmr_a, cfc12vmr_a, 
+!                                cfc22vmr_a, ccl4vmr_a)    
+
+       !--------------------------------------------------------------------!
+       ! uflux       = total upward longwave radiation flux (W/m2)          !
+       ! dflux       = toal downward longwave radiation flux (W/m2)         !
+       ! uclflux     = clear sky upward longwave radiation flux (W/m2)      !
+       ! dclflux     = clear sky downward longwave radiation flux (W/m2)    !
+       ! heatrate_lw = total longwave heating rate (W/m2)                   !
+       ! clhtr       = clear sky longwave heating rate (W/m2)               !
+       ! NOTE: only heatrate_lw is used at present                          !
+       !       heatrate_lw is converted to cooling rate (like NASA)         !
+       !--------------------------------------------------------------------!
+       heatrate_lw = heatrate_lw * (-1._kreal) 
+       flxdn_lw_gr_tot(:,:) = r0
+       do i= nxl, nxr
+          do j = nyv, nyh
+             klow = ifeld(i,j)
+             flxdn_lw_gr_tot(i,j)=dflux(i,j,klow-1)
+          enddo
+       enddo
+    end if
+    !---------------------------------------------!
+    ! conversion factor for K/d --> K/s           !
+    !---------------------------------------------!
+    dayinv = r1/86400._kreal
+    do j = nyv , nyh
+       do i=nxl,nxr                       !(*)
+          klow = ifeld(i,j)
+          do  k=klow,nz
+             gasnew=r1-sum(tracnew(i,j,k,1:ntrac))
+             gasnew=max(gasmin,min(gasnew,r1))
+             drynew=gasnew-sum(tgasnew(i,j,k,1:ntgas))
+             drynew=max(epsmach,min(drynew,r1))
+
+             totgas=drynew+sum(tgasnew(i,j,k,1:ntgas))
+             totinv=r1/totgas
+
+             cp=(cpair*drynew+sum(cptgas(1:ntgas)*tgasnew(i,j,k,1:ntgas)))*totinv
+
+             pcom=((p0(k)+pnew(i,j,k))/ps0)**(rgasnew(i,j,k)/cp)	  
+             ! ------------------------------- --------------------------------!
+             ! converting in-situ heating rate to potential temperature        !
+             ! heating rate                                                    !
+             !-----------------------------------------------------------------!
+             heatrate_lw(i,j,k)=heatrate_lw(i,j,k)/(86400.0_kreal) *iflgs(i,j,k)
+             tetflx(i,j,k)= tetflx(i,j,k) - dt*(heatrate_lw(i,j,k)/pcom)
+             !tetflx(i,j,k)= tetflx(i,j,k) - dt*dayinv*(heatrate_lw(i,j,k)/pcom)*iflgs(i,j,k)
+          enddo
+       enddo
+    enddo
+#ifndef MPI
+    totalK(1:nz) = (heatrate_lw(icenter,jcenter,1:nz))
+#else
+    totalK(1:nz) = r0
+#endif
+  end subroutine longwave_radiation
+
+  !----------------------------------------------------------------------------
+  subroutine radiation_stop(lw_rad_rrtmg)
+
+    logical, intent(in) :: lw_rad_rrtmg
+
+    deallocate(flxdn_sw_gr_tot, flxdn_sw_gr_dir, flxdn_lw_gr_tot)
+
+    if (lw_rad_rrtmg) then
+       deallocate(vm_co2, vm_n2o, vm_ch4, aod, rad_down)
+       deallocate(r_ice, r_wat, pres, ci_wp, cl_wp, mm_o3)
+    endif
+
+  end subroutine radiation_stop
+
+  !----------------------------------------------------------------------------
+  subroutine solar_angle(timetot)
+
+    use phys_constants, only: pi, r2, epsilon, r1
+    use atham_module,   only: deglat, deglon, current_lst, current_jday
+    !-----------------------------------------------------!
+    ! Input variables                                     !
+    ! start_time...                                       !
+    ! (1): year, (2): month, (3):day, (4): hour,          !
+    ! (5): minutes, (6):seconds                           !
+    ! deglon + timezone for conversion to solar noon      ! 
+    !-----------------------------------------------------!
+    real(kreal), intent(in) :: timetot
+    !-----------------------------------------------------!
+    ! local variables                                     !
+    !-----------------------------------------------------!
+    real(kreal) :: dechr, decday, sin_lat, cos_lat, decmonth
+    real(kreal) :: sun_azim, sun_lat
+    real(kreal) :: r3600 = 3600._kreal, r180 = 180._kreal,      &
+                   r60=60._kreal, r30=30._kreal, r24=24._kreal, &
+                   r23=23._kreal, r6=6._kreal, r6tq=6.75_kreal, &
+                   r360=360._kreal, r365=365._kreal,            &       
+                   r12=12._kreal
+
+    !dechr    = start_time(4)+start_time(5)/r60+start_time(6)/r3600+timetot/r3600
+    !decday   = start_time(3)+dechr /r24
+    !decmonth = start_time(2)+decday/r30
+
+    !----------------------------------------------
+    ! use new centralized ATHAM time management
+    !----------------------------------------------
+
+    dechr    = current_lst/r24/r3600 
+    decmonth  = r1+((current_jday+dechr)/r365*r12)
+
+    sin_lat=sin(pi/r180*deglat)
+    cos_lat=cos(pi/r180*deglat)  
+
+    sun_azim=r2*pi*dechr ! radians
+    !sun_azim=r2*pi*(decday + deglon/r360 -time_zone/r24) 
+    sun_lat=(pi*r23/r180)*COS((decmonth-r6tq)*pi/r6) ! radians
+    
+    coszen = max(-cos(sun_lat)*cos(sun_azim)*cos_lat + sin(sun_lat)*sin_lat, epsilon)
+    write(*,*) 'new coszen', coszen
+    !write(*,*) cos(sun_lat), cos(sun_azim), cos_lat, sin(sun_lat), sin_lat
+
+  end subroutine solar_angle
+  !------------------------------------------------------------------------------
+end module radiation_mod

@@ -7,9 +7,7 @@
   <define name="prescribed_scalar_field">
     <ref name="prescribed_scalar_field_no_adapt"/>
     <ref name="adaptivity_options_scalar_field"/>
-    <optional>
-      <ref name="interpolation_algorithm_scalar"/>
-    </optional>
+    <ref name="interpolation_algorithm_prescribed_scalar"/>
     <optional>
       <ref name="discrete_properties_algorithm_scalar"/>
     </optional>
@@ -53,6 +51,12 @@ In this case each value requires a distinct name for the options dictionary.</a:
           <ref name="input_choice_real_plus_file"/>
         </element>
       </choice>
+      <optional>
+        <element name="solver">
+    	  <a:documentation>Solver options are necessary if you're not lumping your mass or if you're field isn't dg</a:documentation>
+    	  <ref name="linear_solver_options_sym"/>
+        </element>
+      </optional>
     </oneOrMore>
   </define>
   <!--
@@ -62,9 +66,7 @@ In this case each value requires a distinct name for the options dictionary.</a:
   <define name="prescribed_vector_field">
     <ref name="prescribed_vector_field_no_adapt"/>
     <ref name="adaptivity_options_vector_field"/>
-    <optional>
-      <ref name="interpolation_algorithm_vector"/>
-    </optional>
+    <ref name="interpolation_algorithm_prescribed_vector"/>
     <optional>
       <ref name="discrete_properties_algorithm_vector"/>
     </optional>
@@ -109,6 +111,12 @@ In this case each value requires a distinct name for the options dictionary.</a:
           <ref name="input_choice_real_dim_vector_plus_file"/>
         </element>
       </choice>
+      <optional>
+        <element name="solver">
+    	  <a:documentation>Solver options are necessary if you're not lumping your mass or if you're field isn't dg</a:documentation>
+    	  <ref name="linear_solver_options_sym"/>
+        </element>
+      </optional>
     </oneOrMore>
   </define>
   <!--
@@ -157,6 +165,12 @@ In this case each value requires a distinct name for the options dictionary.</a:
           <ref name="input_choice_tensor_field"/>
         </element>
       </choice>
+      <optional>
+        <element name="solver">
+    	  <a:documentation>Solver options are necessary if you're not lumping your mass or if you're field isn't dg</a:documentation>
+    	  <ref name="linear_solver_options_sym"/>
+        </element>
+      </optional>
     </oneOrMore>
   </define>
   <define name="prescribed_values_dim_minus_one_tensor_field">

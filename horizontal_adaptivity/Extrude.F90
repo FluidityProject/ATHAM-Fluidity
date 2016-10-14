@@ -18,8 +18,7 @@ module hadapt_extrude
 
   private
   
-  public :: extrude, compute_z_nodes, hadapt_extrude_check_options, get_extrusion_options, &             
-            populate_depth_vector, skip_column_extrude
+  public :: extrude, compute_z_nodes, hadapt_extrude_check_options, get_extrusion_options, populate_depth_vector, skip_column_extrude
 
   interface compute_z_nodes
     module procedure compute_z_nodes_wrapper, compute_z_nodes_sizing
@@ -39,6 +38,7 @@ module hadapt_extrude
     type(vector_field), intent(out) :: out_mesh
 
     character(len=FIELD_NAME_LEN):: mesh_name, file_name  
+    character(len=OPTION_PATH_LEN):: direction 
     type(quadrature_type) :: quad
     type(element_type) :: full_shape
     type(vector_field) :: constant_z_mesh
@@ -92,7 +92,7 @@ module hadapt_extrude
       constant_z_mesh_initialised = .false.
       
       call get_extrusion_options(option_path, r, apply_region_ids, region_ids, &
-                                 depth_is_constant, depth, depth_from_python, depth_function, depth_from_map, &
+                                 depth_is_constant, depth, depth_from_python, depth_function, depth_from_map, direction, &
                                  file_name, have_min_depth, min_depth, surface_height, sizing_is_constant, constant_sizing, list_sizing, &
                                  sizing_function, sizing_vector, min_bottom_layer_frac, varies_only_in_z, sigma_layers, number_sigma_layers)
 
@@ -113,7 +113,7 @@ module hadapt_extrude
                             depth_is_constant, depth, depth_from_python, depth_function, &
                             depth_from_map, depth_vector(column),  have_min_depth, min_depth, &
                             sizing_is_constant, constant_sizing, list_sizing, sizing_function, sizing_vector, &
-                            sigma_layers, number_sigma_layers)
+                            sigma_layers, number_sigma_layers, direction)
             constant_z_mesh_initialised = .true.
           end if
           call get_previous_z_nodes(z_meshes(column), constant_z_mesh)
@@ -122,7 +122,7 @@ module hadapt_extrude
                             depth_is_constant, depth, depth_from_python, depth_function, &
                             depth_from_map, depth_vector(column),  have_min_depth, min_depth, &
                             sizing_is_constant, constant_sizing, list_sizing, sizing_function, sizing_vector, &
-                            sigma_layers, number_sigma_layers)
+                            sigma_layers, number_sigma_layers, direction)
         end if
 
       end do
@@ -169,7 +169,7 @@ module hadapt_extrude
   end subroutine extrude
 
   subroutine get_extrusion_options(option_path, region_index, apply_region_ids, region_ids, &
-                                   depth_is_constant, depth, depth_from_python, depth_function, depth_from_map, &
+                                   depth_is_constant, depth, depth_from_python, depth_function, depth_from_map, direction, &
                                    file_name, have_min_depth, min_depth, surface_height, sizing_is_constant, constant_sizing, list_sizing, &
                                    sizing_function, sizing_vector, min_bottom_layer_frac, varies_only_in_z, sigma_layers, number_sigma_layers)
 
@@ -182,6 +182,7 @@ module hadapt_extrude
     logical, intent(out) :: depth_is_constant, depth_from_python, depth_from_map
     real, intent(out) :: depth
     character(len=PYTHON_FUNC_LEN), intent(out) :: depth_function
+    character(len=OPTION_PATH_LEN), intent(out) :: direction
     
     logical, intent(out) :: sizing_is_constant, list_sizing
     real, intent(out) :: constant_sizing
@@ -207,6 +208,10 @@ module hadapt_extrude
       allocate(region_ids(1:shape_option(1)))
       call get_option(trim(option_path)//"/from_mesh/extrude/regions["//int2str(region_index)//"]/region_ids", region_ids)
     end if
+
+    call get_option(trim(option_path)//&
+ 	   '/from_mesh/extrude/regions['//int2str(region_index)//&
+   	   ']/direction/name', direction, default='top_to_bottom')
 
     ! get the extrusion options
     depth_from_python=.false.
@@ -327,7 +332,7 @@ module hadapt_extrude
                                      depth_is_constant, depth, depth_from_python, depth_function, &
                                      depth_from_map, map_depth, have_min_depth, min_depth, &
                                      sizing_is_constant, constant_sizing, list_sizing, sizing_function, sizing_vector, &
-                                     sigma_layers, number_sigma_layers)
+                                     sigma_layers, number_sigma_layers, direction)
 
     type(vector_field), intent(out) :: z_mesh
     real, dimension(:), intent(in) :: xy
@@ -336,7 +341,7 @@ module hadapt_extrude
     logical, intent(in) :: have_min_depth, sigma_layers
     real, intent(in) :: map_depth, min_depth
     real, intent(in) :: depth, constant_sizing
-    character(len=*), intent(in) :: depth_function, sizing_function
+    character(len=*), intent(in) :: depth_function, sizing_function, direction
     real, dimension(:), intent(in) :: sizing_vector
     integer, intent(in) :: number_sigma_layers
 
@@ -363,17 +368,17 @@ module hadapt_extrude
     
     if (sizing_is_constant) then
       call compute_z_nodes(z_mesh, ldepth, xy, &
-       min_bottom_layer_frac, sizing=constant_sizing)
+       min_bottom_layer_frac, direction, sizing=constant_sizing)
     else
       if (list_sizing) then
         call compute_z_nodes(z_mesh, ldepth, xy, &
-        min_bottom_layer_frac, sizing_vector=sizing_vector)
+        min_bottom_layer_frac, direction, sizing_vector=sizing_vector)
       else if (sigma_layers) then
         call compute_z_nodes(z_mesh, ldepth, xy, &
-        min_bottom_layer_frac, number_sigma_layers=number_sigma_layers)
+        min_bottom_layer_frac, direction, number_sigma_layers=number_sigma_layers)
       else
         call compute_z_nodes(z_mesh, ldepth, xy, &
-        min_bottom_layer_frac, sizing_function=sizing_function)
+        min_bottom_layer_frac, direction, sizing_function=sizing_function)
       end if
     end if
     
@@ -385,7 +390,7 @@ module hadapt_extrude
     call incref(z_mesh)
   end subroutine get_previous_z_nodes
 
-  subroutine compute_z_nodes_sizing(z_mesh, depth, xy, min_bottom_layer_frac, sizing, &
+  subroutine compute_z_nodes_sizing(z_mesh, depth, xy, min_bottom_layer_frac, direction, sizing, &
                                     sizing_function, sizing_vector, number_sigma_layers)
     !!< Figure out at what depths to put the layers.
     type(vector_field), intent(out) :: z_mesh
@@ -397,6 +402,7 @@ module hadapt_extrude
     ! The recommended value is 1e-3.
     real, intent(in) :: min_bottom_layer_frac
     real, optional, intent(in):: sizing
+    character(len=*), intent(in) :: direction
     character(len=*), optional, intent(in):: sizing_function
     real, dimension(:), optional, intent(in) :: sizing_vector
     integer, optional, intent(in) :: number_sigma_layers
@@ -464,15 +470,28 @@ module hadapt_extrude
       else
         delta_h = get_delta_h( xyz, is_constant, constant_value, py_func)
       end if
-      z=z - delta_h
-      if (z<-depth+min_bottom_layer_frac*delta_h) exit
+      
+      if (trim(direction)=='top_to_bottom') then
+        z=z - delta_h
+        if (depth > 0.0) then
+          if (z<-depth+min_bottom_layer_frac*delta_h) exit
+        else
+          if (z>-depth+min_bottom_layer_frac*delta_h) exit
+        end if
+      else if (trim(direction)=='bottom_up') then
+        z=z + delta_h
+        if (z > depth+min_bottom_layer_frac*delta_h) then
+          exit
+        endif
+      endif
+      
       call insert(depths, z)
       if (depths%length>MAX_VERTICAL_NODES) then
         ewrite(-1,*) "Check your extrude/sizing_function"
         FLExit("Maximum number of vertical layers reached")
       end if
     end do
-    call insert(depths, -depth)
+    if (trim(direction)=='top_to_bottom') call insert(depths, -depth)
     elements=depths%length-1
 
     call allocate(mesh, elements+1, elements, oned_shape, "ZMesh")
@@ -491,7 +510,7 @@ module hadapt_extrude
 
     ! For pathological sizing functions the mesh might have gotten inverted at the last step.
     ! If you encounter this, make this logic smarter.
-    assert(all(node_val(z_mesh, elements) > node_val(z_mesh, elements+1)))
+!    assert(all(node_val(z_mesh, elements) > node_val(z_mesh, elements+1)))
     
     assert(oned_quad%refcount%count == 1)
     assert(oned_shape%refcount%count == 1)

@@ -5,6 +5,7 @@
       <choice>
         <ref name="continuous_galerkin_options"/>
         <ref name="discontinuous_galerkin_options"/>
+        <ref name="flux_discontinuous_galerkin_options"/>
         <ref name="pure_cv_options"/>
         <ref name="coupled_cv_options"/>
         <ref name="finite_volume_options"/>
@@ -54,6 +55,7 @@ conservative_advection below).</a:documentation>
       <ref name="advection_stabilisation_options"/>
       <ref name="cg_advection_terms"/>
       <ref name="cg_mass_terms"/>
+      <ref name="les_model"/>
       <ref name="comment"/>
     </element>
   </define>
@@ -103,6 +105,109 @@ temporal_discretisation).</a:documentation>
       </optional>
     </element>
   </define>
+  <define name="les_model">
+    <optional>
+      <element name="les_model">
+        <a:documentation>LES model option. Nothing has to be done here as the same parameterization
+        is used for scalars and velocity. The required diagnostic fields are therefore aliased.</a:documentation>
+	  <element name="tensor_field">
+            <a:documentation>Diagnostic eddy diffusivity for this scalar.
+	    Name should be of the form "ScalarnameDiffusivity". Eddy diffusivity
+	    can only be computed using 2nd order Smagorinsky.</a:documentation>
+            <attribute name="rank">
+              <value>2</value>
+            </attribute>
+            <attribute name="name">
+              <data type="string"/>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="internal_algorithm"/>
+              <ref name="velocity_mesh_choice"/>
+              <ref name="diagnostic_tensor_field"/>
+              <element name="mass_matrix">
+          	<choice>
+          	  <element name="use_lumped_mass_matrix">
+          	    <optional>
+          	      <element name="use_submesh">
+          		<empty/>
+          	      </element>
+          	    </optional>
+          	  </element>
+          	  <element name="use_consistent_mass_matrix">
+          	    <empty/>
+          	  </element>
+          	</choice>
+              </element>
+            </element>
+          </element>
+          <element name="second_order">
+            <a:documentation>Similar to the original Smagorinsky model</a:documentation>
+            <element name="smagorinsky_coefficient">
+              <a:documentation>Literature symbol: Cs
+
+Suggested values: 0.15-0.23</a:documentation>
+                <ref name="real"/>
+            </element>
+            <element name="Prandtl_turbulent">
+              <a:documentation>Turbulent Prandtl number (default=0.4).</a:documentation>
+              <ref name="real"/>
+            </element>
+	    <optional>
+	      <choice>
+	        <element name="buoyancy_correction">
+            	  <a:documentation>A correction factor sqrt(1-Ri/Pr) is included to account
+	    	  for buoyancy generated turbulence. Ri is the Richardson number.</a:documentation>
+                  <attribute name="name">
+		    <value>Lilly</value>
+		  </attribute>
+		  <optional>
+		    <element name="use_hydrostatic_state">
+                      <a:documentation>Use hydrostatic potential temperature to compute Richardson number.</a:documentation>
+                      <ref name="empty"/>
+                    </element>
+            	  </optional>
+		</element>
+	        <element name="buoyancy_correction">
+            	  <a:documentation>A correction factor sqrt(1-Ri/Pr) is included to account
+	    	  for buoyancy generated turbulence. Ri is the Richardson number.</a:documentation>
+                  <attribute name="name">
+		    <value>Brown</value>
+		  </attribute>
+		  <optional>
+		    <element name="use_hydrostatic_state">
+                      <a:documentation>Use hydrostatic potential temperature to compute Richardson number.</a:documentation>
+                      <ref name="empty"/>
+                    </element>
+            	  </optional>
+		</element>	
+	        <element name="buoyancy_correction">
+            	  <a:documentation>A correction factor sqrt(1-Ri/Pr) is included to account
+	    	  for buoyancy generated turbulence. Ri is the Richardson number.</a:documentation>
+                  <attribute name="name">
+		    <value>Yoshizawa</value>
+		  </attribute>
+		  <optional>
+		    <element name="use_hydrostatic_state">
+                      <a:documentation>Use hydrostatic potential temperature to compute Richardson number.</a:documentation>
+                      <ref name="empty"/>
+                    </element>
+            	  </optional>
+		</element>
+	      </choice>
+	    </optional>
+            <element name="length_scale_type">
+              <a:documentation>The 'scalar' length scale is the cube root of the element's volume in 3D. In 2D, it is the square root of the element's area. Using this will result in an isotropic eddy viscosity tensor.
+
+The 'tensor' length scale uses the metric from the adaptivity process. Using this will result in an anisotropic eddy viscosity tensor.</a:documentation>
+              <choice>
+          	<value>scalar</value>
+          	<value>tensor</value>
+              </choice>
+            </element>
+          </element>
+      </element>
+    </optional>
+  </define>
   <define name="discontinuous_galerkin_options">
     <element name="discontinuous_galerkin">
       <a:documentation>Discontinuous galerkin formulation. You can also use this
@@ -112,6 +217,25 @@ galerkin formulation will result. </a:documentation>
       <ref name="dg_diffusion_scheme"/>
       <ref name="dg_upwind_stabilisation"/>
       <ref name="dg_mass_terms"/>
+      <ref name="les_model"/>
+      <optional>
+        <element name="subsidence">
+          <a:documentation>Atmospheric forcing: large scale subsidence.
+	    Prescribed quantity is large scale horizontal velocity divergence
+	    (units 1/s).</a:documentation>
+          <ref name="real"/>
+          <optional>  
+	    <element name="use_horizontal_mean">
+  	      <element name="number_of_iterations">
+                <ref name="integer"/>
+              </element>
+              <element name="alpha">
+                <ref name="real"/>
+              </element>
+	    </element>   
+          </optional>
+        </element>
+      </optional>
     </element>
   </define>
   <define name="dg_advection_scheme">
@@ -126,6 +250,10 @@ scale factor 0.5.</a:documentation>
         </element>
         <element name="lax_friedrichs">
           <a:documentation>Modified Lax-Friedrichs flux.</a:documentation>
+          <empty/>
+        </element>
+        <element name="hll">
+          <a:documentation>HLL flux.</a:documentation>
           <empty/>
         </element>
         <element name="none">
@@ -152,6 +280,16 @@ advection schemes.</a:documentation>
             </element>
           </choice>
         </element>
+      </optional>
+      <optional>
+        <choice>
+          <element name="include_continuity_residual">
+            <a:documentation></a:documentation>
+          </element>
+          <element name="include_projected_divergence">
+            <a:documentation>Project velocity divergence for conservative advection.</a:documentation>
+          </element>
+        </choice>
       </optional>
       <element name="integrate_advection_by_parts">
         <a:documentation>Integrate the advection terms of the
@@ -331,18 +469,40 @@ DOI: 10.1016/j.cam.2009.05.028</a:documentation>
           </attribute>
         </element>
         <element name="slope_limiter">
+          <a:documentation>Home cooked vertex based limiter
+	  with higher order option.</a:documentation>
+          <attribute name="name">
+            <value>Vertex_Based_Julien</value>
+          </attribute>
+          <element name="Limit_factor">
+            <ref name="real"/>
+          </element>
+          <element name="tolerance">
+            <ref name="real"/>
+          </element>
+        </element>
+        <element name="slope_limiter">
           <attribute name="name">
             <value>Cockburn_Shu</value>
           </attribute>
-          <element name="TVB_factor">
-            <a:documentation>TVB tolerance parameter, below this value (scaled by
+	  <choice>
+            <element name="TVB_factor_absolute">
+              <a:documentation>Absolute/relative TVB tolerance, below this value (scaled
+by the scalar value) no limiting is done. Suggested value = 0.001*T where T is a 
+typical value of the tracer which you might use in a scaling analysis
+Reduce to do more limiting, increase to do less.
+Minimum value 0.0</a:documentation>
+              <ref name="real"/>
+            </element>
+            <element name="TVB_factor_relative">
+              <a:documentation>TVB tolerance parameter, below this value (scaled by
 dx**2) no limiting is done.
 Reduce to do more limiting, increase to do less
-Minimum value 0.0
-Suggested value 5.0</a:documentation>
-            <ref name="real"/>
-          </element>
-          <optional>
+Minimum value 0.0</a:documentation>
+              <ref name="real"/>
+            </element>
+          </choice>
+	  <optional>
             <element name="tolerate_negative_weights">
               <a:documentation>Tolerate negative weights in the reconstruction
 Algorithm finds the "least bad" coordinates to use.

@@ -472,6 +472,15 @@ Fields_Manipulation.o ../include/fields_manipulation.mod: \
    ../include/memory_diagnostics.mod ../include/parallel_tools.mod \
    ../include/quicksort.mod ../include/vector_tools.mod
 
+../include/filter_diagnostics.mod: Filters.o
+	@true
+
+Filters.o ../include/filter_diagnostics.mod: Filters.F90 \
+   ../include/field_options.mod ../include/fields.mod \
+   ../include/fldebug.mod ../include/global_parameters.mod \
+   ../include/spud.mod ../include/state_module.mod \
+   ../include/smoothing_module.mod ../include/parallel_tools.mod
+
 ../include/futils.mod: Futils.o
 	@true
 
@@ -987,6 +996,17 @@ Signal_Vars.o ../include/signal_vars.mod: Signal_Vars.F90
 	@true
 
 Signals.o ../include/signals.mod: Signals.F90 ../include/signal_vars.mod
+
+../include/slope_limiters_dg.mod: Slope_limiters_DG.o
+	@true
+
+Slope_limiters_DG.o ../include/slope_limiters_dg.mod: Slope_limiters_DG.F90 \
+   ../include/bound_field_module.mod ../include/elements.mod \
+   ../include/eventcounter.mod ../include/fdebug.h ../include/fields.mod \
+   ../include/fldebug_parameters.mod ../include/ieee_arithmetic.mod \
+   ../include/spud.mod ../include/state_fields_module.mod \
+   ../include/state_module.mod ../include/transform_elements.mod \
+   ../include/vtk_interfaces.mod
 
 ../include/smoothing_module.mod: Smoothing_module.o
 	@true

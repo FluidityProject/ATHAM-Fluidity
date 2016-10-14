@@ -41,12 +41,13 @@ module fluids_module
   use sparse_tools
   use elements
   use fields
-  use boundary_conditions_from_options
-  use populate_state_module
+  use boundary_conditions_from_options, only: set_boundary_conditions_values
+  use populate_state_module, only: populate_state, allocate_and_insert_auxilliary_fields, set_prescribed_field_values
   use populate_sub_state_module
   use reserve_state_module
   use vtk_interfaces
   use Diagnostic_variables
+  use diagnostic_fields_surface
   use diagnostic_fields_new, only : &
     & calculate_diagnostic_variables_new => calculate_diagnostic_variables, &
     & check_diagnostic_dependencies
@@ -87,6 +88,7 @@ module fluids_module
   use halos
   use memory_diagnostics
   use free_surface_module
+  use assemble_microphysics
   use global_parameters, only: current_time, dt, timestep, OPTION_PATH_LEN, &
                                simulation_start_time, &
                                simulation_start_cpu_time, &
@@ -101,6 +103,9 @@ module fluids_module
 #endif
   use multiphase_module
   use detector_parallel, only: sync_detector_coordinates, deallocate_detector_list_array
+  use microphysics
+  use compressible_projection
+  use Radiation_interface
   use tictoc
   use momentum_diagnostic_fields, only: calculate_densities
   use sediment_diagnostics, only: calculate_sediment_flux
@@ -145,7 +150,7 @@ contains
     character(len=OPTION_PATH_LEN):: option_path
     REAL :: CHANGE,CHAOLD
 
-    integer :: i, it, its
+    integer :: i, it, its, stat
 
     logical :: not_to_move_det_yet = .false.
 
@@ -165,11 +170,18 @@ contains
     ! An array of submaterials of the current phase in state(istate).
     ! Needed for k-epsilon VelocityBuoyancyDensity calculation line:~630
     ! S Parkinson 31-08-12
-    type(state_type), dimension(:), pointer :: submaterials     
+    type(state_type), dimension(:), pointer :: submaterials	
+
+    ! cloud_microphysics
+    logical :: have_cloud_microphysics
+    logical :: have_diagnostic_microphysics, have_saturation_adjustment
+
+    ! radiation_model
+    logical :: have_radiation
 
     ! Pointers for scalars and velocity fields
     type(scalar_field), pointer :: sfield
-    type(scalar_field) :: foam_velocity_potential
+    type(scalar_field) :: foam_velocity_potential, field
     type(vector_field), pointer :: foamvel
     !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
@@ -331,8 +343,8 @@ contains
     ! move mesh according to inital free surface:
     !    top/bottom distance needs to be up-to-date before this call, after the movement
     !    they will be updated (inside the call)
-    call move_mesh_free_surface(state, initialise=.true.)
-
+    call move_mesh_free_surface(state, initialise=.true.) 
+    
     call run_diagnostics(state)
 
     !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -400,6 +412,23 @@ contains
        call calculate_biology_terms(state(1))
     end if
 
+    ! Initialise microphysics
+    have_cloud_microphysics=have_option('/material_phase[0]/cloud_microphysics')
+    have_diagnostic_microphysics=have_cloud_microphysics.and. &
+        (have_option('/material_phase[0]/cloud_microphysics/diagnostic').or. &
+	 have_option('/material_phase[0]/cloud_microphysics/fortran_microphysics/one_moment_microphysics'))
+    have_saturation_adjustment=have_option('/material_phase[0]/cloud_microphysics/saturation_adjustment')
+    if (have_cloud_microphysics) then
+       call initialise_microphysics(state,current_time,dt)
+       call calculate_diagnostic_microphysics(state,current_time,dt,init=.true.)
+    end if
+
+    ! Initialise radiation
+    have_radiation=have_option('/radiation_model')
+    if (have_radiation) then
+       call radiation_init(state)
+    end if
+
     call initialise_diagnostics(filename, state)
 
     ! Initialise ice_meltrate, read constatns, allocate surface, and calculate melt rate
@@ -423,6 +452,7 @@ contains
          ! unless explicitly disabled
          & .and. .not. have_option("/io/disable_dump_at_start") &
          & ) then
+       call write_surface(dump_no, state)
        call write_state(dump_no, state)
     end if
 
@@ -478,6 +508,7 @@ contains
           if(do_checkpoint_simulation(dump_no)) then
              call checkpoint_simulation(state, cp_no = dump_no)
           end if
+	  call write_surface(dump_no, state)
           call write_state(dump_no, state)
        end if
 
@@ -494,6 +525,7 @@ contains
           ! For the free surface this is dealt with within move_mesh_free_surface() below
           call set_vector_field_in_state(state(1), "OldCoordinate", "Coordinate")
        end if
+       
        ! if we're using an implicit (prognostic) viscous free surface then there will be a surface field stored
        ! under the boundary condition _implicit_free_surface on the FreeSurface field that we need to update
        ! - it has an old and a new timelevel and the old one needs to be set to the now old new values.
@@ -506,7 +538,7 @@ contains
 
        ! evaluate prescribed fields at time = current_time+dt
        call set_prescribed_field_values(state, exclude_interpolated=.true., &
-            exclude_nonreprescribed=.true., time=current_time+dt)
+            exclude_nonreprescribed=.true., allow_eos=.true., time=current_time+dt)
 
        if(use_sub_state()) call set_full_domain_prescribed_fields(state,time=current_time+dt)
 
@@ -525,7 +557,14 @@ contains
        call enforce_discrete_properties(state, only_prescribed=.true., &
             exclude_interpolated=.true., &
             exclude_nonreprescribed=.true.)
-
+       
+       ! Microphysics
+       if (have_cloud_microphysics.and.(.not.have_diagnostic_microphysics) &
+           .and.have_option('/material_phase[0]/cloud_microphysics/time_integration::Strang')) then
+         call calculate_microphysics_forcings(state, current_time, dt/2.)
+	 call assemble_split_microphysics(state, dt/2.)
+       endif
+       
 #ifdef HAVE_HYPERLIGHT
        ! Calculate multispectral irradiance fields from hyperlight
        if(have_option("/ocean_biology/lagrangian_ensemble/hyperlight")) then
@@ -534,7 +573,6 @@ contains
 #endif
 
        ! nonlinear_iterations=maximum no of iterations within a time step
-
        nonlinear_iteration_loop: do  ITS=1,nonlinear_iterations
 
           ewrite(1,*)'###################'
@@ -615,31 +653,43 @@ contains
           if (have_option("/implicit_solids")) then
              call solids(state(1), its, nonlinear_iterations)
           end if
+	  
+          if (have_cloud_microphysics.and.(.not.have_diagnostic_microphysics)) then
+            if (have_option('/material_phase[0]/cloud_microphysics/time_integration::Direct')) then
+              call calculate_microphysics_forcings(state,current_time,dt)
+            else
+              call calculate_microphysics_forcings(state,current_time,dt,reset=.true.)
+	    end if
+          endif
+	  
+          if (have_radiation) then
+	    call calculate_radiation(state,timestep,current_time,dt)
+          end if
 
-          ! Do we have the k-epsilon turbulence model?
-          ! If we do then we want to calculate source terms and diffusivity for the k and epsilon 
-          ! fields and also tracer field diffusivities at n + theta_nl
-          do i= 1, size(state)
-             if(have_option("/material_phase["//&
-                  int2str(i-1)//"]/subgridscale_parameterisations/k-epsilon")) then
-                if(timestep == 1 .and. its == 1 .and. have_option('/physical_parameters/gravity')) then
-                   ! The very first time k-epsilon is called, VelocityBuoyancyDensity
-                   ! is set to zero until calculate_densities is called in the momentum equation
-                   ! solve. Calling calculate_densities here is a work-around for this problem.  
-                   sfield => extract_scalar_field(state, 'VelocityBuoyancyDensity')
-                   if(option_count("/material_phase/vector_field::Velocity/prognostic") > 1) then 
-                      call get_phase_submaterials(state, i, submaterials)
-                      call calculate_densities(submaterials, buoyancy_density=sfield)
-                      deallocate(submaterials)
-                   else
-                      call calculate_densities(state, buoyancy_density=sfield)
-                   end if
-                   ewrite_minmax(sfield)
-                end if
-                call keps_advdif_diagnostics(state(i))
-             end if
-          end do
-
+	  ! Do we have the k-epsilon turbulence model?
+	  ! If we do then we want to calculate source terms and diffusivity for the k and epsilon 
+	  ! fields and also tracer field diffusivities at n + theta_nl
+	  do i= 1, size(state)
+	     if(have_option("/material_phase["//&
+		  int2str(i-1)//"]/subgridscale_parameterisations/k-epsilon")) then
+		if(timestep == 1 .and. its == 1 .and. have_option('/physical_parameters/gravity')) then
+		   ! The very first time k-epsilon is called, VelocityBuoyancyDensity
+		   ! is set to zero until calculate_densities is called in the momentum equation
+		   ! solve. Calling calculate_densities here is a work-around for this problem.  
+		   sfield => extract_scalar_field(state, 'VelocityBuoyancyDensity')
+		   if(option_count("/material_phase/vector_field::Velocity/prognostic") > 1) then 
+		      call get_phase_submaterials(state, i, submaterials)
+		      call calculate_densities(submaterials, buoyancy=sfield)
+		      deallocate(submaterials)
+		   else
+		      call calculate_densities(state, buoyancy=sfield)
+		   end if
+		   ewrite_minmax(sfield)
+		end if
+		call keps_advdif_diagnostics(state(i))
+	     end if
+	  end do
+	  
           field_loop: do it = 1, ntsol
              ewrite(2, "(a,i0,a,i0)") "Considering scalar field ", it, " of ", ntsol
              ewrite(1, *) "Considering scalar field " // trim(field_name_list(it)) // " in state " // trim(state(field_state_list(it))%name)
@@ -656,7 +706,7 @@ contains
              ! Calculate the meltrate
              if(have_option("/ocean_forcing/iceshelf_meltrate/Holland08/") ) then
                 if( (trim(field_name_list(it))=="MeltRate")) then
-                   call melt_surf_calc(state(1))
+                  call melt_surf_calc(state(1))
                 endif
              end if
 
@@ -675,7 +725,6 @@ contains
                 sfield => extract_scalar_field(state(field_state_list(it)), field_name_list(it))
                 call calculate_diagnostic_children(state, field_state_list(it), sfield)
 
-
                 !--------------------------------------------------
                 !This addition creates a field that is a copy of
                 !another to be used, i.e.: for diffusing.
@@ -687,8 +736,7 @@ contains
 
                    ! Solve the DG form of the equations.
                    call solve_advection_diffusion_dg(field_name=field_name_list(it), &
-                        & state=state(field_state_list(it)))
-
+                        & state=state(field_state_list(it)), global_it=its)
                 ELSEIF(have_option(trim(field_optionpath_list(it))//&
                      & "/prognostic/spatial_discretisation/finite_volume")) then
 
@@ -756,7 +804,6 @@ contains
           ! This is where the non-legacy momentum stuff happens
           ! a loop over state (hence over phases) is incorporated into this subroutine call
           ! hence this lives outside the phase_loop
-
           if(use_sub_state()) then
              call update_subdomain_fields(state,sub_state)
              call solve_momentum(sub_state,at_first_timestep=((timestep==1).and.(its==1)),timestep=timestep, POD_state=POD_state)
@@ -787,13 +834,35 @@ contains
              ewrite(2,*) 'into solid_data_update'
              call solid_data_update(state(ss:ss), its, nonlinear_iterations)
              ewrite(2,*) 'out of solid_data_update'
-          end if
+          end if 
 
        end do nonlinear_iteration_loop
+
+       ! Microphysics calculated outside of non-linear iterations
+       if (have_cloud_microphysics.and.(.not.have_diagnostic_microphysics) &
+           .and.have_option('/material_phase[0]/cloud_microphysics/time_integration::Splitting')) then
+         call calculate_microphysics_forcings(state, current_time, dt)
+	 call assemble_split_microphysics(state, dt)
+       else if (have_cloud_microphysics.and.(.not.have_diagnostic_microphysics) &
+           .and.have_option('/material_phase[0]/cloud_microphysics/time_integration::Strang')) then
+         call calculate_microphysics_forcings(state, current_time, dt/2.)
+	 call assemble_split_microphysics(state, dt/2.)
+       endif
+
+       if (have_diagnostic_microphysics.or.have_saturation_adjustment) then
+          ! Diagnostic microphysics: update thermodynamical and microphysical
+          !		 variables according to diagnostic microphysical processes
+          call calculate_diagnostic_microphysics(state,current_time,dt)
+       end if
 
        ! Calculate prognostic sediment deposit fields
        call calculate_sediment_flux(state(1))
 
+       if (have_cloud_microphysics .and. have_option('/material_phase[0]/cloud_microphysics/no_negative_concentrations')) then
+          ewrite(1,*) 'Microphysics quantities are not allowed to drop below 0'
+          call limit_microphysics(state)
+       end if
+       
        ! Reset the number of nonlinear iterations in case it was overwritten by nonlinear_iterations_adapt
        call get_option('/timestepping/nonlinear_iterations',nonlinear_iterations,&
          & default=1)
@@ -827,7 +896,6 @@ contains
           ! Using state(1) should be safe as they are aliased across all states.
           call set_vector_field_in_state(state(1), "Coordinate", "IteratedCoordinate")
           call IncrementEventCounter(EVENT_MESH_MOVEMENT)
-
           call sync_detector_coordinates(state(1))
        end if
 
@@ -846,8 +914,6 @@ contains
        if (have_option("/mesh_adaptivity/mesh_movement/free_surface/wetting_and_drying")) then
           ewrite(1, *) "Domain volume (\int_{fs} (\eta.-b)n.n_z)): ", calculate_volume_by_surface_integral(state(1))
        end if 
-
-
        if(have_option("/timestepping/adaptive_timestep")) call calc_cflnumber_field_based_dt(state, dt)
 
        ! Update the options dictionary for the new timestep and current_time.
@@ -955,6 +1021,7 @@ contains
     call deallocate_reserve_state()
 
     ! Deallocate sub_state:
+
     if(use_sub_state()) then
        do i = 1, size(sub_state)
           call deallocate(sub_state(i))
@@ -999,8 +1066,8 @@ contains
 
     end subroutine set_simulation_start_times
 
-  end subroutine fluids
-
+  end subroutine fluids  
+  
   subroutine pre_adapt_tasks(sub_state)
 
     type(state_type), dimension(:), pointer :: sub_state
@@ -1111,6 +1178,7 @@ contains
       if(.not. wall_time_supported()) then
         FLExit("Wall time limit supplied, but wall time is not available")
       end if
+
     end if
 
     ewrite(2, *) "Finished checking simulation completion options"
@@ -1184,3 +1252,4 @@ contains
   end subroutine check_old_code_path
 
   end module fluids_module
+

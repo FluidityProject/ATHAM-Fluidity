@@ -191,7 +191,7 @@ contains
     !!< A simple wrapper to select an intersection finder
     
     ! The positions and meshes of A and B
-    type(vector_field), intent(in), target :: positionsA, positionsB
+    type(vector_field), intent(inout), target :: positionsA, positionsB
     ! for each element in A, the intersecting elements in B
     type(ilist), dimension(ele_count(positionsA)) :: map_AB
     
@@ -232,7 +232,7 @@ contains
     !!< Return whether the supplied coordinate field is connected. Uses a simple
     !!< element advancing front.
     
-    type(vector_field), intent(in) :: positions
+    type(vector_field), intent(inout) :: positions
     
     logical :: connected
     
@@ -283,7 +283,7 @@ contains
     !!< Return a list of seeds for the advancing front intersection finder - one
     !!< seed per connected sub-domain.
     
-    type(vector_field), intent(in) :: positions
+    type(vector_field), intent(inout) :: positions
     
     type(ilist) :: seeds
     

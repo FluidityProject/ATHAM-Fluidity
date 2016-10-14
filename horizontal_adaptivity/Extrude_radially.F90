@@ -288,7 +288,6 @@ module hadapt_extrude_radially
     call combine_r_meshes(shell_mesh, r_meshes, out_mesh, &
        full_shape, mesh_name, option_path, sigma_layers)
 
-       
     do column=1, node_count(shell_mesh)
       if (.not. node_owned(shell_mesh, column)) cycle
       call deallocate(r_meshes(column))

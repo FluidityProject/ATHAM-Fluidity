@@ -20,7 +20,8 @@ module solenoidal_interpolation_module
   use assemble_cmc
   use sparse_matrices_fields
   use boundary_conditions
-  use boundary_conditions_from_options
+  use boundary_conditions_from_options, only: impose_reference_pressure_node,	&
+  					      apply_dirichlet_conditions_inverse_mass
   use momentum_cg, only: correct_masslumped_velocity, add_kmk_matrix, add_kmk_rhs, assemble_kmk_matrix
   use momentum_dg, only: correct_velocity_dg
   use fefields

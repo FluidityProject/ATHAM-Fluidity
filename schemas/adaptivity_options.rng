@@ -1501,11 +1501,23 @@ the L2 norm of the residual</a:documentation>
       <ref name="grandy_interpolation"/>
     </choice>
   </define>
+  <define name="interpolation_algorithm_prescribed_scalar">
+    <choice>
+      <ref name="interpolation_algorithm_scalar"/>
+      <ref name="interpolation_algorithm_disabled"/>
+    </choice>
+  </define>
   <define name="interpolation_algorithm_scalar_full">
     <ref name="interpolation_algorithm_scalar"/>
   </define>
   <define name="interpolation_algorithm_scalar_full" combine="choice">
     <ref name="interpolation_algorithm_disabled"/>
+  </define>
+  <define name="interpolation_algorithm_prescribed_vector">
+    <choice>
+      <ref name="interpolation_algorithm_vector"/>
+      <ref name="interpolation_algorithm_disabled"/>
+    </choice>
   </define>
   <define name="interpolation_algorithm_vector_full">
     <ref name="interpolation_algorithm_vector"/>

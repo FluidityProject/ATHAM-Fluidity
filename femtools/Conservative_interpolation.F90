@@ -265,10 +265,10 @@ module conservative_interpolation_module
 
   subroutine interpolation_galerkin_scalars(old_fields_state, old_position, new_fields_state, new_position, map_BA, force_bounded)
     type(state_type), dimension(:), intent(in) :: old_fields_state
-    type(vector_field), intent(in) :: old_position
+    type(vector_field), intent(inout) :: old_position
 
     type(state_type), dimension(:), intent(inout) :: new_fields_state
-    type(vector_field), intent(in) :: new_position
+    type(vector_field), intent(inout) :: new_position
     type(ilist), dimension(:), intent(in), optional, target :: map_BA
     logical, intent(in), optional :: force_bounded
 
@@ -386,6 +386,7 @@ module conservative_interpolation_module
         do field = 1, field_counts(mesh)
           old_fields(mesh, field) = extract_scalar_field(old_fields_state(mesh), field)
           new_fields(mesh, field) = extract_scalar_field(new_fields_state(mesh), field)
+
           call zero(new_fields(mesh, field))
           bounded(mesh, field) = l_force_bounded.or.&
                           have_option(trim(complete_field_path(new_fields(mesh,field)%option_path, stat=statp)) // &
@@ -965,8 +966,8 @@ module conservative_interpolation_module
     !!< Grandy, 1999.
     !!< 10.1006/jcph.1998.6125
     type(scalar_field), dimension(:), intent(in) :: old_fields
-    type(vector_field), intent(in) :: old_position
-    type(vector_field), intent(in) :: new_position
+    type(vector_field), intent(inout) :: old_position
+    type(vector_field), intent(inout) :: new_position
     type(scalar_field), dimension(:), intent(inout) :: new_fields
 
     integer :: ele_A, ele_B, ele_C

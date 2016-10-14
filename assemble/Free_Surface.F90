@@ -33,11 +33,11 @@ use state_module
 use sparse_tools
 use sparse_matrices_fields
 use boundary_conditions
+use boundary_conditions_from_options
 use spud
 use vertical_extrapolation_module
 use global_parameters, only: OPTION_PATH_LEN, FIELD_NAME_LEN
 use parallel_tools
-use halos
 use eventcounter
 use integer_set_module
 use field_options
@@ -46,8 +46,10 @@ use tidal_module, only: calculate_diagnostic_equilibrium_pressure
 use sparsity_patterns_meshes
 use sparsity_patterns
 use solvers
-use cv_faces
 use cv_shape_functions
+use cv_faces
+use halos
+use halos_derivation
 implicit none
 
 private

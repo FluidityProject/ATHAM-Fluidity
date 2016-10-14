@@ -8,6 +8,9 @@
       <optional>
         <ref name="coriolis_options"/>
       </optional>
+      <optional>
+        <ref name="location_date"/>
+      </optional>
     </element>
   </define>
   <define name="gravity_options">
@@ -140,6 +143,27 @@ where k is the z unit vector
    and f=f_0+beta . (x,y,z)
 usually only the y-component of beta is non-zero</a:documentation>
         <ref name="real_dim_vector"/>
+      </element>
+    </element>
+  </define>
+  <define name="location_date">
+    <element name="location_date">
+      <a:documentation>Enter location and date at the start of the simulation</a:documentation>
+      <element name="longitude">
+        <a:documentation>Longitude</a:documentation>
+        <ref name="real"/>
+      </element>
+      <element name="latitude">
+        <a:documentation>Latitude</a:documentation>
+        <ref name="real"/>
+      </element>
+      <element name="julian_day">
+        <a:documentation>Julian day at the start of the simulation</a:documentation>
+          <ref name="integer"/>
+      </element>
+      <element name="hour_start">
+        <a:documentation>Hour at the start of the simulation. Format: HH (local time).</a:documentation>
+        <ref name="integer"/>
       </element>
     </element>
   </define>

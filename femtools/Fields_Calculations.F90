@@ -697,8 +697,7 @@ implicit none
       FLAbort("Programmmer laziness detected")
     end if
 
-    if ((fieldA%field_type == FIELD_TYPE_NORMAL) .and. &
-        (fieldB%field_type == FIELD_TYPE_NORMAL)) then
+    if (fieldA%field_type == FIELD_TYPE_NORMAL .and. fieldB%field_type == FIELD_TYPE_NORMAL) then
        do d=1,fieldA%dim
           val(d) = dot_product(fieldA%val(d,:), fieldB%val(d,:))
        end do
@@ -729,8 +728,7 @@ implicit none
       FLAbort("Programmmer laziness detected")
     end if
 
-    if ((fieldA%field_type == FIELD_TYPE_NORMAL) .and. &
-        (fieldB%field_type == FIELD_TYPE_NORMAL)) then
+    if (fieldA%field_type == FIELD_TYPE_NORMAL .and. fieldB%field_type == FIELD_TYPE_NORMAL) then
        do d1=1,fieldA%dim
           do d2=1,fieldB%dim
              val(d1,d2) = dot_product(fieldA%val(d1,:), fieldB%val(d2,:))
@@ -800,7 +798,7 @@ implicit none
     !! If positionsA and positionsB are the same, don't use this:
     !! it will be much slower than necessary.
     type(scalar_field), intent(in) :: fieldA, fieldB
-    type(vector_field), intent(in) :: positionsA, positionsB
+    type(vector_field), intent(inout) :: positionsA, positionsB
     real :: norm
     type(ilist), dimension(ele_count(positionsB)) :: map_BA
     integer :: ele_A, ele_B
@@ -862,7 +860,7 @@ implicit none
     !! If positionsA and positionsB are the same, don't use this:
     !! it will be much slower than necessary.
     type(scalar_field), dimension(:), intent(in) :: fieldA, fieldB
-    type(vector_field), intent(in) :: positionsA, positionsB
+    type(vector_field), intent(inout) :: positionsA, positionsB
     real, dimension(size(fieldA)) :: norm
     type(ilist), dimension(ele_count(positionsB)) :: map_BA
     integer :: ele_A, ele_B

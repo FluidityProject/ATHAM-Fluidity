@@ -103,7 +103,8 @@ Advection_Diffusion_DG.o ../include/advection_diffusion_dg.mod: \
    ../include/sparsity_patterns.mod ../include/sparsity_patterns_meshes.mod \
    ../include/spud.mod ../include/state_module.mod \
    ../include/transform_elements.mod ../include/upwind_stabilisation.mod \
-   ../include/vector_tools.mod ../include/vtk_interfaces.mod
+   ../include/vector_tools.mod ../include/vtk_interfaces.mod \
+   ../include/helmholtz_projection.mod
 
 ../include/advection_diffusion_fv.mod: Advection_Diffusion_FV.o
 	@true
@@ -129,6 +130,16 @@ Assemble_CMC.o ../include/assemble_cmc.mod: Assemble_CMC.F90 \
    ../include/sparse_matrices_fields.mod ../include/sparse_tools.mod \
    ../include/sparse_tools_petsc.mod ../include/spud.mod \
    ../include/state_module.mod
+
+../include/assemble_microphysics.mod: Assemble_microphysics.o
+	@true
+
+Assemble_microphysics.o ../include/assemble_microphysics.mod: \
+   Assemble_microphysics.F90  \
+   ../include/fdebug.h ../include/fields.mod \
+   ../include/spud.mod ../include/state_module.mod \
+   ../include/global_parameters.mod ../include/slope_limiters_dg.mod \
+   ../include/microphysics.mod
 
 ../include/biology.mod: Biology.o
 	@true
@@ -158,7 +169,8 @@ Compressible_Projection.o ../include/compressible_projection.mod: \
    ../include/global_parameters.mod ../include/multiphase_module.mod \
    ../include/sparse_matrices_fields.mod ../include/sparse_tools.mod \
    ../include/spud.mod ../include/state_fields_module.mod \
-   ../include/state_module.mod ../include/upwind_stabilisation.mod
+   ../include/state_module.mod ../include/upwind_stabilisation.mod \
+   ../include/petsc_solve_state_module.mod ../include/divergence_matrix_cg.mod
 
 ../include/coriolis_module.mod: Coriolis.o
 	@true
@@ -376,6 +388,22 @@ Gradient_Matrix_CG.o ../include/gradient_matrix_cg.mod: Gradient_Matrix_CG.F90 \
    ../include/quadrature.mod ../include/spud.mod ../include/state_module.mod \
    ../include/transform_elements.mod
 
+../include/helmholtz_projection.mod: Helmholtz_Projection.o
+	@true
+
+Helmholtz_Projection.o ../include/helmholtz_projection.mod: \
+   Helmholtz_Projection.F90 ../include/elements.mod \
+   ../include/sparse_tools.mod ../include/fetools.mod \
+   ../include/dgtools.mod ../include/fields.mod \
+   ../include/fefields.mod ../include/state_module.mod \
+   ../include/shape_functions.mod ../include/transform_elements.mod \
+   ../include/fldebug.mod ../include/petsc_solve_state_module.mod \
+   ../include/field_options.mod ../include/field_derivatives.mod \
+   ../include/fields_calculations.mod ../include/spud.mod \
+   ../include/sparsity_patterns.mod ../include/sparse_matrices_fields.mod \
+   ../include/sparsity_patterns_meshes.mod ../include/global_parameters.mod \
+   ../include/state_fields_module.mod
+
 ../include/hybridized_helmholtz.mod: Hybridized_Helmholtz.o
 	@true
 
@@ -541,6 +569,7 @@ Momentum_CG.o ../include/momentum_cg.mod: Momentum_CG.F90 \
    ../include/state_module.mod ../include/transform_elements.mod \
    ../include/upwind_stabilisation.mod ../include/vector_tools.mod
 
+
 ../include/momentum_dg.mod: Momentum_DG.o
 	@true
 
@@ -561,7 +590,9 @@ Momentum_DG.o ../include/momentum_dg.mod: Momentum_DG.F90 \
    ../include/sparsity_patterns_meshes.mod ../include/spud.mod \
    ../include/state_module.mod ../include/transform_elements.mod \
    ../include/turbine.mod ../include/vector_tools.mod \
-   ../include/vtk_interfaces.mod
+   ../include/vtk_interfaces.mod \
+   ../include/filter_diagnostics.mod
+
 
 ../include/momentum_diagnostic_fields.mod: Momentum_Diagnostic_Fields.o
 	@true
@@ -590,7 +621,7 @@ Momentum_Equation.o ../include/momentum_equation.mod: Momentum_Equation.F90 \
    ../include/free_surface_module.mod ../include/full_projection.mod \
    ../include/geostrophic_pressure.mod ../include/hydrostatic_pressure.mod \
    ../include/implicit_solids.mod ../include/linked_lists.mod \
-   ../include/momentum_cg.mod ../include/momentum_dg.mod \
+   ../include/momentum_cg.mod ../include/momentum_dg.mod ../include/advection_diffusion_dg.mod \
    ../include/momentum_diagnostic_fields.mod ../include/multiphase_module.mod \
    ../include/oceansurfaceforcing.mod ../include/parallel_tools.mod \
    ../include/petsc_solve_state_module.mod \
@@ -737,17 +768,6 @@ Shallow_Water_Equations.o ../include/shallow_water_equations.mod: \
    Shallow_Water_Equations.F90 ../include/boundary_conditions.mod \
    ../include/fdebug.h ../include/fields.mod ../include/global_parameters.mod \
    ../include/spud.mod ../include/state_module.mod
-
-../include/slope_limiters_dg.mod: Slope_limiters_DG.o
-	@true
-
-Slope_limiters_DG.o ../include/slope_limiters_dg.mod: Slope_limiters_DG.F90 \
-   ../include/bound_field_module.mod ../include/elements.mod \
-   ../include/eventcounter.mod ../include/fdebug.h ../include/fields.mod \
-   ../include/fldebug_parameters.mod ../include/ieee_arithmetic.mod \
-   ../include/spud.mod ../include/state_fields_module.mod \
-   ../include/state_module.mod ../include/transform_elements.mod \
-   ../include/vtk_interfaces.mod
 
 ../include/solenoidal_interpolation_module.mod: Solenoidal_interpolation.o
 	@true

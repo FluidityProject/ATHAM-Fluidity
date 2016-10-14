@@ -55,11 +55,11 @@ module diagnostic_fields
   use boundary_conditions, only: get_entire_boundary_condition, get_dg_surface_mesh
   use quicksort
   use unittest_tools
-  use boundary_conditions
   use state_fields_module
   use interpolation_module
   use Vector_Tools
   use streamfunction
+  use vtk_interfaces, only: vtk_write_fields
 
   implicit none
 
@@ -67,6 +67,7 @@ module diagnostic_fields
 
   public :: insert_diagnostic_field, calculate_diagnostic_variable
   public :: calculate_cfl_number, calculate_galerkin_projection
+  public :: safe_set
   
   interface calculate_diagnostic_variable
      module procedure calculate_scalar_diagnostic_variable_single_state, &
@@ -83,7 +84,11 @@ module diagnostic_fields
 
   interface calculate_galerkin_projection
     module procedure calculate_galerkin_projection_scalar, calculate_galerkin_projection_vector, &
-                     calculate_galerkin_projection_tensor
+                     calculate_galerkin_projection_tensor, calculate_galerkin_projection_scalar_from_scalar
+  end interface
+
+  interface safe_set
+    module procedure safe_set_scalar, safe_set_vector, safe_set_tensor
   end interface
   
 
@@ -215,6 +220,9 @@ contains
         
       case("VelocityDivergence")
         call calculate_velocity_divergence(state, d_field, stat)
+        
+      case("Buoyancy")
+        call calculate_buoyancy(state, d_field, stat)
 
       case("Speed")
         call calculate_speed(state, d_field, stat)
@@ -223,7 +231,7 @@ contains
         call calculate_diffusive_dissipation(state, d_field, stat)
       
       case("RichardsonNumber")
-        call calculate_richardson_number_new(state, d_field)
+!        call calculate_richardson_number_new(state, d_field)
 
       case("AbsoluteDifference")
         call calculate_absolute_difference(state, d_field)
@@ -236,6 +244,9 @@ contains
 
       case("NodeOwner")
         call calculate_node_owner(d_field)
+
+      case("VapourWaterQ","Saturation","Reflectivity")
+        ! Nothing to be done here: These quantities are treated in Diagnostic_Fields_EOS
 
       case default
         if(present(stat)) then
@@ -512,11 +523,11 @@ contains
     end if
 
     if (have_option(trim(U%option_path)//&
-            &"/prognostic/spatial_discretisation/continuous_galerkin"//&
-            &"/stress_terms/stress_form") .or. &
-            have_option(trim(U%option_path)//&
-            &"/prognostic/spatial_discretisation/continuous_galerkin"//&
-            &"/stress_terms/partial_stress_form")) then
+	    &"/prognostic/spatial_discretisation/continuous_galerkin"//&
+	    &"/stress_terms/stress_form") .or. &
+	    have_option(trim(U%option_path)//&
+	    &"/prognostic/spatial_discretisation/continuous_galerkin"//&
+	    &"/stress_terms/partial_stress_form")) then
        use_stress_form = .true.
     else
        use_stress_form = .false.
@@ -536,12 +547,12 @@ contains
        ! for full and partial stress form we need to set the off diagonal terms of the viscosity tensor to zero
        ! to be able to invert it 
        if (use_stress_form) then
-          do a=1,size(vis_q,1)
-             do b=1,size(vis_q,2)
-                if(a.eq.b) cycle
-                vis_q(a,b,:) = 0.0
-             end do
-          end do
+	  do a=1,size(vis_q,1)
+	     do b=1,size(vis_q,2)
+		if(a.eq.b) cycle
+		vis_q(a,b,:) = 0.0
+	     end do
+	  end do
        end if
 
        do gi=1, size(detwei)
@@ -1246,7 +1257,7 @@ contains
     call deallocate(drho_dy(1))
 
   end subroutine calculate_diffusive_dissipation
-
+ 
   subroutine calculate_richardson_number_old(state, richardson_number_field)
     !!< Calculate the Richardson number field
     !!< Defined in Turner, Buoyancy Effects in Fluids, p.12 as
@@ -1356,16 +1367,18 @@ contains
       FLExit("RichardsonNumber requires a continuous mesh")
     end if
 
+    ! Extract velocity    
+    velocity => extract_vector_field(state, "Velocity")
+    if (.not.have_option(trim(velocity%option_path)//"/prognostic/spatial_discretisation/continuous_galerkin/les_model") .and. &
+        .not.have_option(trim(velocity%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/les_model")) then
+    assert(velocity%dim == mesh_dim(ri))
+    assert(ele_count(velocity) == ele_count(ri))
+    ewrite_minmax(velocity)
+
     ! Extract the Coordinate field
     positions => extract_vector_field(state, "Coordinate")
     assert(positions%dim == mesh_dim(ri))
     assert(ele_count(positions) == ele_count(ri))
-
-    ! Extract velocity    
-    velocity => extract_vector_field(state, "Velocity")
-    assert(velocity%dim == mesh_dim(ri))
-    assert(ele_count(velocity) == ele_count(ri))
-    ewrite_minmax(velocity)
     
     ! Extract gravity
     gravity_direction => extract_vector_field(state, "GravityDirection")
@@ -1389,6 +1402,7 @@ contains
     ! Solve (somewhat trivial)
     ri%val = ri%val / masslump%val
     ewrite_minmax(ri)
+    endif
   
   end subroutine calculate_richardson_number_new
   
@@ -1583,6 +1597,11 @@ contains
     integer :: i
     type(vector_field), pointer :: positions, v_field
 
+    call zero(div_u)
+
+    v_field => extract_vector_field(state, "Velocity", stat)
+    positions => extract_vector_field(state, "Coordinate", stat)
+
     do i = 1, 2
       select case(i)
         case(1)
@@ -1600,6 +1619,65 @@ contains
     call div(v_field, positions, div_u)
 
   end subroutine calculate_velocity_divergence
+
+  subroutine calculate_buoyancy(state, buoyancy, stat)
+    !!< Calculate buoyancy.
+    type(state_type), intent(in) :: state
+    type(scalar_field), intent(inout) :: buoyancy
+    integer, intent(out), optional :: stat
+
+    integer :: stati
+    logical :: have_buoyancy_from_pt
+    real :: gravity
+    type(scalar_field), target :: dummyscalar
+    type(scalar_field) :: hb_buoyancy_remap, density_remap
+    type(scalar_field), pointer :: density, vel_buoyancy, hb_buoyancy
+    
+    call zero(buoyancy)
+    
+    call get_option("/physical_parameters/gravity/magnitude", gravity, stati)
+    vel_buoyancy => extract_scalar_field(state, "VelocityBuoyancyDensity", stati)
+    
+    if (stati == 0) then
+      call remap_field(vel_buoyancy,buoyancy)
+      call allocate(hb_buoyancy_remap,buoyancy%mesh,"HBBuoyancyRemap")
+      call allocate(dummyscalar,buoyancy%mesh,"DummyScalar")
+      call zero(dummyscalar)
+
+      have_buoyancy_from_pt=have_option('/material_phase::'//trim(state%name)//'/equation_of_state/compressible/ATHAM/buoyancy_from_pt') .or. &
+          have_option('/material_phase::'//trim(state%name)//'/equation_of_state/compressible/giraldo/buoyancy_from_pt')     
+      if (has_scalar_field(state,"HydrostaticReferenceDensity")) then
+	if (have_buoyancy_from_pt) then
+          hb_buoyancy => extract_scalar_field(state, "HydrostaticReferencePotentialTemperature")		
+	else
+          hb_buoyancy => extract_scalar_field(state, "HydrostaticReferenceDensity")	
+	endif
+      else if (have_buoyancy_from_pt .and. has_scalar_field(state,"HydrostaticReferencePotentialTemperature")) then
+        hb_buoyancy => extract_scalar_field(state, "HydrostaticReferencePotentialTemperature")		
+      else
+        hb_buoyancy => dummyscalar
+      end if
+      
+      call remap_field(hb_buoyancy,hb_buoyancy_remap)
+      call addto(buoyancy,hb_buoyancy_remap,scale=-1.)
+      call scale(buoyancy,gravity)
+      call scale(buoyancy,-1.)
+      if (have_buoyancy_from_pt) then
+        density => extract_scalar_field(state, "Density")
+        call allocate(density_remap,buoyancy%mesh,"DensityRemap")
+	call remap_field(density,density_remap)
+	call scale(buoyancy,-1.)
+	call scale(buoyancy,density_remap)
+	call invert(hb_buoyancy_remap)
+	call scale(buoyancy,hb_buoyancy_remap)
+	call deallocate(density_remap)
+      end if
+      
+      call deallocate(hb_buoyancy_remap)
+      call deallocate(dummyscalar)
+    endif
+
+  end subroutine calculate_buoyancy
 
   subroutine calculate_courant_number_dg(state, courant, dt)
     !!< Calculate courant number for DG velocity fields
@@ -3087,8 +3165,8 @@ contains
       ewrite(2,*) 'in calculate bed_shear_stress'
 
       if (have_option(trim(bed_shear_stress%option_path)//"/prescribed")) then
-        ewrite(2,*) 'prescribed bed_shear_stress - not calculating'
-        return
+	ewrite(2,*) 'prescribed bed_shear_stress - not calculating'
+	return
       end if
 
       ! assumes constant density
@@ -3096,125 +3174,125 @@ contains
 
       ! calculate using drag coefficient
       if (have_option(trim(bed_shear_stress%option_path)//&
-           &"/diagnostic/calculation_method/drag_coefficient")) then
+	   &"/diagnostic/calculation_method/drag_coefficient")) then
 
-         call zero(bed_shear_stress) 
+	 call zero(bed_shear_stress) 
 
-         call get_option(trim(bed_shear_stress%option_path)//&
-              & "/diagnostic/calculation_method/drag_coefficient",&
-              & drag_coefficient)
+	 call get_option(trim(bed_shear_stress%option_path)//&
+	      & "/diagnostic/calculation_method/drag_coefficient",&
+	      & drag_coefficient)
 
-         U => extract_vector_field(state, "Velocity")
-         snloc = face_loc(U, 1)
-         allocate( faceglobalnodes(1:snloc) )
-         do sele=1,surface_element_count(U)
-            ele = face_ele(U, sele)
-            faceglobalnodes = face_global_nodes(U, sele)
-            do j = 1,snloc
-               globnod = faceglobalnodes(j)
-               speed = norm2(node_val(U, globnod))
-               call set(bed_shear_stress, globnod, density*drag_coefficient*speed * node_val(U, globnod))
-            end do
-         end do
-         deallocate( faceglobalnodes )
-         
+	 U => extract_vector_field(state, "Velocity")
+	 snloc = face_loc(U, 1)
+	 allocate( faceglobalnodes(1:snloc) )
+	 do sele=1,surface_element_count(U)
+	    ele = face_ele(U, sele)
+	    faceglobalnodes = face_global_nodes(U, sele)
+	    do j = 1,snloc
+	       globnod = faceglobalnodes(j)
+	       speed = norm2(node_val(U, globnod))
+	       call set(bed_shear_stress, globnod, density*drag_coefficient*speed * node_val(U, globnod))
+	    end do
+	 end do
+	 deallocate( faceglobalnodes )
+	 
       ! calculate using velocity gradient
       else if (have_option(trim(bed_shear_stress%option_path)//&
-           &"/diagnostic/calculation_method/velocity_gradient")) then
+	   &"/diagnostic/calculation_method/velocity_gradient")) then
 
-         call zero(bed_shear_stress) 
+	 call zero(bed_shear_stress) 
 
-         visc => extract_tensor_field(state, "Viscosity", visc_stat)
-         if (visc_stat /= 0.0) then
-            ewrite(0,*) 'Warning: No viscosity specified - assumed to be 1.0 for bed shear calculation'
-            call allocate(dummy_visc, bed_shear_stress%mesh, 'dummy_visc')
-            call zero(dummy_visc)
-            do i = 1, dummy_visc%dim(1)
-               call set(dummy_visc, i, i, 1.0)
-            end do
-            visc => dummy_visc            
-         end if
-         U    => extract_vector_field(state, "Velocity")
-         X    => extract_vector_field(state, "Coordinate")
+	 visc => extract_tensor_field(state, "Viscosity", visc_stat)
+	 if (visc_stat /= 0.0) then
+	    ewrite(0,*) 'Warning: No viscosity specified - assumed to be 1.0 for bed shear calculation'
+	    call allocate(dummy_visc, bed_shear_stress%mesh, 'dummy_visc')
+	    call zero(dummy_visc)
+	    do i = 1, dummy_visc%dim(1)
+	       call set(dummy_visc, i, i, 1.0)
+	    end do
+	    visc => dummy_visc  	  
+	 end if
+	 U    => extract_vector_field(state, "Velocity")
+	 X    => extract_vector_field(state, "Coordinate")
 
-         ! Check velociy and bed shear stress meshes are consistent
-         if (continuity(bed_shear_stress) /= continuity(U) .or. &
-             element_degree(bed_shear_stress, 1) /= element_degree(U, 1)) then
-            FLAbort('Bed shear stress and velocity mesh must have the same continuity and degree')
-         end if  
-         
-         if(continuity(bed_shear_stress)>=0) then       
-            ! We need to calculate a global lumped mass over the surface elements
-            call allocate(masslump, bed_shear_stress%mesh, 'Masslump')
-            call zero(masslump)
+	 ! Check velociy and bed shear stress meshes are consistent
+	 if (continuity(bed_shear_stress) /= continuity(U) .or. &
+	     element_degree(bed_shear_stress, 1) /= element_degree(U, 1)) then
+	    FLAbort('Bed shear stress and velocity mesh must have the same continuity and degree')
+	 end if  
+	 
+	 if(continuity(bed_shear_stress)>=0) then	
+	    ! We need to calculate a global lumped mass over the surface elements
+	    call allocate(masslump, bed_shear_stress%mesh, 'Masslump')
+	    call zero(masslump)
 
-            do face = 1, surface_element_count(bed_shear_stress)
-               call calculate_bed_shear_stress_ele_cg(bed_shear_stress, masslump, face, X, U,&
-                    & visc, density)
-            end do
+	    do face = 1, surface_element_count(bed_shear_stress)
+	       call calculate_bed_shear_stress_ele_cg(bed_shear_stress, masslump, face, X, U,&
+		    & visc, density)
+	    end do
 
-            where (masslump%val/=0.0)
-               masslump%val=1./masslump%val
-            end where
-            call scale(bed_shear_stress, masslump)
-            call deallocate(masslump)
-         else
-            ! We do DG differently. First the gradient of the velocity field is calculated   
-            ! using the field_derivatives code.
-            ! Then we use this field to determine the bed shear stress using:
-            ! N_i N_j tau_b = N_i nu grad_u . |n|
+	    where (masslump%val/=0.0)
+	       masslump%val=1./masslump%val
+	    end where
+	    call scale(bed_shear_stress, masslump)
+	    call deallocate(masslump)
+	 else
+	    ! We do DG differently. First the gradient of the velocity field is calculated   
+	    ! using the field_derivatives code.
+	    ! Then we use this field to determine the bed shear stress using:
+	    ! N_i N_j tau_b = N_i nu grad_u . |n|
 
-            ! create a field to store the gradient on
-            call allocate(grad_U, bed_shear_stress%mesh, 'grad_U')
-            call zero(grad_U)
-            ! calculate gradient of velocity
-            call grad(U, X, grad_U)
+	    ! create a field to store the gradient on
+	    call allocate(grad_U, bed_shear_stress%mesh, 'grad_U')
+	    call zero(grad_U)
+	    ! calculate gradient of velocity
+	    call grad(U, X, grad_U)
 
-            allocate(surface_element_list(surface_element_count(bed_shear_stress)))
-            ! generate list of surface elements
-            do i=1, surface_element_count(bed_shear_stress)
-               surface_element_list(i)=i
-            end do
+	    allocate(surface_element_list(surface_element_count(bed_shear_stress)))
+	    ! generate list of surface elements
+	    do i=1, surface_element_count(bed_shear_stress)
+	       surface_element_list(i)=i
+	    end do
 
-            ! create surface field
-            surface_mesh => get_dg_surface_mesh(bed_shear_stress%mesh)
-            call allocate(bed_shear_stress_surface, bed_shear_stress%dim, surface_mesh)
+	    ! create surface field
+	    surface_mesh => get_dg_surface_mesh(bed_shear_stress%mesh)
+	    call allocate(bed_shear_stress_surface, bed_shear_stress%dim, surface_mesh)
 
-            ! remap required fields to the boundary surfaces
-            call allocate(grad_u_surface, surface_mesh, dim=grad_u%dim)
-            call remap_field_to_surface(grad_u, grad_u_surface, surface_element_list)
-            call allocate(visc_surface, surface_mesh, dim=visc%dim)
-            call remap_field_to_surface(visc, visc_surface, surface_element_list)
+	    ! remap required fields to the boundary surfaces
+	    call allocate(grad_u_surface, surface_mesh, dim=grad_u%dim)
+	    call remap_field_to_surface(grad_u, grad_u_surface, surface_element_list)
+	    call allocate(visc_surface, surface_mesh, dim=visc%dim)
+	    call remap_field_to_surface(visc, visc_surface, surface_element_list)
 
-            ! calculate bed shear stress
-            do face = 1, ele_count(bed_shear_stress_surface)
-               call calculate_bed_shear_stress_ele_dg(bed_shear_stress_surface, face, X, grad_u_surface,&
-                    & visc_surface, density)
+	    ! calculate bed shear stress
+	    do face = 1, ele_count(bed_shear_stress_surface)
+	       call calculate_bed_shear_stress_ele_dg(bed_shear_stress_surface, face, X, grad_u_surface,&
+		    & visc_surface, density)
 
-               ! copy values to volume field - can be done element by element as the surface is generated
-               ! as we are in DG
-               call set(bed_shear_stress, &
-                    face_global_nodes(bed_shear_stress, face), &
-                    ele_val(bed_shear_stress_surface, face))
-            end do
+	       ! copy values to volume field - can be done element by element as the surface is generated
+	       ! as we are in DG
+	       call set(bed_shear_stress, &
+		    face_global_nodes(bed_shear_stress, face), &
+		    ele_val(bed_shear_stress_surface, face))
+	    end do
 
-            call deallocate(bed_shear_stress_surface)
-            call deallocate(grad_u)
-            call deallocate(grad_u_surface)
-            call deallocate(visc_surface)
-         end if
+	    call deallocate(bed_shear_stress_surface)
+	    call deallocate(grad_u)
+	    call deallocate(grad_u_surface)
+	    call deallocate(visc_surface)
+	 end if
 
-         if (visc_stat /= 0) then
-            call deallocate(dummy_visc)
-         end if
+	 if (visc_stat /= 0) then
+	    call deallocate(dummy_visc)
+	 end if
       else
-         FLAbort('Unknown bed shear stress calculation method')
+	 FLAbort('Unknown bed shear stress calculation method')
       end if
 
    end subroutine calculate_bed_shear_stress
 
    subroutine calculate_bed_shear_stress_ele_cg(bed_shear_stress, masslump, face, X, U, visc&
-        &, density)
+	&, density)
 
      type(vector_field), intent(inout) :: bed_shear_stress
      type(scalar_field), intent(inout) :: masslump
@@ -3237,39 +3315,39 @@ contains
      dim    = mesh_dim(bed_shear_stress) ! field dimension 
 
      ! get shape functions
-     f_shape => face_shape(U, face)     
+     f_shape => face_shape(U, face)	
      shape   => ele_shape(U, ele)     
      
      call transform_facet_to_physical(X, face, shape, ele_dshape_at_face_quad, &
-                                      detwei_f = detwei, normal = normal)
+				      detwei_f = detwei, normal = normal)
     
      ! Calculate grad U at the surface element quadrature points 
      do i=1, dim
-        do j=1, dim
-           grad_U_at_quad(i, j, :) = &
-                & matmul(ele_val(U, j, ele), ele_dshape_at_face_quad(:,:,i))
-        end do
+	do j=1, dim
+	   grad_U_at_quad(i, j, :) = &
+		& matmul(ele_val(U, j, ele), ele_dshape_at_face_quad(:,:,i))
+	end do
      end do
 
      visc_at_quad = face_val_at_quad(visc, face)
      X_ele = face_val_at_quad(X, face)
      do i_gi = 1, face_ngi(X, face)
-        ! determine shear ( nu*(grad_u + grad_u.T) )   
-        shear_at_quad(:,:,i_gi) = matmul(grad_U_at_quad(:,:,i_gi) + transpose(grad_U_at_quad(:,:,i_gi)), visc_at_quad(:,:,i_gi))
+	! determine shear ( nu*(grad_u + grad_u.T) )   
+	shear_at_quad(:,:,i_gi) = matmul(grad_U_at_quad(:,:,i_gi) + transpose(grad_U_at_quad(:,:,i_gi)), visc_at_quad(:,:,i_gi))
 
-        ! Get absolute of normal vector
-        do i = 1,dim
-           abs_normal(i) = abs(normal(i,i_gi))
-        end do
+	! Get absolute of normal vector
+	do i = 1,dim
+	   abs_normal(i) = abs(normal(i,i_gi))
+	end do
 
-        ! Multiply by surface normal (dim,sgi) to obtain shear in direction normal
-        ! to surface (not sure why it is transpose(shear) but this gives the
-        ! correct answer?? sp911)
-        normal_shear_at_quad(:,i_gi) = matmul(transpose(shear_at_quad(:,:,i_gi)), abs_normal) 
+	! Multiply by surface normal (dim,sgi) to obtain shear in direction normal
+	! to surface (not sure why it is transpose(shear) but this gives the
+	! correct answer?? sp911)
+	normal_shear_at_quad(:,i_gi) = matmul(transpose(shear_at_quad(:,:,i_gi)), abs_normal) 
      end do  
 
      normal_shear_at_loc = shape_vector_rhs(f_shape, normal_shear_at_quad, density *&
-          & detwei)
+	  & detwei)
 
      ! for CG we need to calculate a global lumped mass
      mass = shape_shape(f_shape, f_shape, detwei)
@@ -3307,30 +3385,30 @@ contains
      grad_U_at_quad = ele_val_at_quad(grad_U, ele)
 
      do i_gi = 1, ele_ngi(bss, ele)
-        ! determine shear ( nu*(grad_u + grad_u.T ) )   
-        shear_at_quad(:,:,i_gi) = density * matmul(grad_U_at_quad(:,:,i_gi) + transpose(grad_U_at_quad(:,:,i_gi)), visc_at_quad(:,:,i_gi))
+	! determine shear ( nu*(grad_u + grad_u.T ) )	
+	shear_at_quad(:,:,i_gi) = density * matmul(grad_U_at_quad(:,:,i_gi) + transpose(grad_U_at_quad(:,:,i_gi)), visc_at_quad(:,:,i_gi))
 
-        ! Get absolute of normal vector
-        do i = 1, bss%dim
-           abs_normal(i) = abs(normal(i,i_gi))
-        end do
+	! Get absolute of normal vector
+	do i = 1, bss%dim
+	   abs_normal(i) = abs(normal(i,i_gi))
+	end do
 
-        ! Multiply by surface normal (dim,sgi) to obtain shear in direction normal
-        ! to surface (not sure why it is transpose(shear) but this gives the
-        ! correct answer?? sp911)
-        normal_shear_at_quad(:,i_gi) = matmul(transpose(shear_at_quad(:,:,i_gi)), abs_normal) 
-     end do  
+	! Multiply by surface normal (dim,sgi) to obtain shear in direction normal
+	! to surface (not sure why it is transpose(shear) but this gives the
+	! correct answer?? sp911)
+	normal_shear_at_quad(:,i_gi) = matmul(transpose(shear_at_quad(:,:,i_gi)), abs_normal) 
+     end do
      
      ! project on to basis functions to recover value at nodes
      rhs = shape_vector_rhs(shape, normal_shear_at_quad, detwei)
      inv_mass = inverse(shape_shape(shape, shape, detwei))
      do i = 1, X%dim
-        rhs(i, :) = matmul(inv_mass, rhs(i, :))
+	rhs(i, :) = matmul(inv_mass, rhs(i, :))
      end do
 
      ! add to bss field
      call addto(bss, ele_nodes(bss,ele), rhs)
-          
+	  
    end subroutine calculate_bed_shear_stress_ele_dg
 
    subroutine calculate_max_bed_shear_stress(state, max_bed_shear_stress)
@@ -3347,37 +3425,199 @@ contains
       call get_option("/timestepping/current_time", current_time)
 
       if(current_time>=spin_up_time) then
-         
-         ! Use the value already calculated previously
-         bed_shear_stress => extract_vector_field(state, "BedShearStress", stat)  
-         if(stat /= 0) then  
-            ewrite(-1,*) "You need BedShearStress turned on to calculate MaxBedShearStress."
-            FLExit("Turn on BedShearStress")
-         end if
+	 
+	 ! Use the value already calculated previously
+	 bed_shear_stress => extract_vector_field(state, "BedShearStress", stat)  
+	 if(stat /= 0) then  
+	    ewrite(-1,*) "You need BedShearStress turned on to calculate MaxBedShearStress."
+	    FLExit("Turn on BedShearStress")
+	 end if
 
-         ! We actually care about the vector that causes the maximum magnitude
-         ! of bed shear stress, so check the magnitude and store if higher than
-         ! what we already have.
-         magnitude_max_bss = magnitude(max_bed_shear_stress)
-         magnitude_bss = magnitude(bed_shear_stress)
+	 ! We actually care about the vector that causes the maximum magnitude
+	 ! of bed shear stress, so check the magnitude and store if higher than
+	 ! what we already have.
+	 magnitude_max_bss = magnitude(max_bed_shear_stress)
+	 magnitude_bss = magnitude(bed_shear_stress)
 
-         do i=1,node_count(magnitude_bss)
-            if (node_val(magnitude_bss,i) .gt. node_val(magnitude_max_bss,i)) then
-               call set(max_bed_shear_stress,i,node_val(bed_shear_stress,i))
-            end if
+	 do i=1,node_count(magnitude_bss)
+	    if (node_val(magnitude_bss,i) .gt. node_val(magnitude_max_bss,i)) then
+	       call set(max_bed_shear_stress,i,node_val(bed_shear_stress,i))
+	    end if
          end do
 
-         call deallocate(magnitude_max_bss)
-         call deallocate(magnitude_bss)
+	 call deallocate(magnitude_max_bss)
+	 call deallocate(magnitude_bss)
       else
-        call zero(max_bed_shear_stress)
+	call zero(max_bed_shear_stress)
       end if
 
    end subroutine calculate_max_bed_shear_stress
 
-   subroutine calculate_galerkin_projection_scalar(state, field)
+   subroutine calculate_galerkin_projection_scalar_from_scalar(state, projected_field, field, lump_mass, alpha, dummy_flag)
+    type(state_type), intent(inout) :: state
+    type(scalar_field), intent(inout) :: projected_field
+    type(scalar_field), intent(inout) :: field
+    logical, optional :: lump_mass
+    real, optional :: alpha
+	integer, intent (in) :: dummy_flag    ! This is passed in (but not used) to avoid ambiguous 
+	                                      ! interface with calculate_galerkin_projection_scalar
+
+    character(len=len_trim(field%option_path)) :: path
+    character(len=FIELD_NAME_LEN) :: field_name
+    type(vector_field), pointer :: positions
+    type(csr_sparsity) :: mass_sparsity
+    type(csr_matrix) :: mass
+    type(scalar_field) :: rhs, mass_lumped, inverse_mass_lumped
+    logical :: dg
+    logical :: check_integrals
+    logical :: apply_bcs
+    logical :: local_lump_mass
+
+    integer :: ele
+    real :: lalpha
+
+    if (present(lump_mass)) then
+       local_lump_mass=lump_mass
+    else
+       local_lump_mass=.false.
+    end if
+    if (present(alpha)) then
+       lalpha=alpha
+    else
+       lalpha=0.0
+    end if
+
+    ewrite(2,*), ("projecting "//trim(projected_field%name)//" to "//trim(field%name))
+
+    dg = (continuity(field) < 0)
+
+    check_integrals = .false.
+    apply_bcs = .true.
+
+    path = projected_field%option_path
+    positions => extract_vector_field(state, "Coordinate")
+
+    ! Assuming they're on the same quadrature
+    assert(ele_ngi(field, 1) == ele_ngi(projected_field, 1))
+
+    if ((.not. dg) .and. (.not. local_lump_mass)) then
+
+      mass_sparsity = make_sparsity(field%mesh, field%mesh, name="MassMatrixSparsity")
+      call allocate(mass, mass_sparsity, name="MassMatrix")
+      call zero(mass)
+    else if (local_lump_mass) then
+      call allocate(mass_lumped, field%mesh, name="GalerkinProjectionMassLumped")
+      call zero(mass_lumped)
+    end if
+    
+    if (local_lump_mass .or. .not. dg) then
+      call allocate(rhs, field%mesh, name="GalerkinProjectionRHS")
+      call zero(rhs)
+    end if
+
+    do ele=1,ele_count(field)
+      call assemble_galerkin_projection(field, projected_field, positions, &
+        			     &  mass, rhs, ele, dg,lalpha)
+    end do
+
+    if (local_lump_mass) then
+      call allocate(inverse_mass_lumped, field%mesh, &
+                 name="GalerkinProjectionInverseMassLumped")
+      call invert(mass_lumped, inverse_mass_lumped)
+      call set(field, rhs)
+      call scale(field, inverse_mass_lumped)
+      call deallocate(mass_lumped)
+      call deallocate(inverse_mass_lumped)
+      call deallocate(rhs)
+    else if (.not. dg) then
+      call set_solver_options(field)
+      if (len_trim(projected_field%option_path) /= 0) then
+        call petsc_solve(field, mass, rhs, option_path=projected_field%option_path)
+      else
+        call petsc_solve(field, mass, rhs)
+      endif
+      call deallocate(mass)
+      call deallocate(mass_sparsity)
+      call deallocate(rhs)
+    end if
+
+    contains
+     
+       subroutine assemble_galerkin_projection(field, projected_field, positions, mass, rhs, ele, dg,lalpha)
+	 type(scalar_field), intent(inout) :: field
+	 type(scalar_field), intent(in) :: projected_field
+	 type(vector_field), intent(in) :: positions
+	 type(csr_matrix), intent(inout) :: mass
+	 type(scalar_field), intent(inout) :: rhs
+	 integer, intent(in) :: ele
+	 logical, intent(in) :: dg
+	 real, intent(in) :: lalpha
+
+	 type(element_type), pointer :: field_shape, proj_field_shape
+	 real, dimension(ele_loc(field, ele), ele_ngi(field, ele),&
+	      mesh_dim(field)) :: field_dshape
+	 real, dimension(ele_loc(projected_field, ele),&
+	      ele_ngi(projected_field, ele),&
+	      mesh_dim(projected_field)) :: proj_field_dshape
+	 
+
+	 real, dimension(ele_loc(field, ele)) :: little_rhs
+	 real, dimension(ele_loc(field, ele), ele_loc(field, ele)) :: little_mass
+	 real, dimension(ele_loc(field, ele), ele_loc(projected_field, ele)) :: little_mba
+	 real, dimension(ele_loc(field, ele), ele_loc(projected_field, ele)) :: little_mba_int
+	 real, dimension(ele_ngi(field, ele)) :: detwei
+	 real, dimension(ele_loc(projected_field, ele)) :: proj_field_val
+
+	 integer :: i, j, k
+	 	 
+	 field_shape => ele_shape(field, ele)
+	 proj_field_shape => ele_shape(projected_field, ele)
+
+	 call transform_to_physical(positions, ele, field_shape,&
+	      dshape=field_dshape,detwei=detwei)
+	 call transform_to_physical(positions, ele, proj_field_shape,&
+	      dshape=proj_field_dshape,detwei=detwei)
+
+	 little_mass = shape_shape(field_shape, field_shape, detwei)
+	 if(lalpha/=0.0) little_mass = little_mass+dshape_dot_dshape(field_dshape, field_dshape, lalpha**2*detwei)
+
+	 ! And compute the product of the basis functions
+	 little_mba = 0
+	 do i=1,ele_ngi(field, ele)
+	   forall(j=1:ele_loc(field, ele), k=1:ele_loc(projected_field, ele))
+	     little_mba_int(j, k) = field_shape%n(j, i)*proj_field_shape%n(k, i)
+	   end forall
+	   if (lalpha/=0.0) then
+	   forall(j=1:ele_loc(field, ele), k=1:ele_loc(projected_field, ele))
+	     little_mba_int(j, k) = little_mba_int(j, k)+lalpha**2*sum(field_dshape(j,i,:)*proj_field_dshape(k,i,:))
+	   end forall
+	   endif
+	   little_mba = little_mba + little_mba_int * detwei(i)
+	 end do
+
+	 proj_field_val = ele_val(projected_field, ele)
+	 little_rhs = matmul(little_mba, proj_field_val)
+
+	 if (present(lump_mass)) then
+	   call addto(mass_lumped, ele_nodes(field, ele), &
+	     sum(little_mass,2))
+	   call addto(rhs, ele_nodes(field, ele), little_rhs)
+	 else if (dg) then
+	   call solve(little_mass, little_rhs)
+	   call set(field, ele_nodes(field, ele), little_rhs)
+	 else
+	   call addto(mass, ele_nodes(field, ele), ele_nodes(field, ele), little_mass)
+	   call addto(rhs, ele_nodes(field, ele), little_rhs)
+	 end if
+	 
+       end subroutine assemble_galerkin_projection
+
+   end subroutine calculate_galerkin_projection_scalar_from_scalar
+
+   subroutine calculate_galerkin_projection_scalar(state, field, projected)
      type(state_type), intent(in) :: state
      type(scalar_field), intent(inout) :: field
+     type(scalar_field), intent(inout), target, optional :: projected
        
      character(len=len_trim(field%option_path)) :: path
      character(len=FIELD_NAME_LEN) :: field_name
@@ -3393,14 +3633,20 @@ contains
      integer :: ele
 
      dg = (continuity(field) < 0)
-
+     
      check_integrals = .false.
      apply_bcs = .true.
 
-     path = field%option_path
-     call get_option(path // "/diagnostic/source_field_name", field_name)
-     lump_mass=have_option(path // "/diagnostic/lump_mass")
-     projected_field => extract_scalar_field(state, trim(field_name))
+     if (.not.present(projected)) then
+       path = field%option_path
+       lump_mass=have_option(path // "/diagnostic/lump_mass")
+       call get_option(path // "/diagnostic/source_field_name", field_name)
+       projected_field => extract_scalar_field(state, trim(field_name))
+     else
+       path = projected%option_path
+       lump_mass=.false.
+       projected_field => projected
+     endif
      positions => extract_vector_field(state, "Coordinate")
 
      ! Assuming they're on the same quadrature
@@ -3435,7 +3681,16 @@ contains
        call deallocate(inverse_mass_lumped)
        call deallocate(rhs)
      else if (.not. dg) then
-       call petsc_solve(field, mass, rhs, option_path=path // "/diagnostic")
+       if (.not.present(projected)) then
+         call petsc_solve(field, mass, rhs, option_path=path // "/diagnostic")
+       else
+         call set_solver_options(field)
+         if (len_trim(projected_field%option_path) /= 0) then
+           call petsc_solve(field, mass, rhs, option_path=projected_field%option_path)
+         else
+	   call petsc_solve(field, mass, rhs)
+	 endif
+       endif
        call deallocate(mass)
        call deallocate(mass_sparsity)
        call deallocate(rhs)
@@ -3502,9 +3757,11 @@ contains
       
    end subroutine calculate_galerkin_projection_scalar
 
-   subroutine calculate_galerkin_projection_vector(state, field)
+   subroutine calculate_galerkin_projection_vector(state, field, projected)
      type(state_type), intent(in) :: state
      type(vector_field), intent(inout) :: field
+     type(vector_field), intent(inout), target, optional :: projected
+
      character(len=len_trim(field%option_path)) :: path
      character(len=FIELD_NAME_LEN) :: field_name
      type(vector_field), pointer :: projected_field
@@ -3523,10 +3780,16 @@ contains
      check_integrals = .false.
      apply_bcs = .true.
 
-     path = field%option_path
-     call get_option(path // "/diagnostic/source_field_name", field_name)
-     lump_mass=have_option(path // "/diagnostic/lump_mass")
-     projected_field => extract_vector_field(state, trim(field_name))
+     if (.not.present(projected)) then
+       path = field%option_path
+       lump_mass=have_option(path // "/diagnostic/lump_mass")
+       call get_option(path // "/diagnostic/source_field_name", field_name)
+       projected_field => extract_vector_field(state, trim(field_name))
+     else
+       path = projected%option_path
+       lump_mass=.false.
+       projected_field => projected
+     endif
      positions => extract_vector_field(state, "Coordinate")
 
      ! Assuming they're on the same quadrature
@@ -3561,7 +3824,16 @@ contains
        call deallocate(inverse_mass_lumped)
        call deallocate(rhs)
      else if (.not. dg) then
-       call petsc_solve(field, mass, rhs, option_path=path // "/diagnostic")
+       if (.not.present(projected)) then
+         call petsc_solve(field, mass, rhs, option_path=path // "/diagnostic")
+       else
+         call set_solver_options(field)
+         if (len_trim(projected_field%option_path) /= 0) then
+           call petsc_solve(field, mass, rhs, option_path=projected_field%option_path)
+         else
+	   call petsc_solve(field, mass, rhs)
+	 endif
+       endif
        call deallocate(mass)
        call deallocate(mass_sparsity)
        call deallocate(rhs)
@@ -3630,7 +3902,83 @@ contains
          
    end subroutine calculate_galerkin_projection_vector
 
-   subroutine calculate_universal_number(field)
+   subroutine safe_set_scalar(state,field1,field2,write_fields)
+     type(state_type) , intent(inout) :: state
+     type(scalar_field), intent(inout) :: field1
+     type(scalar_field), intent(inout) :: field2
+     logical, optional, intent(in) :: write_fields
+   
+     if (continuity(field1)<=continuity(field2) .and. &
+   	element_degree(field1,1)>=element_degree(field2,1)) then
+   	call zero(field1)
+   	call remap_field(field2,field1)
+     else
+! 	 call zero(field1)
+        call calculate_galerkin_projection(state,field2,field1,alpha=0.0,dummy_flag=1)
+   	if(present_and_true(write_fields))then
+   	  ewrite_minmax(field1)     
+   	  ewrite_minmax(field2)
+   	  call vtk_write_fields(field1%name,&
+   	     position=extract_vector_field(state,&
+   	     "Coordinate"),&
+   	     model=field2%mesh,sfields=(/field1,field2,&
+   	     extract_scalar_field(state,"Time")/))
+   	 endif
+     end if
+     
+   end subroutine safe_set_scalar
+
+   subroutine safe_set_vector(state,field1,field2,write_fields)
+     type(state_type) , intent(inout) :: state
+     type(vector_field), intent(inout) :: field1
+     type(vector_field), intent(inout) :: field2
+     logical, optional, intent(in) :: write_fields
+   
+     if (continuity(field1)<=continuity(field2) .and. &
+   	element_degree(field1,1)>=element_degree(field2,1)) then
+   	call zero(field1)
+   	call remap_field(field2,field1)
+     else
+! 	 call zero(field1)
+        call calculate_galerkin_projection(state,field1,field2)
+   	if(present_and_true(write_fields))then
+   	  ewrite_minmax(field1)     
+   	  ewrite_minmax(field2)
+   	  call vtk_write_fields(field1%name,&
+   	     position=extract_vector_field(state,&
+   	     "Coordinate"),&
+   	     model=field2%mesh,vfields=(/field1,field2/))
+   	 endif
+     end if
+     
+    end subroutine safe_set_vector
+
+   subroutine safe_set_tensor(state,field1,field2,write_fields)
+     type(state_type) , intent(inout) :: state
+     type(tensor_field), intent(inout) :: field1
+     type(tensor_field), intent(inout) :: field2
+     logical, optional, intent(in) :: write_fields
+   
+     if (continuity(field1)<=continuity(field2) .and. &
+   	element_degree(field1,1)>=element_degree(field2,1)) then
+   	call zero(field1)
+   	call remap_field(field2,field1)
+     else
+! 	 call zero(field1)
+        call calculate_galerkin_projection(state,field1,field2)
+   	if(present_and_true(write_fields))then
+   	  ewrite_minmax(field1)     
+   	  ewrite_minmax(field2)
+   	  call vtk_write_fields(field1%name,&
+   	     position=extract_vector_field(state,&
+   	     "Coordinate"),&
+   	     model=field2%mesh,tfields=(/field1,field2/))
+   	 endif
+     end if
+     
+    end subroutine safe_set_tensor
+       
+    subroutine calculate_universal_number(field)
      !!< Output the universal numbering associated with field. Clearly this
      !!< is primarily of interest for debugging.
      type(scalar_field) :: field
@@ -3684,11 +4032,13 @@ contains
 
    end subroutine calculate_node_owner
    
-   subroutine calculate_galerkin_projection_tensor(state, field, solver_path)
+   subroutine calculate_galerkin_projection_tensor(state, field, projected, solver_path)
      type(state_type), intent(in) :: state
      type(tensor_field), intent(inout) :: field
+     type(tensor_field), intent(inout), target, optional :: projected
+
      character(len=*), intent(in), optional :: solver_path
-     character(len=len_trim(field%option_path)) :: path
+     character(len=len_trim(field%option_path)) :: path, solver_path_local
      character(len=FIELD_NAME_LEN) :: field_name
      type(tensor_field), pointer :: projected_field
      type(vector_field), pointer :: positions
@@ -3705,9 +4055,14 @@ contains
      check_integrals = .false.
      apply_bcs = .true.
 
-     path = field%option_path
-     call get_option(path // "/diagnostic/source_field_name", field_name)
-     projected_field => extract_tensor_field(state, trim(field_name))
+     if (.not.present(projected)) then
+       path = field%option_path
+       call get_option(path // "/diagnostic/source_field_name", field_name)
+       projected_field => extract_tensor_field(state, trim(field_name))
+     else
+       path = projected%option_path
+       projected_field => projected
+     endif
      positions => extract_vector_field(state, "Coordinate")
 
      ! Assuming they're on the same quadrature
@@ -3727,10 +4082,16 @@ contains
      end do
 
      if (.not. dg) then
-       if (present(solver_path)) then
-         call petsc_solve(field, mass, rhs, option_path=trim(solver_path))
-       else
+       if (.not.present(projected)) then
          call petsc_solve(field, mass, rhs, option_path=path // "/diagnostic")
+       else
+         call set_solver_options(field)
+         if (.not.present(solver_path).and.len_trim(projected_field%option_path) /= 0) then
+           solver_path_local=projected_field%option_path
+	 else
+	   solver_path_local=solver_path
+	 endif
+	 call petsc_solve(field, mass, rhs, option_path=solver_path_local)
        endif
        call deallocate(mass)
        call deallocate(mass_sparsity)
@@ -3799,7 +4160,7 @@ contains
    subroutine calculate_diagnostic_coordinate_field(state, field)
     type(state_type), intent(in) :: state
     type(vector_field), intent(inout) :: field
-    
+
     type(vector_field) :: coordinate_field
       
     coordinate_field = get_nodal_coordinate_field(state, field%mesh)

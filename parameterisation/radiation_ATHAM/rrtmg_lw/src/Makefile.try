@@ -1,0 +1,66 @@
+SHELL = /bin/sh
+
+#
+#  Makefile for PRC code:
+#
+
+# Set Makefile's default goal
+#
+all: libLWM.a
+
+# Set f90 compiler
+#
+#include ../../../Makefile.COMPILE
+
+# Set include path
+#
+IGLOBAL = -- include /usr/local/netcdf-3.6.2-lf95/include
+LFLAGS  = -L/usr/local/netcdf-3.6.2-lf95/lib  -lnetcdf
+OFLAGS = -g 
+F90 = lf95
+
+
+MODFLAG = --mod `echo " "`
+MODGLUE = :
+
+MODDIR =../modules/
+
+IFLAGS =$(IGLOBAL)$(MODGLUE)$(MODDIR)
+
+# Collect set of option flags included in every compile
+#
+FLAGS =  $(OFLAGS) $(IFLAGS) 
+#FLAGS = $(PFLAGS) $(OFLAGS) 
+
+# Set flags needed by Makefile.COMMON
+# Set the commands to use
+#
+RM=rm -f 
+CP=cp -f 
+
+# Include non-os specifi stuff
+#
+ include Makefile.COMMON
+
+# Rules for compiling f90 files 
+#
+
+MOD_MAKE:
+	cd $(MODDIR); make
+
+clean:
+	$(RM) *.o *~ *.mod
+	cd $(MODDIR) ; make clean	
+
+.SUFFIXES:
+.SUFFIXES: .f90 .o
+
+.f90.o:
+	$(F90) -c -I /../modules $(OFLAGS)  $<
+
+# Generate library
+#
+libLWM.a: MOD_MAKE $(OBJECTS)
+	ar -rs libLWM.a $(ALLOBJECTS)
+
+### DO NOT remove this line - make depends on it ###

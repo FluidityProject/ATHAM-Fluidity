@@ -84,9 +84,9 @@ contains
         ewrite(2, *) "  Considering algorithm " // trim(algorithms(alg))
         
         do mesh_i = 1, mesh_cnt
-          mesh => extract_mesh(states(state), mesh_i)
-          call insert(alg_state, mesh, name=trim(mesh%name))
-        end do
+	  mesh => extract_mesh(states(state), mesh_i)
+ 	  call insert(alg_state, mesh, name=trim(mesh%name))
+	end do
         pos => extract_vector_field(states(state), "Coordinate")
         call insert(alg_state, pos, "Coordinate")
 

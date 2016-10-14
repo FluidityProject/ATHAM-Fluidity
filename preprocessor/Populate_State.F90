@@ -27,34 +27,37 @@
 
 #include "fdebug.h"
 module populate_state_module
-  use elements
-  use state_module
   use FLDebug
-  use spud
-  use mesh_files
-  use vtk_cache_module
   use global_parameters, only: OPTION_PATH_LEN, is_active_process, pi, &
     no_active_processes, topology_mesh_name, adaptivity_mesh_name, &
     periodic_boundary_option_path, domain_bbox, domain_volume, surface_radius
+  use elements
+  use spud
+  use fefields
+  use fields_base
+  use parallel_tools
+  use data_structures
+  use metric_tools
+  use transform_elements
   use field_options
   use reserve_state_module
   use fields_manipulation
-  use diagnostic_variables, only: convergence_field, steady_state_field
+  use state_module
+  use mesh_files
+  use vtk_cache_module
   use field_options
   use surfacelabels
+  use diagnostic_variables, only: convergence_field, steady_state_field
   use climatology
-  use metric_tools
   use coordinates
   use halos
   use tictoc
   use hadapt_extrude
   use hadapt_extrude_radially
-  use initialise_fields_module
-  use transform_elements
-  use parallel_tools
-  use boundary_conditions_from_options
+  use equation_of_state
   use nemo_states_module
-  use data_structures
+  use initialise_fields_module
+  use boundary_conditions_from_options
   use fields_halos
   use read_triangle
   use initialise_ocean_forcing_module
@@ -65,6 +68,7 @@ module populate_state_module
 
   public populate_state
   public populate_state_module_check_options
+  public allocate_and_insert_scalar_field
   public insert_external_mesh, insert_derived_meshes, &
        allocate_field_as_constant, allocate_and_insert_fields, &
        initialise_prognostic_fields, set_prescribed_field_values, &
@@ -72,7 +76,7 @@ module populate_state_module
        allocate_and_insert_auxilliary_fields, &
        initialise_field, allocate_metric_limits, &
        make_mesh_periodic_from_options, make_mesh_unperiodic_from_options, &
-       compute_domain_statistics
+       compute_domain_statistics, create_empty_halo
 
   interface allocate_field_as_constant
     
@@ -83,42 +87,48 @@ module populate_state_module
     
   !! A list of locations in which additional scalar/vector/tensor fields
   !! are to be found. These are absolute paths in the schema.
-  character(len=OPTION_PATH_LEN), dimension(8) :: additional_fields_absolute=&
+  character(len=OPTION_PATH_LEN), dimension(10) :: additional_fields_absolute=&
        (/ &
-       "/ocean_biology/pznd                                                                                                   ", &
-       "/ocean_biology/six_component                                                                                          ", &
-       "/ocean_forcing/iceshelf_meltrate/Holland08                                                                            ", &
-       "/ocean_forcing/bulk_formulae/output_fluxes_diagnostics                                                                ", &
-       "/porous_media                                                                                                         ", &
-       "/material_phase[0]/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/dynamic_les ", &
-       "/material_phase[0]/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/second_order", &
-       "/material_phase[0]/sediment/                                                                                          " &
+       "/ocean_biology/pznd                                                                                                      ", &
+       "/ocean_biology/six_component                                                                                             ", &
+       "/ocean_forcing/iceshelf_meltrate/Holland08                                                                               ", &
+       "/ocean_forcing/bulk_formulae/output_fluxes_diagnostics                                                                   ", &
+       "/porous_media                                                                                                            ", &    
+       "/material_phase[0]/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model             ", &
+       "/material_phase[0]/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/dynamic_les ", &
+       "/material_phase[0]/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model                ", &
+       "/material_phase[0]/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/dynamic_les    ", &
+       "/material_phase[0]/sediment/                                                                                             " &
        /)
        
   !! A list of relative paths under /material_phase[i]
   !! that are searched for additional fields to be added.
-  character(len=OPTION_PATH_LEN), dimension(13) :: additional_fields_relative=&
+  character(len=OPTION_PATH_LEN), dimension(17) :: additional_fields_relative=&
        (/ &
-       "/subgridscale_parameterisations/Mellor_Yamada                                                       ", &
-       "/subgridscale_parameterisations/prescribed_diffusivity                                              ", &
-       "/subgridscale_parameterisations/GLS                                                                 ", &
-       "/subgridscale_parameterisations/k-epsilon                                                           ", &
-       "/subgridscale_parameterisations/k-epsilon/debugging_options/source_term_output_fields               ", &
-       "/subgridscale_parameterisations/k-epsilon/debugging_options/prescribed_source_terms                 ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/second_order", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/fourth_order", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/wale        ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/dynamic_les ", &
-       "/vector_field::Velocity/prognostic/equation::ShallowWater                                           ", &
-       "/vector_field::Velocity/prognostic/equation::ShallowWater/bottom_drag                               ", &
-       "/vector_field::BedShearStress/diagnostic/calculation_method/velocity_gradient                       " &
+       "/subgridscale_parameterisations/Mellor_Yamada                                                          ", &
+       "/subgridscale_parameterisations/prescribed_diffusivity                                                 ", &
+       "/subgridscale_parameterisations/GLS                                                                    ", &
+       "/subgridscale_parameterisations/k-epsilon                                                              ", &
+       "/subgridscale_parameterisations/k-epsilon/debugging_options/source_term_output_fields                  ", &
+       "/subgridscale_parameterisations/k-epsilon/debugging_options/prescribed_source_terms                    ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/second_order   ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/fourth_order   ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/wale           ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/dynamic_les    ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/second_order", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/fourth_order", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/wale        ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/dynamic_les ", &
+       "/vector_field::Velocity/prognostic/equation::ShallowWater                                              ", &
+       "/vector_field::Velocity/prognostic/equation::ShallowWater/bottom_drag                                  ", &
+       "/vector_field::BedShearStress/diagnostic/calculation_method/velocity_gradient                          " &
        /)
 
   !! Relative paths under a field that are searched for grandchildren
   !! (moved here because of extremely obscure intel ICE -Stephan)
   character(len=OPTION_PATH_LEN), dimension(1):: &
          grandchild_paths = (/&
-         &    "/spatial_discretisation/inner_element" &
+         &    "/spatial_discretisation/inner_element"&
          /)
 
 contains
@@ -157,9 +167,10 @@ contains
     call allocate_and_insert_fields(states)
 
     call initialise_prognostic_fields(states, save_vtk_cache=.true., &
-      initial_mesh=.true.)
+      initial_mesh=.true., allow_eos=.true.)
 
-    call set_prescribed_field_values(states, initial_mesh=.true.)
+    call set_prescribed_field_values(states, save_vtk_cache=.true., &
+      initial_mesh=.true., allow_eos=.true.)
 
     call populate_boundary_conditions(states)
 
@@ -191,7 +202,7 @@ contains
     character(len=OPTION_PATH_LEN) :: mesh_path, mesh_file_name,&
          & mesh_file_format, from_file_path
     integer, dimension(:), pointer :: coplanar_ids
-    integer, dimension(3) :: mesh_dims
+    integer, dimension(4) :: mesh_dims
     integer :: i, j, nmeshes, nstates, quad_degree, stat
     type(element_type), pointer :: shape
     type(quadrature_type), pointer :: quad
@@ -205,7 +216,7 @@ contains
     nstates=option_count("/material_phase")
     ! Get number of meshes
     nmeshes=option_count("/geometry/mesh")
-    ewrite(2,*) "There are", nmeshes, "meshes."
+    ewrite(1,*) "There are", nmeshes, "meshes."
 
     external_mesh_loop: do i=0, nmeshes-1
 
@@ -220,7 +231,7 @@ contains
        else
          extruded = .false.
        end if
-
+       
        if(from_file .or. extruded) then
 
           ! Get file format
@@ -237,12 +248,13 @@ contains
           call get_option("/geometry/quadrature/degree", quad_degree)
           quad_family = get_quad_family()
 
-          ! to make sure that the dimension is set even if MPI is not being used
-          call get_option('/geometry/dimension', dim)
+	  ! to make sure that the dimension is set even if MPI is not being used
+	  call get_option('/geometry/dimension', dim)
 
           if (is_active_process) then
             select case (mesh_file_format)
             case ("triangle", "gmsh", "exodusii")
+              ewrite(2,*) "case gmsh"
               ! Get mesh dimension if present
               call get_option(trim(mesh_path)//"/from_file/dimension", mdim, stat)
               ! Read mesh
@@ -257,17 +269,18 @@ contains
                       quad_family=quad_family, &
                       format=mesh_file_format)
               end if
-              ! After successfully reading in an ExodusII mesh, change the option
-              ! mesh file format to "gmsh", as the write routines for ExodusII are currently
-              ! not implemented. Thus, checkpoints etc are dumped as gmsh mesh files
-              if (trim(mesh_file_format)=="exodusii") then
-                mesh_file_format = "gmsh"
-                call set_option_attribute(trim(from_file_path)//"/format/name", trim(mesh_file_format), stat=stat)
-                if (stat /= SPUD_NO_ERROR) then
-                  FLAbort("Failed to set the mesh format to gmsh (required for checkpointing). Spud error code is: "//int2str(stat))
-                end if
-              end if
+	      ! After successfully reading in an ExodusII mesh, change the option
+	      ! mesh file format to "gmsh", as the write routines for ExodusII are currently
+	      ! not implemented. Thus, checkpoints etc are dumped as gmsh mesh files
+	      if (trim(mesh_file_format)=="exodusii") then
+		mesh_file_format = "gmsh"
+		call set_option_attribute(trim(from_file_path)//"/format/name", trim(mesh_file_format), stat=stat)
+		if (stat /= SPUD_NO_ERROR) then
+		  FLAbort("Failed to set the mesh format to gmsh (required for checkpointing). Spud error code is: "//int2str(stat))
+		end if
+	      end if
               mesh=position%mesh
+              ewrite(2,*) "read gmsh mesh"
             case ("vtu")
               position_ptr => vtk_cache_read_positions_field(mesh_file_name)
               ! No hybrid mesh support here
@@ -288,7 +301,7 @@ contains
                  call set_ele_nodes(mesh, j, ele_nodes(position_ptr%mesh, j))
               end do
               call add_faces(mesh)
-              call allocate(position, dim, mesh, position_ptr%name)
+              call allocate (position, dim, mesh, position_ptr%name)
               call set(position, position_ptr)
               call deallocate(mesh)
               call deallocate(shape)
@@ -317,23 +330,28 @@ contains
                 else
                   mesh_dims(3)=0
                 end if
-                ! The coordinate dimension is not the same as the mesh dimension
-                ! in the case of spherical shells, and needs to be broadcast as
-                ! well.  And this needs to be here to allow for the special case
-                ! below
-                dim=position%dim
+		if (mesh%faces%has_discontinuous_internal_boundaries) then
+		  mesh_dims(4)=1
+		else
+		  mesh_dims(4)=0
+		end if
+		! The coordinate dimension is not the same as the mesh dimension
+		! in the case of spherical shells, and needs to be broadcast as
+		! well.  And this needs to be here to allow for the special case
+		! below
+		dim=position%dim
               else
                 ! this is a special case for a unit test with 1 inactive process
                 call get_option('/geometry/dimension', mesh_dims(1))
                 mesh_dims(2)=mesh_dims(1)+1
                 mesh_dims(3)=0
+                mesh_dims(4)=0
                 dim = mesh_dims(1)
               end if
             end if
-            call MPI_bcast(mesh_dims, 3, getpinteger(), 0, MPI_COMM_FEMTOOLS, stat)
-            call MPI_bcast(dim, 1, getpinteger(), 0, MPI_COMM_FEMTOOLS, stat)
+	    call MPI_bcast(mesh_dims, 4, getpinteger(), 0, MPI_COMM_FEMTOOLS, stat)
+	    call MPI_bcast(dim, 1, getpinteger(), 0, MPI_COMM_FEMTOOLS, stat)
           end if
-
           
           if (.not. is_active_process) then
             ! is_active_process records whether we have data on disk or not
@@ -349,6 +367,12 @@ contains
             quad = make_quadrature(loc, mdim, degree=quad_degree, family=quad_family)
             shape=make_element_shape(loc, mdim, 1, quad)
             call allocate(mesh, nodes=0, elements=0, shape=shape, name="EmptyMesh")
+	    if (mesh_dims(4)>0) then
+	      ! rank 0 has element ownership for facets, allowing for multi-valued internal
+	      ! facets (needed for periodic meshes). Setting this flag will allow us the
+	      ! same when we receive facets after the redecomposition
+	      mesh%faces%has_discontinuous_internal_boundaries=.true.
+	    end if
             call allocate(position, dim, mesh, "EmptyCoordinate")
             call add_faces(mesh)
             if (column_ids>0) then
@@ -387,7 +411,7 @@ contains
           else 
              position%name="Coordinate"
           end if
-
+                       
           ! If running in parallel, additionally read in halo information and register the elements halo
           if(isparallel()) then
             if (no_active_processes == 1) then
@@ -454,6 +478,8 @@ contains
        ! Flush the cache
        call vtk_cache_finalise()
     end if
+
+    ewrite(1,*) "end insert_external_mesh"
 
     call toc(TICTOC_ID_IO_READ)
 
@@ -700,7 +726,7 @@ contains
               if (IsParallel()) call create_empty_halo(extrudedposition)
             else if (have_option('/geometry/spherical_earth/')) then
               call extrude_radially(modelposition, mesh_path, extrudedposition)
-            else
+	    else
               call extrude(modelposition, mesh_path, extrudedposition)
             end if
                 
@@ -768,7 +794,7 @@ contains
           ! copy mesh unchanged, new reference
           mesh=model_mesh                
           call incref(mesh)
-                
+
        end if
              
        mesh%name = mesh_name
@@ -798,12 +824,12 @@ contains
           ! of the coordinates spans that of the external mesh
           call remap_field(from_field=modelposition, to_field=coordinateposition)
                 
-          if (mesh_name=="CoordinateMesh" .and. have_option('/geometry/spherical_earth/')) then
+	  if (mesh_name=="CoordinateMesh" .and. have_option('/geometry/spherical_earth/')) then
 
-            if (have_option('/geometry/spherical_earth/superparametric_mapping/')) then
-              call higher_order_sphere_projection(modelposition, coordinateposition)
-            end if
-
+	    if (have_option('/geometry/spherical_earth/superparametric_mapping/')) then
+	      call higher_order_sphere_projection(modelposition, coordinateposition)
+	    end if
+                   
           endif
 
           ! insert into states(1) and alias to all others
@@ -907,6 +933,356 @@ contains
     end do
 
   end subroutine insert_trace_meshes
+      
+  subroutine insert_soundings (state)
+    implicit none
+    type(state_type), intent(inout) :: state
+
+    logical :: lopened, have_sounding, lsounding
+    integer :: f, i, j, k, l, it, nn
+    integer :: nsfields, nvfields, stat, lunit
+    real    :: z, x, y, frac, den_r, p_r, pt_r
+    real    :: c_p,c_v,c_v_v,c_p_v, r, cp, cv
+    real    :: pt0, qt0, p0, den0
+    real, dimension(:), allocatable :: u0
+    character(len=OPTION_PATH_LEN) :: sounding_path, filename, field_name, path, suff
+    type(scalar_field), allocatable, dimension(:) :: local_density, local_pressure, local_water, local_temperature
+    type(vector_field), allocatable, dimension(:) :: local_velocity
+    type(scalar_field), pointer :: sfield
+    type(vector_field), pointer :: vfield, position
+    type(scalar_field) :: field1, local_velocity_scal
+    type(scalar_field), dimension(:), allocatable :: field3
+    type(vector_field) :: field2
+    
+    real, allocatable    :: h(:,:),pt(:,:),qt(:,:),p(:,:),den(:,:),uu(:,:),vv(:,:)
+    integer, dimension(:), allocatable :: time
+    character(len=OPTION_PATH_LEN), allocatable, dimension(:) :: name, suffix
+    logical :: constant_cp_cv
+    
+    ewrite(1,*) 'Start insert_soundings'
+    
+    constant_cp_cv=have_option('/material_phase[0]/equation_of_state/compressible/giraldo/constant_cp_cv')
+    
+    nsfields = scalar_field_count(state)
+    nvfields = vector_field_count(state)
+    
+    ! Initialise soundings
+    have_sounding=.false.
+    do f = 1, nsfields
+      sfield => extract_scalar_field(state,f)
+      call has_sounding(sfield%option_path,path,lsounding)
+      if (lsounding) then
+        have_sounding=.true.
+        call get_option(trim(path)//'/file_name', filename)
+        call initialise_time_dependent_files(path,filename,time,name,suffix)
+	exit
+      endif
+    enddo
+    
+    position=>extract_vector_field(state,"Coordinate")
+    
+    if (have_sounding) then
+      
+      call get_cp_cv (c_p,c_v,c_p_v=c_p_v,c_v_v=c_v_v)
+      
+      position=>extract_vector_field(state,"Coordinate")
+      
+      ! Read soudings
+      do i = 1, size(time)
+
+        l=0
+        stat=1
+        do while (stat/=0)
+    	  lunit=20+l
+    	  inquire(unit=lunit, opened=lopened, iostat=stat)
+    	  l=l+1
+        enddo  
+        open (UNIT=lunit, FILE=trim(filename), IOSTAT=stat)
+    
+        ! Count lines
+        if (i == 1) then
+	  nn=0
+          stat=0
+          do while (stat == 0)
+            read(lunit,*,iostat=stat)
+            nn=nn+1   
+          enddo
+          nn=nn-2
+	  
+	  allocate(local_density(size(time)),local_pressure(size(time)),local_temperature(size(time)),local_water(size(time)),local_velocity(size(time)))
+          allocate(h(size(time),nn),pt(size(time),nn),qt(size(time),nn),p(size(time),nn),den(size(time),nn),uu(size(time),nn),vv(size(time),nn))
+          rewind(lunit)
+        endif
+     
+        call allocate (local_density(i),position%mesh,"LocalDensity"//trim(suffix(i)))
+        call allocate (local_pressure(i),position%mesh,"LocalPressure"//trim(suffix(i)))
+        call allocate (local_temperature(i),position%mesh,"LocalTemperature"//trim(suffix(i)))
+        call allocate (local_water(i),position%mesh,"LocalWater"//trim(suffix(i)))
+        call allocate (local_velocity(i),position%dim,position%mesh,"LocalVelocity"//trim(suffix(i)))
+       
+        ! Read soundings
+        call read_file(lunit, h(i,:), p(i,:), den(i,:), pt(i,:), qt(i,:), uu(i,:), vv(i,:))
+	close(lunit)
+      
+      enddo 
+
+      ! Main loop
+      do i = 1, node_count(position)
+      
+        allocate(u0(position%dim))
+        x=node_val(position,1,i)
+        y=node_val(position,2,i)
+        z=node_val(position,position%dim,i)
+
+        do j = 1, size(time)
+	
+          do k = 2, nn
+            if (z >= h(j,k-1) .and. z < h(j,k)) then
+              frac = (h(j,k) - z)/(h(j,k) - h(j,k-1))
+              u0(1) = uu(j,k) - frac*(uu(j,k) - uu(j,k-1))
+              if (position%dim > 2) &
+        	  u0(2) = vv(j,k) - frac*(vv(j,k) - vv(j,k-1))
+              pt0 = pt(j,k) - frac*(pt(j,k) - pt(j,k-1))
+              qt0 = qt(j,k) - frac*(qt(j,k) - qt(j,k-1))
+              cp = c_p
+              cv = c_v
+	      if (.not. constant_cp_cv) then
+	        cp = cp*(1.-qt0) + c_p_v*qt0
+                cv = cv*(1.-qt0) + c_v_v*qt0
+	      endif
+              r = cp - cv
+            
+              p0 = p(j,k-1)
+              do it = 1, 10
+                den0 = p0/(r*pt0*(1.-0.392*qt0))*(p0/1.e+5)**(-r/cp)
+                p0 = p(j,k-1) - 0.5*9.81*(den(j,k-1)+den0)*(z-h(j,k-1))
+              enddo
+        		    
+              exit
+            endif
+          enddo
+          call set(local_density(j),i,den0)
+          call set(local_pressure(j),i,p0)
+          call set(local_temperature(j),i,pt0)
+          call set(local_water(j),i,qt0)
+          call set(local_velocity(j),i,u0)
+	
+	enddo
+        deallocate(u0)
+        	    
+      enddo   
+      deallocate(h,p,den,pt,qt,uu,vv)
+         
+      ! Insert and set Scalar fields:
+      nsfields = scalar_field_count(state)
+      do f = 1, nsfields
+        sfield => extract_scalar_field(state,f)
+        call has_sounding(sfield%option_path,path,lsounding)
+        if (lsounding) then
+
+	  do j = 1, size(time)  							
+	    if (size(time) > 1) then
+	      field_name=trim(sfield%name)//'Initial'//trim(suffix(j))
+	    else
+	      field_name=trim(sfield%name)//'Initial0'
+	    endif
+	    
+            call allocate(field1,sfield%mesh,trim(field_name))
+	    if (trim(sfield%name) == "Density") call remap_field(local_density(j),field1)
+            if (trim(sfield%name) == "Pressure") call remap_field(local_pressure(j),field1)
+            if (trim(sfield%name) == "PotentialTemperature") call remap_field(local_temperature(j),field1)
+	    if (trim(sfield%name) == "HydrostaticReferenceDensity") call remap_field(local_density(j),field1)
+            if (trim(sfield%name) == "HydrostaticReferencePressure") call remap_field(local_pressure(j),field1)
+            if (trim(sfield%name) == "HydrostaticReferencePotentialTemperature") &
+	        call remap_field(local_temperature(j),field1)
+            if (trim(sfield%name) == "VapourWaterQ" .or. trim(sfield%name) == "TotalWaterQ" &
+	        .or. trim(sfield%name) == "HydrostaticReferenceVapourWaterQ" ) &
+        	call remap_field(local_water(j),field1)
+	  
+            field1%option_path=""
+            call insert(state, field1, trim(field_name))
+	    call deallocate(field1)
+	  enddo
+	  
+        endif
+      end do
+      
+      ! Insert and set Vector fields:
+      nvfields = vector_field_count(state)
+      do f = 1, nvfields
+        vfield => extract_vector_field(state, f)
+        call has_sounding(vfield%option_path,path,lsounding)
+        if (lsounding) then
+
+	  do j = 1, size(time)
+	    if (size(time) > 1) then
+	      field_name=trim(vfield%name)//'Initial'//trim(suffix(j))
+	      suff='Initial'//trim(suffix(j))
+	    else
+	      field_name=trim(vfield%name)//'Initial0'
+	      suff='Initial0'
+	    endif
+	    
+	    allocate(field3(vfield%dim))
+	    do k = 1, vfield%dim
+	      call allocate(field3(k),vfield%mesh,trim(vfield%name)//int2str(k)//trim(suff))
+            enddo
+	    call allocate(field2,vfield%dim,vfield%mesh,trim(field_name))
+	    
+            if (trim(vfield%name) == "Velocity") then
+	      call remap_field(local_velocity(j),field2)
+	      do k = 1, vfield%dim
+		local_velocity_scal=extract_scalar_field_from_vector_field(local_velocity(j), k)
+		call remap_field(local_velocity_scal,field3(k))
+	      enddo
+	    endif
+	    
+            field2%option_path=""
+	    do k = 1, vfield%dim
+	      field3(k)%option_path=""
+	      call insert(state, field3(k), trim(vfield%name)//int2str(k)//trim(suff))
+	    enddo
+            call insert(state, field2, trim(field_name))
+	    
+	    call deallocate(field2)
+	    do k = 1, vfield%dim
+	      call deallocate(field3(k))
+	    enddo
+	    deallocate (field3)
+          enddo
+	  
+	endif
+      end do
+        	  
+      do j = 1, size(time)
+        call deallocate(local_density(j))
+        call deallocate(local_pressure(j))
+        call deallocate(local_temperature(j))
+        call deallocate(local_water(j))
+        call deallocate(local_velocity(j))
+      enddo
+      
+      deallocate(local_density,local_pressure,local_temperature,local_water,local_velocity)
+      deallocate(name,time,suffix)
+      
+    endif
+    
+    ewrite(1,*) "Exiting insert_soundings"
+   
+  contains
+  
+    subroutine has_sounding(field_path,path,lsounding)
+      character(len=OPTION_PATH_LEN) :: field_path, path, bc_path, bc_path0, abs_path, bc_type
+      logical :: lsounding
+      integer :: f, nbcs
+      
+      lsounding=.false.
+      if (have_option(trim(field_path)//'/prognostic'))then
+        if (have_option(trim(field_path)//'/prognostic/initial_condition::WholeMesh/from_file/format::sounding'))then
+	  path=trim(field_path)//'/prognostic/initial_condition::WholeMesh/from_file'
+          lsounding=.true.
+        endif
+	
+	if (.not.lsounding) then
+          bc_path0=trim(field_path)//'/prognostic/boundary_conditions'
+          nbcs=option_count(trim(bc_path0))
+          do f = 0, nbcs-1
+            !Scalar case
+	    bc_path=trim(bc_path0)//'['//int2str(f)//']/type[0]'
+	    if (have_option(trim(bc_path)//'/from_file/format::sounding'))then
+	      path=trim(bc_path)//'/from_file'
+              lsounding=.true.
+	      exit
+	    endif
+            !Vector case
+            bc_path=trim(bc_path0)//'['//int2str(f)//']/type[0]/align_bc_with_cartesian'
+	    if (have_option(trim(bc_path)//'/x_component/from_file/format::sounding').or. &
+	        have_option(trim(bc_path)//'/y_component/from_file/format::sounding'))then
+	      path=trim(bc_path)//'/from_file'
+              lsounding=.true.
+	      exit
+	    endif
+          enddo
+	endif
+	
+	if (.not.lsounding) then  
+	  abs_path=trim(field_path)//'/prognostic'
+	  if (have_option(trim(abs_path)//'/scalar_field::Absorption')) then
+            abs_path=trim(abs_path)//'/scalar_field::Absorption/diagnostic/algorithm::atmosphere_forcing_scalar'
+	  else if (have_option(trim(abs_path)//'/vector_field::Absorption')) then
+	    abs_path=trim(abs_path)//'/vector_field::Absorption/diagnostic/algorithm::atmosphere_forcing_vector'
+	  endif
+	  if (have_option(trim(abs_path)//'/from_file/format::sounding'))then
+	      path=trim(abs_path)//'/from_file'
+              lsounding=.true.
+	  endif
+	endif
+	
+      else if (have_option(trim(field_path)//'/prescribed')) then
+        if (have_option(trim(field_path)//'/prescribed/value::WholeMesh/from_file/format::sounding')) then
+	  path=trim(field_path)//'/prescribed/value::WholeMesh/from_file'
+          lsounding=.true.
+        endif
+	
+      endif
+	  
+    end subroutine
+
+    subroutine read_file (lunit,h,p,den,pt,qt,uu,vv)
+    integer :: nn, lunit, k, it, stat
+    real :: p0, den0, pt0, qt0, u0, v0, cp, cv, p_o, den_o, pt_o, h_o
+    real, dimension(:) :: h,p,den,pt,qt,uu,vv
+
+    read(lunit,*) p0, pt0, qt0, u0, v0
+    p0  = p0*100.
+    qt0 = qt0/1000.
+    cp  = c_p 
+    cv  = c_v 	      
+    if (.not. constant_cp_cv) then
+      cp = cp*(1.-qt0) + c_p_v*qt0
+      cv = cv*(1.-qt0) + c_v_v*qt0
+    endif
+
+    den0 = p0/((cp-cv)*pt0*(p0/100000.)**((cp-cv)/cp))
+    do k = 1, size(h)
+      read(lunit,*,iostat=stat) h(k),pt(k),qt(k),uu(k),vv(k)
+      if (k == 1 .and. h(k) > 0.) then
+    	h(k)=0.; pt(k)=pt0; qt(k)=qt0; uu(k)=0.; vv(k)=0.
+        rewind(lunit)
+        read(lunit,*)
+        read(lunit,*)
+      else
+    	qt(k)=qt(k)/1000.; uu(k)=uu(k)+u0; vv(k)=vv(k)+v0
+      endif
+      cp  = c_p 
+      cv  = c_v 
+      if (.not. constant_cp_cv) then
+        cp = cp*(1.-qt(k)) + c_p_v*qt(k)
+        cv = cv*(1.-qt(k)) + c_v_v*qt(k)
+      endif
+      r = cp - cv
+      
+      if (k == 1) then
+    	h_o = 0.
+    	p_o = p0
+        den_o = den0
+      else
+    	h_o = h(k-1)
+    	p_o = p(k-1)
+        den_o = den(k-1)
+      endif
+    
+      p(k) = p_o
+      do it = 1, 10
+    	den(k) = p(k)/(r*pt(k)*(1.-0.392*qt(k)))*(p(k)/1.e+5)**(-r/cp)
+    	p(k) = p_o - 0.5*9.81*(den(k)+den_o)*(h(k)-h_o)
+      enddo
+    enddo
+    
+    close(lunit)
+    end subroutine
+    
+  end subroutine insert_soundings
 
   function make_mesh_from_options(from_mesh, mesh_path) result (mesh)
     ! make new mesh changing shape or continuity of from_mesh
@@ -1207,11 +1583,14 @@ contains
     logical, optional, intent(in):: dont_allocate_prognostic_value_spaces
 
     character(len=OPTION_PATH_LEN) :: field_name, absolute_path
-    integer :: i, istate ! counters
+    character(len=FIELD_NAME_LEN) :: micro_name, scalar_name
+    integer :: nf, nfield, i, s, istate ! counters
     integer :: nstates ! number of states
-    character(len=255) :: tmp ! temporary string to make life a little easier
-    type(scalar_field), pointer :: fshistory_sfield
+    integer :: stat
+    character(len=255) :: tmp, micro_source_path, micro_sink_path
+    type(scalar_field), pointer :: fshistory_sfield, sfield
     integer :: fshistory_levels 
+    logical :: diagnostic_micro=.false.
     
     nstates=option_count("/material_phase")
 
@@ -1255,8 +1634,8 @@ contains
     
     if (have_option('/mesh_adaptivity/hr_adaptivity/zoltan_options/field_weighted_partitions')) then
        call allocate_and_insert_scalar_field('/mesh_adaptivity/hr_adaptivity/zoltan_options/field_weighted_partitions/scalar_field::FieldWeightedPartitionValues', states(1))
-    end if
-    
+    end if    
+
     ! grid velocity
     if (have_option('/mesh_adaptivity/mesh_movement/vector_field::GridVelocity')) then
        call allocate_and_insert_vector_field('/mesh_adaptivity/mesh_movement/vector_field::GridVelocity', &
@@ -1267,6 +1646,37 @@ contains
     if (have_option("/ocean_biology/lagrangian_ensemble/hyperlight")) then 
        call allocate_and_insert_irradiance(states(1))
     end if
+    
+    ! Eddy Diffusivity per scalar
+    do i = 1, size(states)
+    
+       do s = 1, scalar_field_count(states(i))
+       
+         call get_option('/material_phase['//int2str(i-1)//']/scalar_field['//int2str(s-1)//']/name',scalar_name, stat=stat)
+	 
+         if (stat==0.and.have_option('/material_phase['//int2str(i-1)//']/scalar_field::'//trim(scalar_name)//'/prognostic/spatial_discretisation/continuous_galerkin/les_model')) then
+           tmp = '/material_phase['//int2str(i-1)//']/scalar_field::'//trim(scalar_name)//'/prognostic/spatial_discretisation/continuous_galerkin/les_model/'
+           call allocate_and_insert_tensor_field(trim(tmp)//'tensor_field::'//trim(scalar_name)//'Diffusivity', &
+                                              states(i), &
+                                              field_name=trim(scalar_name)//'Diffusivity')
+	 endif      
+
+         if (stat==0.and.have_option('/material_phase['//int2str(i-1)//']/scalar_field::'//trim(scalar_name)//'/prognostic/spatial_discretisation/discontinuous_galerkin/les_model')) then
+           tmp = '/material_phase['//int2str(i-1)//']/scalar_field::'//trim(scalar_name)//'/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/'
+           call allocate_and_insert_tensor_field(trim(tmp)//'tensor_field::'//trim(scalar_name)//'Diffusivity', &
+                                              states(i), &
+                                              field_name=trim(scalar_name)//'Diffusivity')
+         endif 
+	 
+       end do
+	 
+       sfield=>extract_scalar_field(states(i),"TurbulentKineticEnergy",stat=stat)
+       if (stat==0) then
+         call allocate_and_insert_scalar_field(trim(sfield%option_path), &
+        				    states(i), field_name='TKESource')
+       endif
+    
+    enddo
 
     ! insert electrical property fields
     do i=1,nstates
@@ -1290,7 +1700,136 @@ contains
                                               field_name='Electrochemical')
       end if
     end do
+    
+    ! insert microphysics fields
+    do i=1,nstates
+      if (have_option('/material_phase['//int2str(i-1)//']/cloud_microphysics')) then
+      
+      tmp = '/material_phase['//int2str(i-1)//']/cloud_microphysics'
+      if (have_option(trim(tmp)//'/fortran_microphysics')) then
+        micro_source_path = trim(tmp)//'/fortran_microphysics/scalar_field::MicrophysicsSource'
+	micro_sink_path = trim(tmp)//'/fortran_microphysics/scalar_field::SinkingVelocity'
+	
+        if (have_option(trim(tmp)//'/fortran_microphysics/two_moment_microphysics')) then
+	  call get_option(trim(tmp)//'/fortran_microphysics/two_moment_microphysics/name',micro_name)
+	  tmp=trim(tmp)//'/fortran_microphysics/two_moment_microphysics::'//trim(micro_name)
+	else if (have_option(trim(tmp)//'/fortran_microphysics/one_moment_microphysics')) then
+	  call get_option(trim(tmp)//'/fortran_microphysics/one_moment_microphysics/name',micro_name)
+	  tmp=trim(tmp)//'/fortran_microphysics/one_moment_microphysics::'//trim(micro_name)
+	endif
+	
+      else if (have_option(trim(tmp)//'/diagnostic')) then
+        tmp=trim(tmp)//'/diagnostic'
+	diagnostic_micro=.true.
+      endif
+      
+      ! Insert warm microphysics variables
+      nfield=option_count(trim(tmp)//'/scalar_field')
+      do nf = 0, nfield-1
+        call get_option(trim(tmp)//'/scalar_field['//int2str(nf)//']/name',micro_name)
+	
+	!Insert primary microphysics variable
+        call allocate_and_insert_scalar_field(trim(tmp)//'/scalar_field::'//trim(micro_name), &
+                                            states(i), field_name=trim(micro_name))
 
+	!Insert microphysics source
+        if (have_option(trim(tmp)//'/scalar_field::'//trim(micro_name)//'/prognostic') .and.         &
+	      .not.have_option('/material_phase['//int2str(i-1)//']/cloud_microphysics/no_sources')) &
+          call allocate_and_insert_scalar_field(trim(micro_source_path), &
+                                                states(i), parent_name=trim(micro_name))
+	
+	!Insert sinking velocity
+        if (have_option(trim(tmp)//'/scalar_field::'//trim(micro_name)//'/prognostic') .and.	     &  
+	      .not.have_option('/material_phase['//int2str(i-1)//']/cloud_microphysics/no_sources')) &
+	  call allocate_and_insert_scalar_field(trim(micro_sink_path), &
+                                                states(i), parent_name=trim(micro_name))
+      enddo
+      
+      ! Insert cold microphysics variables
+      tmp=trim(tmp)//'/cold_microphysics'
+      nfield=option_count(trim(tmp)//'/scalar_field')
+      do nf = 0, nfield-1
+        call get_option(trim(tmp)//'scalar_field['//int2str(nf)//']/name',micro_name)
+	
+	!Insert primary microphysics variable
+        call allocate_and_insert_scalar_field(trim(tmp)//'/scalar_field::'//trim(micro_name), &
+                                            states(i), field_name=trim(micro_name))
+
+	!Insert microphysics source
+        if (have_option(trim(tmp)//'/scalar_field::'//trim(micro_name)//'/prognostic') .and.         &
+	      .not.have_option('/material_phase['//int2str(i-1)//']/cloud_microphysics/no_sources')) &
+          call allocate_and_insert_scalar_field(trim(micro_source_path), &
+                                                states(i), parent_name=trim(micro_name))
+	
+	!Insert sinking velocity
+        if (have_option(trim(tmp)//'/scalar_field::'//trim(micro_name)//'/prognostic') .and. 	     &  
+	      .not.have_option('/material_phase['//int2str(i-1)//']/cloud_microphysics/no_sources')) &
+	  call allocate_and_insert_scalar_field(trim(micro_sink_path), &
+                                                states(i), parent_name=trim(micro_name))
+      enddo
+        									    
+      tmp = '/material_phase['//int2str(i-1)//']/scalar_field::'
+      if (have_option(trim(tmp)//'VapourWaterQ') .and. (.not.diagnostic_micro)) &
+      call allocate_and_insert_scalar_field(trim(micro_source_path), &
+        				    states(i), parent_name='VapourWaterQ')      
+
+      if (have_option(trim(tmp)//'PotentialTemperature') .and. (.not.diagnostic_micro)) &
+      call allocate_and_insert_scalar_field(trim(micro_source_path), &
+        				    states(i), parent_name='PotentialTemperature')
+					    
+      if (have_option(trim(tmp)//'ConservedPotentialTemperature') .and. (.not.diagnostic_micro)) &
+      call allocate_and_insert_scalar_field(trim(micro_source_path), &
+        				    states(i), parent_name='ConservedPotentialTemperature')
+					    
+      if (have_option(trim(tmp)//'Temperature') .and. (.not.diagnostic_micro)) &
+      call allocate_and_insert_scalar_field(trim(micro_source_path), &
+        				    states(i), parent_name='Temperature')
+      endif
+      
+    end do
+    
+    ! insert radiation fields
+    do i=1,nstates
+    
+      if (have_option('/radiation_model')) then
+      
+      !Insert radiation fluxes
+      if (have_option('/radiation_model/simple') .or. &
+          have_option('/radiation_model/from_file')) then
+        call allocate_and_insert_scalar_field('/radiation_model/simple/scalar_field::RadiationFlux', &
+                                            states(i), field_name='RadiationFlux')
+      else
+        call allocate_and_insert_scalar_field('/radiation_model/rrtm/scalar_field::RadiationSWFlux', &
+                                            states(i), field_name='RadiationSWFlux')
+
+        call allocate_and_insert_scalar_field('/radiation_model/rrtm/scalar_field::RadiationLWFlux', &
+                                            states(i), field_name='RadiationLWFlux')      
+      endif
+              									    
+      tmp = '/material_phase['//int2str(i-1)//']/scalar_field::'
+      if (have_option(trim(tmp)//'PotentialTemperature')) &
+      call allocate_and_insert_scalar_field(trim(tmp)//'PotentialTemperature', &
+        				    states(i), field_name='PotentialTemperatureRadiationSource')
+					    
+      if (have_option(trim(tmp)//'ConservedPotentialTemperature')) &
+      call allocate_and_insert_scalar_field(trim(tmp)//'ConservedPotentialTemperature', &
+        				    states(i), field_name='ConservedPotentialTemperatureRadiationSource')
+					    
+      if (have_option(trim(tmp)//'Temperature')) &
+      call allocate_and_insert_scalar_field(trim(tmp)//'Temperature', &
+        				    states(i),field_name='TemperatureRadiationSource')
+      
+      endif
+
+    enddo 
+    
+    ! Allocate and initialise fields for soundings
+    do i=1,nstates
+    
+      call insert_soundings(states(i))
+
+    enddo 
+    
     ! Harmonic Analysis History fields
     if (has_scalar_field(states(1),'FreeSurfaceHistory') ) then
       fshistory_sfield => extract_scalar_field(states(1), 'FreeSurfaceHistory')
@@ -1309,7 +1848,7 @@ contains
     ! insert miscellaneous scalar fields
     do i=1, size(additional_fields_absolute)
        if (have_option(trim(additional_fields_absolute(i)))) then
-
+       
           call allocate_and_insert_one_phase(additional_fields_absolute(i), states(1), &
              dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
           
@@ -1318,13 +1857,13 @@ contains
     
     do i=1, size(additional_fields_relative)
        do istate = 1, size(states)
-         absolute_path = "/material_phase["//int2str(istate-1)//"]/"//trim(additional_fields_relative(i))
-         if (have_option(absolute_path)) then
+	 absolute_path = "/material_phase["//int2str(istate-1)//"]/"//trim(additional_fields_relative(i))
+	 if (have_option(absolute_path)) then
 
-            call allocate_and_insert_one_phase(absolute_path, states(istate), &
-               dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
-            
-         end if
+	    call allocate_and_insert_one_phase(absolute_path, states(istate), &
+	       dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+	    
+	 end if
        end do
     end do
 
@@ -1654,6 +2193,7 @@ contains
     type(state_type), dimension(:), intent(inout) :: states
     type(scalar_field), pointer :: sfield
     type(tensor_field) :: tfield
+    character(len=OPTION_PATH_LEN) :: les_path
 
     integer :: i, s, stat
 
@@ -1708,7 +2248,7 @@ contains
        end do
        
     end do
-
+   
   end subroutine alias_diffusivity
 
   function allocate_scalar_field_as_constant(option_path) result(is_constant)
@@ -2071,7 +2611,7 @@ contains
   end subroutine allocate_and_insert_vector_field
 
   recursive subroutine allocate_and_insert_tensor_field(option_path, state, parent_mesh, parent_name, &
-      dont_allocate_prognostic_value_spaces)
+      field_name, dont_allocate_prognostic_value_spaces)
     !!< This subroutine sets up the initial condition of a tensor field.
     !!< Note that the tensor dimensions are set to be the dimension of the 
     !!< problem.
@@ -2080,12 +2620,13 @@ contains
     type(state_type), intent(inout) :: state
     character(len=*), intent(in), optional :: parent_mesh
     character(len=*), intent(in), optional :: parent_name
+    character(len=*), optional, intent(in):: field_name
     logical, intent(in), optional :: dont_allocate_prognostic_value_spaces
 
     logical :: backward_compatibility, is_prescribed, is_diagnostic, is_constant, is_aliased
     ! paths for options and child fields
     character(len=OPTION_PATH_LEN) :: path, adapt_path
-    character(len=OPTION_PATH_LEN) :: field_name, mesh_name
+    character(len=OPTION_PATH_LEN) :: lfield_name, mesh_name
     type(tensor_field) :: field
     type(mesh_type), pointer:: mesh
 
@@ -2095,13 +2636,18 @@ contains
     ! Save option_path
     path=trim(option_path)
 
-    call get_option(trim(path)//"/name", field_name)
+    if (present(field_name)) then
+       lfield_name=field_name
+    else
+       call get_option(trim(path)//"/name", lfield_name)
+    end if
+
     if(present(parent_name)) then
        if(trim(field_name)/="Viscosity") then
-          field_name=trim(parent_name)//trim(field_name)
+          lfield_name=trim(parent_name)//trim(lfield_name)
        end if
     end if
-    ewrite(1,*) "In allocate_and_insert_tensor_field, field is: ", trim(field_name)
+    ewrite(1,*) "In allocate_and_insert_tensor_field, field is: ", trim(lfield_name)
 
     ! Do we need backward compatibility?
     ! If we need backward compatibility, then no matter how the field
@@ -2112,7 +2658,7 @@ contains
     ! Any fields that require backward compatibility are badly behaved, as they
     ! modify constant fields. *Do not add to this list!* Construct an
     ! appropriate diagnostic algorithm instead (possibly an internal).
-    backward_compatibility = any(field_name == (/"ElectricalPotentialDiffusivity      "/))
+    backward_compatibility = any(lfield_name == (/"ElectricalPotentialDiffusivity      "/))
 
     ! Find out what kind of field we have
     is_prescribed=have_option(trim(path)//"/prescribed")
@@ -2146,19 +2692,19 @@ contains
     if (defer_allocation(option_path, mesh, dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)) then
          
        ! If we want to defer allocation (for sam), don't allocate the value space yet
-       call allocate(field, mesh, name=trim(field_name), &
+       call allocate(field, mesh, name=trim(lfield_name), &
           field_type=FIELD_TYPE_DEFERRED)
        
     else if(is_constant .and. .not. backward_compatibility) then
          
        ! Allocate as constant field if possible (and we don't need backward compatibility)
-       call allocate(field, mesh, name=trim(field_name), &
+       call allocate(field, mesh, name=trim(lfield_name), &
           field_type=FIELD_TYPE_CONSTANT)
        call zero(field)
     else
 
        ! Allocate field
-       call allocate(field, mesh, trim(field_name))
+       call allocate(field, mesh, trim(lfield_name))
        call zero(field)
     end if
 
@@ -2171,20 +2717,20 @@ contains
     call deallocate(field)
 
     ! Check for fields that are children of this field:
-    call allocate_and_insert_children(path, state, mesh_name, field_name, &
+    call allocate_and_insert_children(path, state, mesh_name, lfield_name, &
          & dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
     call allocate_and_insert_grandchildren(path, state, mesh_name, &
-         & field_name, dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+         & lfield_name, dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
 
     ! Check for adaptivity weights associated with this field:
     adapt_path=trim(path)//"/adaptivity_options"
     if(have_option(trim(adapt_path)//"/absolute_measure")) then
        adapt_path=trim(adapt_path)//"/absolute_measure/tensor_field::InterpolationErrorBound"
-       call allocate_and_insert_tensor_field(adapt_path, state, topology_mesh_name, field_name, &
+       call allocate_and_insert_tensor_field(adapt_path, state, topology_mesh_name, lfield_name, &
             dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
     else if(have_option(trim(adapt_path)//"/relative_measure")) then
        adapt_path=trim(adapt_path)//"/relative_measure/tensor_field::InterpolationErrorBound"
-       call allocate_and_insert_tensor_field(adapt_path, state, topology_mesh_name, field_name, &
+       call allocate_and_insert_tensor_field(adapt_path, state, topology_mesh_name, lfield_name, &
             dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
     end if
 
@@ -2203,6 +2749,7 @@ contains
     integer i
     
     ewrite(2,*) "    Inserting children of: ",trim(path)
+    
     do i=0, option_count(trim(path)//"/scalar_field")-1
        child_path=trim(path)//"/scalar_field["//int2str(i)//"]"
        ! Reset path to have name instead of index
@@ -2214,6 +2761,7 @@ contains
             parent_mesh=mesh_name, parent_name=parent_name, &
             dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
     end do
+    
     do i=0, option_count(trim(path)//"/vector_field")-1
        child_path=trim(path)//"/vector_field["//int2str(i)//"]"
        ! Reset path to have name instead of index
@@ -2225,6 +2773,7 @@ contains
             parent_mesh=mesh_name, parent_name=parent_name, &
             dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
     end do
+    
     do i=0, option_count(trim(path)//"/tensor_field")-1
        child_path=trim(path)//"/tensor_field["//int2str(i)//"]"
        ! Reset path to have name instead of index
@@ -2249,7 +2798,6 @@ contains
     character(len=*), intent(in) :: parent_name
     logical, optional, intent(in) :: dont_allocate_prognostic_value_spaces
 
-    
     integer :: i
 
     ! This is necessarily somewhat more sui generis than
@@ -2257,8 +2805,8 @@ contains
 
     do i = 1, size(grandchild_paths)
        call allocate_and_insert_children(trim(path)&
-            &//trim(grandchild_paths(i)), state, parent_mesh, parent_name, &
-            &dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
+	    &//trim(grandchild_paths(i)), state, parent_mesh, parent_name, &
+	    &dont_allocate_prognostic_value_spaces=dont_allocate_prognostic_value_spaces)
     end do
 
   end subroutine allocate_and_insert_grandchildren
@@ -2281,9 +2829,9 @@ contains
   end function defer_allocation
   
   subroutine set_prescribed_field_values(states, &
-    exclude_interpolated, exclude_nonreprescribed, initial_mesh, time)
+    exclude_interpolated, exclude_nonreprescribed, save_vtk_cache, initial_mesh, allow_eos, time)
 
-    type(state_type), dimension(:), intent(in):: states
+    type(state_type), dimension(:), intent(inout):: states
     !! don't prescribe the fields with interpolation options
     logical, intent(in), optional :: exclude_interpolated
     !! do not prescribe the fields that have requested not to be represcribed
@@ -2291,7 +2839,7 @@ contains
     !! indicates whether we're prescribing on the initial mesh, if not (default)
     !! the fields with needs_initial_mesh(field) are left untouched, they have to
     !! be interpolated (somewhere else)
-    logical, intent(in), optional:: initial_mesh
+    logical, intent(in), optional:: save_vtk_cache, initial_mesh, allow_eos
     !! current time if not using that in the options tree
     real, intent(in), optional :: time
 
@@ -2328,7 +2876,7 @@ contains
              position => get_external_coordinate_field(states(p+1), sfield%mesh)
              
              call zero(sfield)
-             call initialise_field_over_regions(sfield, &
+             call initialise_field_over_regions(states(p+1), sfield, &
                 trim(sfield%option_path)//'/prescribed/value', &
                 position, time=time)
           end if
@@ -2349,7 +2897,7 @@ contains
              position => get_external_coordinate_field(states(p+1), vfield%mesh)
              
              call zero(vfield)
-             call initialise_field_over_regions(vfield, &
+             call initialise_field_over_regions(states(p+1), vfield, &
                 trim(vfield%option_path)//'/prescribed/value', &
                 position, time=time)
           end if
@@ -2370,7 +2918,7 @@ contains
              position => get_external_coordinate_field(states(p+1), tfield%mesh)
 
              call zero(tfield)
-             call initialise_field_over_regions(tfield, &
+             call initialise_field_over_regions(states(p+1), tfield, &
                 trim(tfield%option_path)//'/prescribed/value', &
                 position, time=time)
           end if
@@ -2383,16 +2931,25 @@ contains
       call set_nemo_fields(states(1))
 
     endif
+
+    ! We don't want to do this in certain instances (e.g. flredecomp)
+    if (present(allow_eos)) then
+    
+      call initialise_prescribed_from_eos(states, initial_mesh=.true.)
       
+    endif
+     
     ! flush the cache
-    call vtk_cache_finalise()
+    if (.not. present_and_true(save_vtk_cache)) then
+      call vtk_cache_finalise()
+    endif
 
   end subroutine set_prescribed_field_values
   
   subroutine initialise_prognostic_fields(states, save_vtk_cache, &
-    initial_mesh)
+    initial_mesh, allow_eos)
     !!< Set the values of prognostic fields with their initial conditions
-    type(state_type), dimension(:), intent(in):: states
+    type(state_type), dimension(:), intent(inout):: states
     !! By default the vtk_cache, build up by the from_file initialisations
     !! in this subroutine, is flushed at the end of this subroutine.  This
     !! cache can be reused however in subsequent calls reading from vtu files
@@ -2400,7 +2957,7 @@ contains
     !! indicates whether we're initalising on the initial mesh, if not (default)
     !! the fields with needs_initial_mesh(field) are left untouched, they have to
     !! be interpolated (somewhere else)
-    logical, intent(in), optional:: initial_mesh
+    logical, intent(in), optional:: initial_mesh, allow_eos
 
     ! these must be pointers as bc's should be added to the original field
     type(scalar_field), pointer :: sfield
@@ -2430,12 +2987,12 @@ contains
           if (.not. aliased(sfield) .and. &
                 have_option(trim(sfield%option_path)//'/prognostic')) then
              call zero(sfield)
-             call initialise_field_over_regions(sfield, &
+             call initialise_field_over_regions(states(p+1), sfield, &
                 trim(sfield%option_path)//'/prognostic/initial_condition', &
                 position, phase_path=trim(phase_path))
           end if
        end do
-
+       
        nvfields = vector_field_count(states(p+1))
        do f = 1, nvfields
           vfield => extract_vector_field(states(p+1), f)
@@ -2443,20 +3000,105 @@ contains
           if (.not. aliased(vfield) .and. &
                 have_option(trim(vfield%option_path)//'/prognostic')) then
              call zero(vfield)
-             call initialise_field_over_regions(vfield, &
+             call initialise_field_over_regions(states(p+1), vfield, &
                 trim(vfield%option_path)//'/prognostic/initial_condition', &
                 position, phase_path=trim(phase_path))
           end if
        end do
 
     end do
-      
+
+    ! We don't want to do this in certain instances (e.g. flredecomp)
+    if (present(allow_eos)) then
+      call initialise_prognostic_from_eos(states, initial_mesh=.true.)
+    endif
+    
     if (.not. present_and_true(save_vtk_cache)) then
        ! flush the cache
        call vtk_cache_finalise()
     end if
 
   end subroutine initialise_prognostic_fields
+  
+  subroutine initialise_prognostic_from_eos(states, initial_mesh)
+    !!< Set the values of prognostic fields with their initial conditions
+    type(state_type), dimension(:), intent(inout):: states
+    !! indicates whether we're initalising on the initial mesh, if not (default)
+    !! the fields with needs_initial_mesh(field) are left untouched, they have to
+    !! be interpolated (somewhere else)
+    logical, intent(in), optional:: initial_mesh
+
+    ! these must be pointers as bc's should be added to the original field
+    type(scalar_field), pointer :: sfield
+
+    character(len=OPTION_PATH_LEN):: phase_path
+    integer p, f, nphases, nsfields
+    logical:: mesh_changed
+
+    ewrite(1,*) "In initialise_diagnostic_fields"
+    
+    mesh_changed = .not. present_and_true(initial_mesh)
+
+    nphases = option_count('/material_phase')
+    do p = 0, nphases-1
+
+       phase_path = '/material_phase['//int2str(p)//']'
+       
+       ! Scalar fields:
+       nsfields = scalar_field_count(states(p+1))
+       do f = 1, nsfields
+         sfield => extract_scalar_field(states(p+1),f)
+         if (mesh_changed .and. needs_initial_mesh(sfield)) cycle
+	  
+         if(.not. aliased(sfield) .and. have_option(trim(sfield%option_path)//'/prognostic')) then
+             call initialise_from_eos(states(p+1),sfield, &
+	          trim(sfield%option_path)//'/prognostic/initial_condition')
+	 endif
+       enddo
+       
+    end do
+
+  end subroutine initialise_prognostic_from_eos
+  
+  subroutine initialise_prescribed_from_eos(states, initial_mesh)
+    !!< Set the values of prognostic fields with their initial conditions
+    type(state_type), dimension(:), intent(inout):: states
+    !! indicates whether we're initalising on the initial mesh, if not (default)
+    !! the fields with needs_initial_mesh(field) are left untouched, they have to
+    !! be interpolated (somewhere else)
+    logical, intent(in), optional:: initial_mesh
+
+    ! these must be pointers as bc's should be added to the original field
+    type(scalar_field), pointer :: sfield
+
+    character(len=OPTION_PATH_LEN):: phase_path
+    integer p, f, nphases, nsfields
+    logical:: mesh_changed
+
+    ewrite(1,*) "In initialise_diagnostic_fields"
+    
+    mesh_changed = .not. present_and_true(initial_mesh)
+
+    nphases = option_count('/material_phase')
+    do p = 0, nphases-1
+
+       phase_path = '/material_phase['//int2str(p)//']'
+       
+       ! Scalar fields:
+       nsfields = scalar_field_count(states(p+1))
+       do f = 1, nsfields
+         sfield => extract_scalar_field(states(p+1),f)
+         if (mesh_changed .and. needs_initial_mesh(sfield)) cycle
+	  
+         if(.not. aliased(sfield) .and. have_option(trim(sfield%option_path)//'/prescribed')) then
+            call initialise_from_eos(states(p+1),sfield, &
+	          trim(sfield%option_path)//'/prescribed/value')
+	 endif
+       enddo
+       
+    end do
+
+  end subroutine initialise_prescribed_from_eos
 
   subroutine allocate_and_insert_auxilliary_fields(states)
     ! Set up some auxilliary fields to the prognostic fields.
@@ -3040,9 +3682,8 @@ contains
       call create_global_to_universal_numbering(position%mesh%element_halos(j))
       call create_ownership(position%mesh%element_halos(j))
     end do
-    
+ 
   end subroutine create_empty_halo
-
 
   subroutine allocate_metric_limits(state)
     type(state_type), intent(inout) :: state
@@ -3073,12 +3714,12 @@ contains
     is_constant = (have_option(path // "/tensor_field::MinimumEdgeLengths/anisotropic_symmetric/constant"))
     if (is_constant) then
       call allocate(min_edge, mesh, "MinimumEdgeLengths", field_type=FIELD_TYPE_CONSTANT)
-      call initialise_field(min_edge, path // "/tensor_field::MinimumEdgeLengths", X)
+      call initialise_field(state, min_edge, path // "/tensor_field::MinimumEdgeLengths", X)
       call allocate(max_eigen, mesh, "MaxMetricEigenbound", field_type=FIELD_TYPE_CONSTANT)
       call set(max_eigen, eigenvalue_from_edge_length(node_val(min_edge, 1)))
     else
       call allocate(min_edge, mesh, "MinimumEdgeLengths")
-      call initialise_field(min_edge, path // "/tensor_field::MinimumEdgeLengths", X)
+      call initialise_field(state, min_edge, path // "/tensor_field::MinimumEdgeLengths", X)
       call allocate(max_eigen, mesh, "MaxMetricEigenbound")
       do node=1,node_count(mesh)
         call set(max_eigen, node, eigenvalue_from_edge_length(node_val(min_edge, node)))
@@ -3092,12 +3733,12 @@ contains
     is_constant = (have_option(path // "/tensor_field::MaximumEdgeLengths/anisotropic_symmetric/constant"))
     if (is_constant) then
       call allocate(max_edge, mesh, "MaximumEdgeLengths", field_type=FIELD_TYPE_CONSTANT)
-      call initialise_field(max_edge, path // "/tensor_field::MaximumEdgeLengths", X)
+      call initialise_field(state, max_edge, path // "/tensor_field::MaximumEdgeLengths", X)
       call allocate(min_eigen, mesh, "MinMetricEigenbound", field_type=FIELD_TYPE_CONSTANT)
       call set(min_eigen, eigenvalue_from_edge_length(node_val(max_edge, 1)))
     else
       call allocate(max_edge, mesh, "MaximumEdgeLengths")
-      call initialise_field(max_edge, path // "/tensor_field::MaximumEdgeLengths", X)
+      call initialise_field(state, max_edge, path // "/tensor_field::MaximumEdgeLengths", X)
       call allocate(min_eigen, mesh, "MinMetricEigenbound")
       do node=1,node_count(mesh)
         call set(min_eigen, node, eigenvalue_from_edge_length(node_val(max_edge, node)))
@@ -3167,7 +3808,6 @@ contains
       call deallocate(temp_s_field)
     end if
 
-
   end subroutine compute_domain_statistics
   
   subroutine populate_state_module_check_options
@@ -3214,18 +3854,18 @@ contains
       nstates=option_count("/material_phase")
 
       state_loop: do i=0, nstates-1
-        if (have_option("/material_phase[" // int2str(i) // "]/vector_field::Velocity/prognostic")) then
-          if (.not. (have_option("/material_phase[" // int2str(i) // "]/vector_field::Velocity/prognostic" // &
-                                 "/spatial_discretisation/continuous_galerkin/buoyancy" // &
-                                 "/radial_gravity_direction_at_gauss_points") .or. &
-                     have_option("/material_phase[" // int2str(i) // "]/vector_field::Velocity/prognostic" // &
-                                 "/spatial_discretisation/discontinuous_galerkin/buoyancy" // &
-                                 "/radial_gravity_direction_at_gauss_points"))) then
-            ewrite(0,*) "WARNING: the /geometry/spherical_earth option no long automatically makes the buoyancy radial."
-            ewrite(0,*) "To recreate the previous behaviour it is now necessary to turn on the "
-            ewrite(0,*) "buoyancy/radial_gravity_direction_at_gauss_points underneath the Velocity spatial_discretisation."
-          end if
-        end if
+	if (have_option("/material_phase[" // int2str(i) // "]/vector_field::Velocity/prognostic")) then
+	  if (.not. (have_option("/material_phase[" // int2str(i) // "]/vector_field::Velocity/prognostic" // &
+				 "/spatial_discretisation/continuous_galerkin/buoyancy" // &
+				 "/radial_gravity_direction_at_gauss_points") .or. &
+		     have_option("/material_phase[" // int2str(i) // "]/vector_field::Velocity/prognostic" // &
+				 "/spatial_discretisation/discontinuous_galerkin/buoyancy" // &
+				 "/radial_gravity_direction_at_gauss_points"))) then
+	    ewrite(0,*) "WARNING: the /geometry/spherical_earth option no long automatically makes the buoyancy radial."
+	    ewrite(0,*) "To recreate the previous behaviour it is now necessary to turn on the "
+	    ewrite(0,*) "buoyancy/radial_gravity_direction_at_gauss_points underneath the Velocity spatial_discretisation."
+	  end if
+	end if
       end do state_loop
     end if
 
@@ -3730,7 +4370,7 @@ contains
     ewrite(0,*)"WARNING: You have no viscosity field"
   end if
   ! Check for absorption term
-if (.not.have_option("/material_phase[0]/vector_field::Velocity/prognostic/vector_field::Absorption"))then
+  if (.not.have_option("/material_phase[0]/vector_field::Velocity/prognostic/vector_field::Absorption"))then
     ewrite(0,*)"WARNING: you may wish to add an absorption term under velocity"
   end if
   !Check for temperature diffusivity
@@ -3825,30 +4465,30 @@ if (.not.have_option("/material_phase[0]/vector_field::Velocity/prognostic/vecto
        velocity_path="/material_phase["//int2str(i)//"]/vector_field::Velocity/prognostic"
 
        if (have_option(trim(velocity_path))) then
-         
-          ! Check that mass and advective terms are excluded:
-          exclude_mass = have_option(trim(velocity_path)//&
-               "/spatial_discretisation/continuous_galerkin/mass_terms"//&
-               &"/exclude_mass_terms").or.&
-               have_option(trim(velocity_path)//&
-               "/spatial_discretisation/discontinuous_galerkin/mass_terms"//&
-               &"/exclude_mass_terms")
-          
-          exclude_advection = have_option(trim(velocity_path)//&
-               "/spatial_discretisation/continuous_galerkin/advection_terms"//&
-               &"/exclude_advection_terms").or.&
-               have_option(trim(velocity_path)//&
-               "/spatial_discretisation/discontinuous_galerkin/advection_scheme/none") 
-          
-          if(.not.(exclude_mass) .OR. .not.(exclude_advection)) then
-             FLExit("For Stokes problems you need to exclude the mass and advection terms.")
-          end if
+	 
+	  ! Check that mass and advective terms are excluded:
+	  exclude_mass = have_option(trim(velocity_path)//&
+	       "/spatial_discretisation/continuous_galerkin/mass_terms"//&
+	       &"/exclude_mass_terms").or.&
+	       have_option(trim(velocity_path)//&
+	       "/spatial_discretisation/discontinuous_galerkin/mass_terms"//&
+	       &"/exclude_mass_terms")
+	  
+	  exclude_advection = have_option(trim(velocity_path)//&
+	       "/spatial_discretisation/continuous_galerkin/advection_terms"//&
+	       &"/exclude_advection_terms").or.&
+	       have_option(trim(velocity_path)//&
+	       "/spatial_discretisation/discontinuous_galerkin/advection_scheme/none") 
+	  
+	  if(.not.(exclude_mass) .OR. .not.(exclude_advection)) then
+	     FLExit("For Stokes problems you need to exclude the mass and advection terms.")
+	  end if
 
-          ! Check that theta = 1 (we must be implicit as we have no time term!)
-          call get_option(trim(velocity_path)//'/temporal_discretisation/theta/', theta)
-          if(theta /= 1.) then
-             FLExit("For Stokes problems, theta (under velocity) must = 1")
-          end if
+	  ! Check that theta = 1 (we must be implicit as we have no time term!)
+	  call get_option(trim(velocity_path)//'/temporal_discretisation/theta/', theta)
+	  if(theta /= 1.) then
+	     FLExit("For Stokes problems, theta (under velocity) must = 1")
+	  end if
 
        end if
 
@@ -3859,45 +4499,45 @@ if (.not.have_option("/material_phase[0]/vector_field::Velocity/prognostic/vecto
           schur_path = "/material_phase["//int2str(i)//"]/scalar_field::Pressure/prognostic/"//&
                &"scheme/use_projection_method/full_schur_complement"
 
-          if(have_option(trim(schur_path))) then
-             
-             call get_option(trim(schur_path)//"/preconditioner_matrix[0]/name", schur_preconditioner)
-             
-             select case(schur_preconditioner)
-             case("ScaledPressureMassMatrix")
-                ! Check pressure_mass_matrix preconditioner is compatible with viscosity tensor:
-                if(have_option(trim(velocity_path)//&
-                     &"/tensor_field::Viscosity/prescribed/value"//&
-                     &"/anisotropic_symmetric").or.&
-                     have_option(trim(velocity_path)//&
-                     &"/tensor_field::Viscosity/prescribed/value"//&
-                     &"/anisotropic_asymmetric")) then
-                   ewrite(-1,*) "WARNING - At present, the viscosity scaling for the pressure mass matrix is"
-                   ewrite(-1,*) "taken from the 1st component of the viscosity tensor. Such a scaling"
-                   ewrite(-1,*) "is only valid when all components of each viscosity tensor are constant."
-                end if
-             case("NoPreconditionerMatrix")
-                ! Check no preconditioner is selected when no preconditioner matrix is desired:
-                call get_option("/material_phase["//int2str(i)//&
-                     "]/scalar_field::Pressure/prognostic/solver/preconditioner/name", pc_type)
-                if(pc_type /= 'none') FLExit("If no preconditioner is desired, set pctype='none'.")
-             end select
-             
-             ! Check inner matrix is valid for Stokes - must have full viscous terms
-             ! included. Stokes does not have a mass matrix.
-             call get_option(trim(schur_path)//"/inner_matrix[0]/name", inner_matrix)
-             
-             if(trim(inner_matrix)/="FullMomentumMatrix") then
-                ewrite(-1,*) "For Stokes problems, FullMomentumMatrix must be specified under:"
-                ewrite(-1,*) "scalar_field::Pressure/prognostic/scheme/use_projection_method& "
-                ewrite(-1,*) "&/full_schur_complement/inner_matrix"
-                FLExit("For Stokes problems, change --> FullMomentumMatrix")
-             end if
+	  if(have_option(trim(schur_path))) then
+	     
+	     call get_option(trim(schur_path)//"/preconditioner_matrix[0]/name", schur_preconditioner)
+	     
+	     select case(schur_preconditioner)
+	     case("ScaledPressureMassMatrix")
+		! Check pressure_mass_matrix preconditioner is compatible with viscosity tensor:
+		if(have_option(trim(velocity_path)//&
+		     &"/tensor_field::Viscosity/prescribed/value"//&
+		     &"/anisotropic_symmetric").or.&
+		     have_option(trim(velocity_path)//&
+		     &"/tensor_field::Viscosity/prescribed/value"//&
+		     &"/anisotropic_asymmetric")) then
+		   ewrite(-1,*) "WARNING - At present, the viscosity scaling for the pressure mass matrix is"
+		   ewrite(-1,*) "taken from the 1st component of the viscosity tensor. Such a scaling"
+		   ewrite(-1,*) "is only valid when all components of each viscosity tensor are constant."
+		end if
+	     case("NoPreconditionerMatrix")
+		! Check no preconditioner is selected when no preconditioner matrix is desired:
+		call get_option("/material_phase["//int2str(i)//&
+		     "]/scalar_field::Pressure/prognostic/solver/preconditioner/name", pc_type)
+		if(pc_type /= 'none') FLExit("If no preconditioner is desired, set pctype='none'.")
+	     end select
+	     
+	     ! Check inner matrix is valid for Stokes - must have full viscous terms
+	     ! included. Stokes does not have a mass matrix.
+	     call get_option(trim(schur_path)//"/inner_matrix[0]/name", inner_matrix)
+	     
+	     if(trim(inner_matrix)/="FullMomentumMatrix") then
+		ewrite(-1,*) "For Stokes problems, FullMomentumMatrix must be specified under:"
+		ewrite(-1,*) "scalar_field::Pressure/prognostic/scheme/use_projection_method& "
+		ewrite(-1,*) "&/full_schur_complement/inner_matrix"
+		FLExit("For Stokes problems, change --> FullMomentumMatrix")
+	     end if
 
-          end if
-          
+	    end if
+	  
        end if
-       
+
     end do
 
   end subroutine check_stokes_options

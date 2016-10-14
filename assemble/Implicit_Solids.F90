@@ -1845,10 +1845,10 @@ contains
 
   subroutine interpolation_galerkin_scalars(old_fields_state, old_position, new_fields_state, new_position, map_BA, force_bounded, solid, femdem_out)
     type(state_type), dimension(:), intent(in) :: old_fields_state
-    type(vector_field), intent(in) :: old_position
+    type(vector_field), intent(inout) :: old_position
 
     type(state_type), dimension(:), intent(inout) :: new_fields_state
-    type(vector_field), intent(in) :: new_position
+    type(vector_field), intent(inout) :: new_position
     type(ilist), dimension(:), intent(in), optional, target :: map_BA
     logical, intent(in), optional :: force_bounded
 
@@ -2114,7 +2114,7 @@ contains
           ! finite precision arithmetic). Geometry is hard!
           ! So let's go all arbitrary precision on its ass.
           ! Data, Warp 0!
-#ifdef HAVE_LIBCGAL
+#ifdef HAVE_CGAL
           ewrite(0,*) "Using CGAL to try to fix conservation error"
           call intersector_set_exactness(.true.)
           call galerkin_projection_inner_loop(ele_B, little_mass_matrix, detJ, local_rhs, conservation_tolerance, stat, &

@@ -37,9 +37,10 @@ module momentum_diagnostic_fields
   use global_parameters, only: FIELD_NAME_LEN, OPTION_PATH_LEN
   use multimaterial_module
   use multiphase_module
-  use diagnostic_fields_wrapper_new
   use k_epsilon
+  use state_fields_module
   use initialise_fields_module
+  use diagnostic_fields_wrapper_new
   implicit none
 
   interface calculate_densities
@@ -78,8 +79,7 @@ contains
     call calculate_diagnostic_phase_volume_fraction(state)
 
     ! Calculate the density according to the eos... do the buoyancy density and the density
-    ! at the same time to save computations. Do not calculate buoyancy if there is no gravity.
-    gravity = have_option("/physical_parameters/gravity")
+    ! at the same time to save computations. Do not calculate buoyancy if there is no gravity
 
     ! submaterials_istate should always have a Velocity
     velocity => extract_vector_field(submaterials(submaterials_istate), 'Velocity')
@@ -88,13 +88,14 @@ contains
       gravity = .false.
     end if
 
+    gravity = have_option("/physical_parameters/gravity")
     bulk_density => extract_scalar_field(submaterials(submaterials_istate), 'Density', stat)
     diagnostic = .false.
     if (stat==0) diagnostic = have_option(trim(bulk_density%option_path)//'/diagnostic')
     if(diagnostic.and.gravity) then
       buoyancy_density => extract_scalar_field(submaterials(submaterials_istate),'VelocityBuoyancyDensity')
       call calculate_densities(submaterials,&
-                                buoyancy_density=buoyancy_density, &
+                                buoyancy=buoyancy_density, &
                                 bulk_density=bulk_density, &
                                 momentum_diagnostic=.true.)
     else if(diagnostic) then
@@ -104,7 +105,7 @@ contains
     else if(gravity) then
       buoyancy_density => extract_scalar_field(submaterials(submaterials_istate),'VelocityBuoyancyDensity')
       call calculate_densities(submaterials,&
-                                buoyancy_density=buoyancy_density, &
+                                buoyancy=buoyancy_density, &
                                 momentum_diagnostic=.true.)
     end if
     
@@ -133,23 +134,23 @@ contains
         end if
       end if
     end if
-
+    
     do i = 1, size(state) ! really we should be looping over submaterials here but we need to pass state into
-                          ! calculate_diagnostic_variable and there's no way to relate the index in submaterials 
-                          ! to the one in state
+			  ! calculate_diagnostic_variable and there's no way to relate the index in submaterials 
+			  ! to the one in state
        ! In certain cases, there is a need to update the second invariant of strain-rate tensor
        ! before updating the viscosity (e.g. Non-Newtonian Stokes flow simulations, where the viscosity is
        ! dependent upon this field) - do that here:
        sfield => extract_scalar_field(state(i),'StrainRateSecondInvariant',stat)
        if (stat == 0) then
-          call calculate_diagnostic_variable(state, i, sfield)
+	  call calculate_diagnostic_variable(state, i, sfield)
        end if
        ! Next update material viscosity:
        tfield => extract_tensor_field(state(i),'MaterialViscosity',stat)
        if (stat==0) then
-          if(have_option(trim(tfield%option_path) // "/diagnostic/algorithm::tensor_python_diagnostic")) then
-             call calculate_diagnostic_variable(state, i, tfield)
-          end if
+	  if(have_option(trim(tfield%option_path) // "/diagnostic/algorithm::tensor_python_diagnostic")) then
+	     call calculate_diagnostic_variable(state, i, tfield)
+	  end if
        end if
     end do
 
@@ -187,7 +188,7 @@ contains
 
     ! k-epsilon momentum diagnostics (reynolds stress tensor)
     if(have_option(trim(state(istate)%option_path)//&
-         "/subgridscale_parameterisations/k-epsilon")) then
+	 "/subgridscale_parameterisations/k-epsilon")) then
        call keps_momentum_diagnostics(state(istate))
     end if
 
@@ -195,32 +196,35 @@ contains
     
   end subroutine calculate_momentum_diagnostics
 
-  subroutine calculate_densities_single_state(state, buoyancy_density, bulk_density, &
+  subroutine calculate_densities_single_state(state, buoyancy, bulk_density, &
                                               momentum_diagnostic)
   
     type(state_type), intent(inout) :: state
-    type(scalar_field), intent(inout), optional, target :: buoyancy_density
+    type(scalar_field), intent(inout), optional, target :: buoyancy
     type(scalar_field), intent(inout), optional, target :: bulk_density
     logical, intent(in), optional :: momentum_diagnostic
     
     type(state_type), dimension(1) :: states
   
     states = (/state/)
-    call calculate_densities(states, buoyancy_density=buoyancy_density, bulk_density=bulk_density, &
+    call calculate_densities(states, buoyancy=buoyancy, bulk_density=bulk_density, &
                              momentum_diagnostic=momentum_diagnostic)
     state = states(1)
   
   end subroutine calculate_densities_single_state
 
-  subroutine calculate_densities_multiple_states(state, buoyancy_density, bulk_density, &
+  subroutine calculate_densities_multiple_states(state, buoyancy, bulk_density, &
                                                  momentum_diagnostic)
   
+    implicit none
+    
     type(state_type), dimension(:), intent(inout) :: state
-    type(scalar_field), intent(inout), optional, target :: buoyancy_density
+    type(scalar_field), intent(inout), optional, target :: buoyancy
     type(scalar_field), intent(inout), optional, target :: bulk_density
     logical, intent(in), optional ::momentum_diagnostic
     
-    type(scalar_field) :: eosdensity
+    type(scalar_field), target :: dummyscalar
+    type(scalar_field) :: eosdensity, eostemperature, eospotentialtemp
     type(scalar_field), pointer :: tmpdensity
     type(scalar_field) :: bulksumvolumefractionsbound
     type(scalar_field) :: buoyancysumvolumefractionsbound
@@ -236,23 +240,25 @@ contains
     type(vector_field), pointer :: velocity
     real :: boussinesq_rho0
     
-    if(.not.present(buoyancy_density).and..not.present(bulk_density)) then
-      ! coding error
+    ewrite(3,*) 'In calculate_densities'
+    
+    if(.not.present(buoyancy).and..not.present(bulk_density)) then
       FLAbort("No point calling me if I don't have anything to do.")
     end if
     
-    if(present(buoyancy_density)) call zero(buoyancy_density)
+    if(present(buoyancy)) call zero(buoyancy)
     if(present(bulk_density)) call zero(bulk_density)
     
     if(present(bulk_density)) then
       mesh => bulk_density%mesh
     else
-      mesh => buoyancy_density%mesh
+      mesh => buoyancy%mesh
     end if
-    
+  
     multimaterial = .false.
     materialvolumefraction_count = 0
     subtract_count = 0
+
     if(size(state)>1) then
       do i = 1, size(state)
         if(has_scalar_field(state(i), "MaterialVolumeFraction")) then
@@ -264,10 +270,27 @@ contains
         subtract_count = subtract_count + &
             option_count(trim(option_path)//'/fluids/linear/subtract_out_hydrostatic_level') + &
             option_count(trim(option_path)//'/fluids/ocean_pade_approximation')
-        
       end do
+      
       if(size(state)/=materialvolumefraction_count) then
-        FLExit("Multiple material_phases but not all of them have MaterialVolumeFractions.")
+         option_path='/material_phase::'//trim(state(1)%name)//'/equation_of_state'
+         if (have_option(trim(option_path)//'/compressible/ATHAM')) then
+            call allocate(eosdensity, mesh, "LocalCompressibleEOSDensity")
+            call compressible_eos(state, density=eosdensity)
+
+            if(present(bulk_density)) then
+               call set(bulk_density, eosdensity)
+            end if
+
+            if(present(buoyancy)) then
+               call set(buoyancy, eosdensity)
+            end if
+	    
+            call deallocate(eosdensity)
+            return
+         else
+            FLExit("Multiple material_phases but not all of them have MaterialVolumeFractions.")
+         end if
       end if
       if(subtract_count>1) then
         FLExit("You can only select one material_phase to use the reference_density from to subtract out the hydrostatic level.")
@@ -280,7 +303,7 @@ contains
         call allocate(bulksumvolumefractionsbound, mesh, "SumMaterialVolumeFractionsBound")
         call set(bulksumvolumefractionsbound, 1.0)
       end if
-      if(present(buoyancy_density)) then
+      if(present(buoyancy)) then
         call allocate(buoyancysumvolumefractionsbound, mesh, "SumMaterialVolumeFractionsBound")
         call set(buoyancysumvolumefractionsbound, 1.0)
       end if
@@ -319,20 +342,20 @@ contains
           call addto(eosdensity, reference_density)
         end if
         
-        if(present(buoyancy_density)) then
+        if(present(buoyancy)) then
           if(multimaterial) then
             if(subtract_out_hydrostatic) then
               ! if multimaterial we have to subtract out a single global value at the end
               ! so save it for now
               hydrostatic_rho0 = reference_density
             end if
-            call add_scaled_material_property(state(state_order(i)), buoyancy_density, eosdensity, &
+            call add_scaled_material_property(state(state_order(i)), buoyancy, eosdensity, &
                                               sumvolumefractionsbound=buoyancysumvolumefractionsbound, &
                                               momentum_diagnostic=momentum_diagnostic)
           else
-            call set(buoyancy_density, eosdensity)
+            call set(buoyancy, eosdensity)
             if(.not.subtract_out_hydrostatic) then
-              call addto(buoyancy_density, reference_density)
+              call addto(buoyancy, reference_density)
             end if
           end if
           
@@ -375,12 +398,12 @@ contains
         
       else
         ! we don't have a fluids eos
-        
+	boussinesq_rho0=0.0
         tmpdensity => extract_scalar_field(state(state_order(i)), "MaterialDensity", stat)
         if(stat==0) then
           if(multimaterial) then
-            if(present(buoyancy_density)) then
-              call add_scaled_material_property(state(state_order(i)), buoyancy_density, tmpdensity, &
+            if(present(buoyancy)) then
+              call add_scaled_material_property(state(state_order(i)), buoyancy, tmpdensity, &
                                                 sumvolumefractionsbound=buoyancysumvolumefractionsbound, &
                                                 momentum_diagnostic=momentum_diagnostic)
             end if
@@ -390,8 +413,8 @@ contains
                                                 momentum_diagnostic=momentum_diagnostic)
             end if
           else
-            if(present(buoyancy_density)) then
-              call remap_field(tmpdensity, buoyancy_density)
+            if(present(buoyancy)) then
+              call remap_field(tmpdensity, buoyancy)
             end if
             if(present(bulk_density)) then
               call remap_field(tmpdensity, bulk_density)
@@ -403,28 +426,33 @@ contains
           else
             if(have_option(trim(option_path)//'/compressible')) then
               call allocate(eosdensity, mesh, "LocalCompressibleEOSDensity")
-            
-              call compressible_eos(state(state_order(i)), density=eosdensity)
               
+              if (have_option(trim(option_path)//'/compressible/ATHAM')) then
+                call compressible_eos(state,density=eosdensity)
+              else if (have_option(trim(option_path)//'/compressible/giraldo')) then
+                call compressible_eos(state(state_order(i)),density=eosdensity)
+              else
+                 call compressible_eos(state(state_order(i)), density=eosdensity)
+              end if
+	                    
               if(present(bulk_density)) then
                 call set(bulk_density, eosdensity)
               end if
-              if(present(buoyancy_density)) then
-                call set(buoyancy_density, eosdensity)
-              end if
+	        
+              call set(buoyancy, eosdensity)
             
               call deallocate(eosdensity)
             else
               tmpdensity => extract_scalar_field(state(state_order(i)), "Density", stat)
               if(stat==0) then
-                if(present(buoyancy_density)) then
-                  call remap_field(tmpdensity, buoyancy_density)
+                if(present(buoyancy)) then
+                  call remap_field(tmpdensity, buoyancy)
                 end if
                 if(present(bulk_density)) then
                   call remap_field(tmpdensity, bulk_density)
                 end if
               else
-                if(present(buoyancy_density)) then
+                if(present(buoyancy)) then
                   FLExit("You haven't provide enough information to set the buoyancy density.")
                 end if
                 if(present(bulk_density)) then
@@ -437,30 +465,34 @@ contains
         end if
 
       end if
+      
+      ewrite_minmax(buoyancy)
         
     end do state_loop
     
-    if(present(buoyancy_density)) then
-      if(multimaterial) call addto(buoyancy_density, -hydrostatic_rho0)
-      
+    if(present(buoyancy)) then
+      if(multimaterial) call addto(buoyancy, -hydrostatic_rho0)
+
+      ! the buoyancy density is being used in a Boussinesq eqn
+      ! therefore it needs to be scaled by rho0:
       if(boussinesq) then
-        ! the buoyancy density is being used in a Boussinesq eqn
-        ! therefore it needs to be scaled by rho0:
-        call scale(buoyancy_density, 1./boussinesq_rho0)
-      end if
+        if(boussinesq_rho0/=0.0) then
+          call scale(buoyancy, 1./boussinesq_rho0)
+        endif
+      endif
     end if
 
     if(multimaterial) then
-      if(present(buoyancy_density)) then
+      if(present(buoyancy)) then
         call deallocate(buoyancysumvolumefractionsbound)
       end if
       if(present(bulk_density)) then
         call deallocate(bulksumvolumefractionsbound)
       end if
     end if
-  
+    
   end subroutine calculate_densities_multiple_states
-
+    
   subroutine calculate_diagnostic_pressure(state, pressure)
     ! diagnostic Pressure (only for compressible) calculated from
     ! Density and InternalEnergie via compressible eos
@@ -497,6 +529,6 @@ contains
        end if
     end do
 
-  end subroutine momentum_diagnostics_fields_check_options
+  end subroutine momentum_diagnostics_fields_check_options   
 
 end module momentum_diagnostic_fields

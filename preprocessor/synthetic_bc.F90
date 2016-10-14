@@ -36,10 +36,11 @@ use global_parameters, only: dt, option_path_len
 use fields
 use elements
 use parallel_tools
+use boundary_conditions
 implicit none
 
 private
-public synthetic_eddy_method, add_sem_bc, initialise_sem_memory
+public synthetic_eddy_method, add_sem_bc, initialise_sem_memory, add_dfm_bc
 
   
 type eddy
@@ -576,7 +577,162 @@ contains
        end if
        
      end subroutine add_sem_bc
-     
+
+  subroutine add_dfm_bc(field, surface_field, surface_element_list, bc_position, surface_mesh, bc_name, bc_path, timestep)
+  
+    implicit none
+    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: surface_field
+    type(vector_field), intent(in) :: bc_position
+    type(mesh_type), intent(inout) :: surface_mesh
+    real, intent(in) :: timestep
+    character(len=FIELD_NAME_LEN), intent(in) :: bc_path, bc_name
+    integer, dimension(:), pointer, intent(in):: surface_element_list
+    
+    integer :: nlevel, rank, nneigh, node, neigh, ele, i, j, k, l, m, n, e
+    integer, dimension(100) :: neighbours_list
+    real :: dist, ui_old, bi, ai, ff, sum_bi, intt
+    real, dimension(bc_position%dim) :: intl, reys, ui
+    real, dimension(bc_position%dim) :: X
+    integer, dimension(:), pointer :: nodes
+    
+    type(scalar_field) :: neighbour_flags, node_flags, filter_coeff
+    type(vector_field), pointer :: length_scale, time_scale, reynolds_stress, fluctuations, old_fluctuations
+    type(vector_field) :: rand
+    type(csr_sparsity), pointer :: nelist
+    real, parameter :: pi=3.14159265359
+    
+    ewrite(1,*) 'In add_dfm_bc'
+
+    call get_option(trim(bc_path)//"/digital_filter_turbulence/number_of_layers", nlevel)
+    
+    call allocate (filter_coeff, surface_mesh, name="FilterCoefficients")
+    call allocate (rand, surface_field%dim, surface_mesh, name="Random")
+    call allocate (neighbour_flags, surface_mesh, name="NeighbourFlags")
+    call allocate (node_flags, surface_mesh, name="NodeFlags")
+    
+    fluctuations => extract_surface_field(field,bc_name,"FluctuationField")
+    old_fluctuations => extract_surface_field(field,bc_name,"OldFluctuationField")
+    length_scale => extract_surface_field(field,bc_name,"TurbulenceLengthScale")
+    time_scale => extract_surface_field(field,bc_name,"TurbulenceTimeScale")
+    reynolds_stress => extract_surface_field(field,bc_name,"ReynoldsStress")
+        
+   ! Generate pseudo-random numbers
+    call random_seed()
+    do node = 1, node_count(surface_field)
+       call random_number(X)
+       X = 2.*X-1.
+       call set(rand,node,X)
+    enddo
+    
+    ! Loop over elements
+    call zero(node_flags)
+    nelist => extract_nelist(surface_mesh)
+    do ele = 1, ele_count(surface_field)
+       nodes => ele_nodes(surface_mesh,ele)
+       
+       do n = 1, size(nodes)
+         node = nodes(n)
+	 if (node_val(node_flags,node) == 0.) then
+       
+         ! First, calculate filter coefficients
+         intl = node_val(length_scale,node)
+         intt = node_val(time_scale,1,node)
+         reys = node_val(reynolds_stress,node)	 
+	 
+         ! Find elements within filter width
+	 call zero(neighbour_flags)
+         call zero(filter_coeff)
+	 neighbours_list=0
+	 nneigh=0
+	 rank=0
+	 
+	 call find_neighbours (surface_mesh, node, neighbour_flags, neighbours_list, nneigh, rank)
+	 
+	 ! Calculate filter coefficients
+         sum_bi= 0.
+	 do i = 1, nneigh
+	   neigh = neighbours_list(i)
+	   
+	   bi = 1.
+	   do k = 1, surface_field%dim
+	     dist=node_val(bc_position,k,neigh)-node_val(bc_position,k,node)
+	     bi=bi*exp(-pi/2.*dist**2./intl(k)**2.)
+	   end do
+	   sum_bi=sum_bi+bi*bi
+	   
+	   call set(filter_coeff,neigh,bi)
+	 enddo
+	 call scale(filter_coeff, 1./sqrt(sum_bi))
+	 
+         ! Calculate rescaled fluctuations
+	 ui = 0.
+         do i = 1, nneigh
+           neigh = neighbours_list(i) 
+           do j = 1, surface_field%dim
+	     ui(j) = ui(j) + node_val(filter_coeff,neigh)*node_val(rand,j,neigh)
+           enddo
+         enddo
+         ui = ui*sqrt(reys)
+       
+         ! Time correlation
+         ai = exp(-pi/2.*timestep**2./intt**2.)
+         ff = 1./sqrt(1. + ai*ai)
+         do j = 1, surface_field%dim
+	   ui_old = node_val(old_fluctuations,j,node)
+	   ui(j) = ff*ui(j) + ai*ff*ui_old
+         enddo
+	 
+	 call set(fluctuations,node,ui)
+	 call set(node_flags,node,1.)
+	 
+	 endif
+       end do
+       
+    enddo
+      
+    call addto(surface_field,fluctuations)
+    call set(old_fluctuations,fluctuations)
+    
+    call deallocate (filter_coeff)
+    call deallocate (rand)
+    call deallocate (neighbour_flags)
+    call deallocate (node_flags)
+
+  contains
+    
+    recursive subroutine find_neighbours (surface_mesh, node, neighbour_flags, neighbours_list, nneigh, rank)
+      
+      integer :: node, nneigh, rank
+      type(mesh_type) :: surface_mesh
+      type(scalar_field) :: neighbour_flags  
+      integer, dimension(:) :: neighbours_list
+         
+      integer :: l, m
+      integer, dimension(:), pointer :: ele_neighbours, neighbours
+           
+      ! Loop over neighbours
+      rank = rank+1
+      ele_neighbours => node_neigh(surface_mesh,node)
+      do l = 1, size(ele_neighbours)
+
+         neighbours => ele_nodes(surface_mesh,ele_neighbours(l))
+         do m = 1, size(neighbours)
+    	   if (node_val(neighbour_flags,neighbours(m)) == 0.) then
+    	     nneigh=nneigh+1
+    	     neighbours_list(nneigh)=neighbours(m)
+    	     call set(neighbour_flags, neighbours(m), 1.)	     
+    	   endif
+	   
+	   if (rank < nlevel) &
+	      call find_neighbours (surface_mesh, neighbours(m), neighbour_flags, neighbours_list, nneigh, rank)
+         enddo
+       
+      enddo
+    
+    end subroutine find_neighbours
+
+  end subroutine add_dfm_bc
      
    end module synthetic_bc
    

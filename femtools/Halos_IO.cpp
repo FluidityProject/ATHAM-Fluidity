@@ -26,6 +26,7 @@
     USA
 */
 
+#include "mpi.h"
 #include "Halos_IO.h"
 
 using namespace std;

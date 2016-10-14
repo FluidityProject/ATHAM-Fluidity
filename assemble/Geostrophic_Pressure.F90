@@ -31,7 +31,10 @@ module geostrophic_pressure
 
   use assemble_cmc
   use boundary_conditions
-  use boundary_conditions_from_options 
+  use boundary_conditions_from_options, only: impose_reference_pressure_node,	&
+  					      populate_vector_boundary_conditions,		&
+					      populate_scalar_boundary_conditions,		&
+					      apply_dirichlet_conditions_inverse_mass
   use conservative_interpolation_module
   use coriolis_module, only : two_omega => coriolis
   use data_structures
@@ -396,7 +399,7 @@ contains
     real :: gravity_magnitude
     logical :: have_density, have_hp, have_hpg
     type(scalar_field), pointer :: buoyancy, density, hp
-    type(scalar_field), target :: dummy_scalar
+    type(scalar_field), target :: dummy_scalar 
     type(vector_field), pointer :: gravity, hpg, positions, velocity
     type(vector_field), target :: dummy_vector
     
@@ -437,6 +440,7 @@ contains
       call get_option("/physical_parameters/gravity/magnitude", gravity_magnitude)
       
       buoyancy => extract_scalar_field(state, "VelocityBuoyancyDensity")
+
       assert(ele_count(buoyancy) == ele_count(gp_rhs))
       ewrite_minmax(buoyancy)
       
@@ -2939,7 +2943,7 @@ contains
       call set_dirichlet_consistent(new_aux_p)
       ! Restore any pressure bcs
       call clear_boundary_conditions(new_aux_p)
-      call populate_scalar_boundary_conditions(new_aux_p, trim(complete_field_path(new_aux_p%option_path)) // "/boundary_conditions", new_positions)
+      call populate_scalar_boundary_conditions(new_state, new_aux_p, trim(complete_field_path(new_aux_p%option_path)) // "/boundary_conditions", new_positions)
     end if
     
     gp = have_option(trim(base_path) // "/geopressure")

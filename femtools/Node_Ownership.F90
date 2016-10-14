@@ -139,8 +139,8 @@ contains
     !!< Find the elements in positions_a containing the nodes in positions_b.
     !!< Uses a simple advancing front algorithm.
   
-    type(vector_field), intent(in) :: positions_a
-    type(vector_field), intent(in) :: positions_b
+    type(vector_field), intent(inout) :: positions_a
+    type(vector_field), intent(inout) :: positions_b
     integer, dimension(node_count(positions_b)), intent(out) :: map
     real, optional, intent(in) :: ownership_tolerance
     integer, optional, intent(in) :: seed_b
@@ -287,8 +287,8 @@ contains
     !!< Find the elements in positions_a containing the nodes in positions_b.
     !!< Uses the element intersection finder.
   
-    type(vector_field), intent(in) :: positions_a
-    type(vector_field), intent(in) :: positions_b
+    type(vector_field), intent(inout) :: positions_a
+    type(vector_field), intent(inout) :: positions_b
     integer, dimension(node_count(positions_b)), intent(out) :: map
     real, optional, intent(in) :: ownership_tolerance
     type(ilist), dimension(ele_count(positions_a)), optional, intent(in) :: map_ab

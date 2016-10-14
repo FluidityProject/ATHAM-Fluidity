@@ -6,19 +6,22 @@ module anisotropic_gradation
   use spud
   use initialise_fields_module
   use adjacency_lists
-  use sparse_tools
+  use sparse_tools, only: csr_sparsity, csr_matrix, CSR_INTEGER
   use linked_lists
-  use gradation_metric
   use merge_tensors
   use vector_tools
   use metric_tools
+  use gradation_tools
   use state_module
   use form_metric_field
+  use unittest_tools
 
   implicit none
 
+  private
   public :: initialise_anisotropic_gradation
   public :: form_anisotropic_gradation_metric
+  public :: use_anisotropic_gradation
 
   logical :: use_anisotropic_gradation = .true.
 
@@ -31,7 +34,7 @@ module anisotropic_gradation
   subroutine form_anisotropic_gradation_metric(metric, positions, state, noits, gamma_field)
     type(tensor_field), intent(inout), target :: metric
     type(vector_field), intent(in)            :: positions
-    type(state_type), intent(in) :: state
+    type(state_type), intent(in)	      :: state
     integer, optional, intent(out)            :: noits
     type(tensor_field), optional, intent(in)  :: gamma_field
 
@@ -64,7 +67,7 @@ module anisotropic_gradation
       else
         call allocate(gamma, mesh, "Gamma")
       end if
-      call initialise_field(gamma, path, positions)
+      call initialise_field(state, gamma, path, positions)
     end if
 
     const_gamma = node_val(gamma, 1)

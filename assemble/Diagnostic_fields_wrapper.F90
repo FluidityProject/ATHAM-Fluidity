@@ -30,7 +30,7 @@
 module diagnostic_fields_wrapper
   !!< A module to link to diagnostic variable calculations.
 
-  use global_parameters, only: FIELD_NAME_LEN, timestep
+  use global_parameters, only:FIELD_NAME_LEN, timestep
   use fields
   use sparse_matrices_fields
   use field_derivatives
@@ -182,6 +182,14 @@ contains
        end if
 
        s_field => extract_scalar_field(state(i), &
+         & "Buoyancy", stat)
+       if(stat == 0) then
+         if(recalculate(trim(s_field%option_path))) then
+           call calculate_diagnostic_variable(state(i), "Buoyancy", s_field)
+         end if
+       end if
+
+       s_field => extract_scalar_field(state(i), &
          & "PerturbationDensity", stat)
        if(stat == 0) then
          if(recalculate(trim(s_field%option_path))) then
@@ -281,7 +289,7 @@ contains
              & s_field)
          end if
        end if
-       
+
        s_field => extract_scalar_field(state(i), "RichardsonNumber", stat)
        if(stat == 0) then
          if(recalculate(trim(s_field%option_path))) then
@@ -362,6 +370,21 @@ contains
        if(stat == 0) then
           call calculate_diagnostic_variable(state(i), "NodeOwner", s_field)
        end if
+
+       ! s_field => extract_scalar_field(state(i), "VapourWaterQ", stat)
+       ! if(stat == 0) then
+       !    call calculate_diagnostic_variable_eos(state(i), s_field, "VapourWaterQ")
+       ! end if
+
+       ! s_field => extract_scalar_field(state(i), "Reflectivity", stat)
+       ! if(stat == 0) then
+       !    call calculate_diagnostic_variable_eos(state(i), s_field, "Reflectivity")
+       ! end if
+
+       ! s_field => extract_scalar_field(state(i), "Saturation", stat)
+       ! if(stat == 0) then
+       !    call calculate_diagnostic_variable_eos(state(i), s_field, "Saturation")
+       ! end if
 
        ! end of fields that can be called through the generic calculate_diagnostic_variable
        ! interface, i.e. - those that only require things available in f90modules
@@ -548,10 +571,10 @@ contains
 
        ! Start of sediment diagnostics.
        if (have_option("/material_phase[0]/sediment")) then
-          call calculate_sediment_sinking_velocity(state(i))
-          call calculate_sediment_active_layer_d50(state(i))
-          call calculate_sediment_active_layer_sigma(state(i))
-          call calculate_sediment_active_layer_volume_fractions(state(i))
+	  call calculate_sediment_sinking_velocity(state(i))
+	  call calculate_sediment_active_layer_d50(state(i))
+	  call calculate_sediment_active_layer_sigma(state(i))
+	  call calculate_sediment_active_layer_volume_fractions(state(i))
        end if
        ! End of sediment diagnostics.
 
@@ -583,17 +606,17 @@ contains
        
        s_field => extract_scalar_field(state(i), "CompressibleContinuityResidual", stat)
        if(stat == 0) then
-         ! Check that we are running a compressible multiphase simulation
-         if(option_count("/material_phase/vector_field::Velocity/prognostic") > 1 .and. option_count("/material_phase/equation_of_state/compressible") > 0) then 
-            diagnostic = have_option(trim(s_field%option_path)//"/diagnostic")
-            if(diagnostic .and. .not.(aliased(s_field))) then
-               if(recalculate(trim(s_field%option_path))) then
-                  call calculate_compressible_continuity_residual(state, s_field)
-               end if
-            end if
-         else
-            FLExit("The CompressibleContinuityResidual field is only used in compressible multiphase simulations.")
-         end if
+	 ! Check that we are running a compressible multiphase simulation
+	 if(option_count("/material_phase/vector_field::Velocity/prognostic") > 1 .and. option_count("/material_phase/equation_of_state/compressible") > 0) then 
+	    diagnostic = have_option(trim(s_field%option_path)//"/diagnostic")
+	    if(diagnostic .and. .not.(aliased(s_field))) then
+	       if(recalculate(trim(s_field%option_path))) then
+		  call calculate_compressible_continuity_residual(state, s_field)
+	       end if
+	    end if
+	 else
+	    FLExit("The CompressibleContinuityResidual field is only used in compressible multiphase simulations.")
+	 end if
        end if
 
        ! end of fields that cannot be called through the generic
@@ -629,6 +652,24 @@ contains
            call calculate_diagnostic_variable(state(i), "AbsoluteDifference", v_field)  
          end if
        end if
+
+       !Atmosphere related diagnostics
+       s_field => extract_scalar_field(state(i), "VapourWaterQ", stat)
+       if(stat == 0) then
+         if(recalculate(trim(s_field%option_path))) then
+           call calculate_diagnostic_variable(state(i), "VapourWaterQ", &
+             & s_field)
+         end if
+       end if
+       
+       s_field => extract_scalar_field(state(i), "Saturation", stat)
+       if(stat == 0) then
+         if(recalculate(trim(s_field%option_path))) then
+           call calculate_diagnostic_variable(state(i), "Saturation", &
+             & s_field)
+         end if
+       end if       
+       !End of atmosphere related diagnostics
 
     end do
     

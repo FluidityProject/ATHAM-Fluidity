@@ -7,7 +7,7 @@ module anisotropic_zz_module
 ! but not vice versa!
 
   use fields
-  use sparse_tools
+  use sparse_tools, only: csr_matrix, csr_sparsity
   use adjacency_lists
   use vector_tools
   use transform_elements

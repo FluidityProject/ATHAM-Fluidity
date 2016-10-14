@@ -7,6 +7,16 @@ Adjoint_Functionals.o ../include/adjoint_functionals.mod: \
    ../include/fields.mod ../include/fldebug.mod \
    ../include/global_parameters.mod ../include/python_state.mod \
    ../include/spud.mod ../include/state_module.mod
+   
+../include/advancing_front.mod: Advancing_front.o
+	@true
+
+Advancing_front.o ../include/advancing_front.mod: Advancing_front.F90 \
+   ../include/adjacency_lists.mod ../include/data_structures.mod \
+   ../include/fdebug.h ../include/fields.mod ../include/halos.mod \
+   ../include/halos_derivation.mod ../include/linked_lists.mod \
+   ../include/meshdiagnostics.mod ../include/quicksort.mod \
+   ../include/sparse_tools.mod ../include/spud.mod
 
 ../include/binary_operators.mod: Binary_Operators.o
 	@true
@@ -43,6 +53,19 @@ Differential_Operators.o ../include/differential_operator_diagnostics.mod: \
 
 ../include/field_copies_diagnostics.mod: Field_Copies.o
 	@true
+
+../include/column_module.mod: Column_tools.o
+	@true
+
+Column_tools.o ../include/column_module.mod: Column_tools.F90 ../include/elements.mod \
+   ../include/fdebug.h ../include/fields.mod ../include/global_parameters.mod \
+   ../include/fetools.mod ../include/node_ownership.mod \
+   ../include/linked_lists.mod ../include/quadrature.mod \
+   ../include/sparse_tools.mod ../include/spud.mod ../include/parallel_tools.mod \
+   ../include/vtk_interfaces.mod ../include/advancing_front.mod \
+   ../include/state_module.mod ../include/interpolation_module.mod \
+   ../include/vector_tools.mod ../include/pickers_inquire.mod \
+   ../include/populate_state_module.mod ../include/hadapt_combine_meshes.mod
 
 Field_Copies.o ../include/field_copies_diagnostics.mod: Field_Copies.F90 \
    ../include/diagnostic_source_fields.mod ../include/fdebug.h \
@@ -131,6 +154,28 @@ Simple_Diagnostics.o ../include/simple_diagnostics.mod: Simple_Diagnostics.F90 \
    ../include/global_parameters.mod ../include/initialise_fields_module.mod \
    ../include/spud.mod ../include/state_fields_module.mod \
    ../include/state_module.mod ../include/vtk_cache_module.mod
+
+../include/Diagnostic_Fields_EOS.mod: Diagnostic_Fields_EOS.o
+	@true
+
+Diagnostic_Fields_EOS.o ../include/Diagnostic_Fields_EOS.mod: Diagnostic_Fields_EOS.F90 \
+   ../include/spud.mod ../include/fdebug.h \
+   ../include/field_options.mod ../include/fields.mod \
+   ../include/global_parameters.mod ../include/fldebug.mod \
+   ../include/state_module.mod ../include/equation_of_state.mod \
+   ../include/microphysics.mod
+
+../include/Diagnostic_Fields_Surface.mod: Diagnostic_Fields_Surface.o
+	@true
+
+Diagnostic_Fields_Surface.o ../include/Diagnostic_Fields_Surface.mod: Diagnostic_Fields_Surface.F90 \
+   ../include/spud.mod ../include/fdebug.h \
+   ../include/field_options.mod ../include/fields.mod \
+   ../include/global_parameters.mod ../include/fldebug.mod \
+   ../include/state_module.mod ../include/equation_of_state.mod \
+   ../include/filter_diagnostics.mod ../include/boundary_conditions.mod \
+   ../include/vtk_interfaces.mod ../include/write_state_module.mod \
+   ../include/column_module.mod 
 
 ../include/surface_diagnostics.mod: Surface.o
 	@true

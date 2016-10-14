@@ -1,0 +1,113 @@
+SHELL = /bin/sh
+
+# Object list
+#
+MOD_OBJECTS=                         \
+	parkind.o                    \
+	parrrtm.o                    \
+	rrlw_cld.o                   \
+	rrlw_con.o                   \
+	rrlw_kg01.o                  \
+	rrlw_kg02.o                  \
+	rrlw_kg03.o                  \
+	rrlw_kg04.o                  \
+	rrlw_kg05.o                  \
+	rrlw_kg06.o                  \
+	rrlw_kg07.o                  \
+	rrlw_kg08.o                  \
+	rrlw_kg09.o                  \
+	rrlw_kg10.o                  \
+	rrlw_kg11.o                  \
+	rrlw_kg12.o                  \
+	rrlw_kg13.o                  \
+	rrlw_kg14.o                  \
+	rrlw_kg15.o                  \
+	rrlw_kg16.o                  \
+	rrlw_ncpar.o                 \
+	rrlw_ref.o                   \
+	rrlw_tbl.o                   \
+	rrlw_vsn.o                   \
+	rrlw_wvn.o
+
+# Dependencies
+#
+parkind.o:                           \
+	parkind.f90
+parrrtm.o:                           \
+	parkind.o                    \
+	parrrtm.f90
+rrlw_cld.o:                          \
+	parkind.o                    \
+	rrlw_cld.f90
+rrlw_con.o:                          \
+	parkind.o                    \
+	rrlw_con.f90
+rrlw_kg01.o:                         \
+	parkind.o                    \
+	rrlw_kg01.f90
+rrlw_kg02.o:                         \
+	parkind.o                    \
+	rrlw_kg02.f90
+rrlw_kg03.o:                         \
+	parkind.o                    \
+	rrlw_kg03.f90
+rrlw_kg04.o:                         \
+	parkind.o                    \
+	rrlw_kg04.f90
+rrlw_kg05.o:                         \
+	parkind.o                    \
+	rrlw_kg05.f90
+rrlw_kg06.o:                         \
+	parkind.o                    \
+	rrlw_kg06.f90
+rrlw_kg07.o:                         \
+	parkind.o                    \
+	rrlw_kg07.f90
+rrlw_kg08.o:                         \
+	parkind.o                    \
+	rrlw_kg08.f90
+rrlw_kg09.o:                         \
+	parkind.o                    \
+	rrlw_kg09.f90
+rrlw_kg10.o:                         \
+	parkind.o                    \
+	rrlw_kg10.f90
+rrlw_kg11.o:                         \
+	parkind.o                    \
+	rrlw_kg11.f90
+rrlw_kg12.o:                         \
+	parkind.o                    \
+	rrlw_kg12.f90
+rrlw_kg13.o:                         \
+	parkind.o                    \
+	rrlw_kg13.f90
+rrlw_kg14.o:                         \
+	parkind.o                    \
+	rrlw_kg14.f90
+rrlw_kg15.o:                         \
+	parkind.o                    \
+	rrlw_kg15.f90
+rrlw_kg16.o:                         \
+	parkind.o                    \
+	rrlw_kg16.f90
+rrlw_ncpar.o:                        \
+	parkind.o                    \
+	rrlw_ncpar.f90
+rrlw_ref.o:                          \
+	parkind.o                    \
+	rrlw_ref.f90
+rrlw_tbl.o:                          \
+	parkind.o                    \
+	rrlw_tbl.f90
+rrlw_vsn.o:                          \
+	rrlw_vsn.f90
+rrlw_wvn.o:                          \
+	parkind.o                    \
+	parrrtm.o                    \
+	rrlw_wvn.f90
+
+# Common commands
+#
+clean: 
+	$(RM) *.o *.mod *~
+### DO NOT remove this line - make depends on it ###

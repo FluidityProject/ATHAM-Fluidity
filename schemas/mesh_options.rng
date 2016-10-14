@@ -21,7 +21,7 @@ surface or region IDs.</a:documentation>
             <ref name="comment"/>
           </element>
           <element name="format">
-            <a:documentation>ExodusII mesh format.
+	    <a:documentation>ExodusII mesh format.
 
 &lt;b&gt;Note: Only works for serial mesh files and 
 Checkpoints are dumped in the GMSH file format.&lt;/b&gt;</a:documentation>
@@ -278,6 +278,18 @@ top will be at z=0
 bottom will be at z=-bottom_depth</a:documentation>
       <ref name="input_choice_real_plus_map"/>
     </element>
+    <choice>
+      <element name="direction">
+        <attribute name="name">
+          <value>top_to_bottom</value>
+        </attribute>
+      </element>
+      <element name="direction">
+        <attribute name="name">
+          <value>bottom_up</value>
+        </attribute>
+      </element>
+    </choice>
     <element name="sizing_function">
       <a:documentation>Constant or function to specify the depth of the
 layers. The function is a function of all coordinates

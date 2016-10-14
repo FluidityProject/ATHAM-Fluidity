@@ -1,0 +1,136 @@
+SHELL = /bin/sh
+
+# Object list
+#
+OBJECTS=                              \
+	rrtmg_lw_setcoef.o            \
+	rrtmg_lw_taumol.o             \
+	rrtmg_lw_cldprop.o            \
+	rrtmg_lw_read_nc.o            \
+	rrtmg_lw_rtrn.o               \
+	rrtmg_lw_rtrnmr.o             \
+	rrtmg_lw_init.o               \
+	rrtmg_lw_rad.o
+
+ALLOBJECTS= $(OBJECTS) $(MODDIR)/*.o 
+
+# Dependencies
+#
+
+rrtmg_lw_setcoef.o:                  \
+	../modules/parkind.o         \
+	../modules/parrrtm.o         \
+	../modules/rrlw_vsn.o        \
+	../modules/rrlw_wvn.o        \
+	../modules/rrlw_ref.o        \
+	rrtmg_lw_setcoef.f90
+rrtmg_lw_taumol.o:                   \
+	../modules/parkind.o         \
+	../modules/parrrtm.o         \
+	../modules/rrlw_con.o        \
+	../modules/rrlw_vsn.o        \
+	../modules/rrlw_wvn.o        \
+	../modules/rrlw_kg01.o       \
+	../modules/rrlw_kg02.o       \
+	../modules/rrlw_kg03.o       \
+	../modules/rrlw_kg04.o       \
+	../modules/rrlw_kg05.o       \
+	../modules/rrlw_kg06.o       \
+	../modules/rrlw_kg07.o       \
+	../modules/rrlw_kg08.o       \
+	../modules/rrlw_kg09.o       \
+	../modules/rrlw_kg10.o       \
+	../modules/rrlw_kg11.o       \
+	../modules/rrlw_kg12.o       \
+	../modules/rrlw_kg13.o       \
+	../modules/rrlw_kg14.o       \
+	../modules/rrlw_kg15.o       \
+	../modules/rrlw_kg16.o       \
+	rrtmg_lw_taumol.f90
+rrtmg_lw_cldprop.o:                  \
+	../modules/parkind.o         \
+	../modules/parrrtm.o         \
+	../modules/rrlw_cld.o        \
+	../modules/rrlw_vsn.o        \
+	rrtmg_lw_cldprop.f90
+rrtmg_lw_read_nc.o:                  \
+	../modules/rrlw_kg01.o       \
+	../modules/rrlw_kg02.o       \
+	../modules/rrlw_kg03.o       \
+	../modules/rrlw_kg04.o       \
+	../modules/rrlw_kg05.o       \
+	../modules/rrlw_kg06.o       \
+	../modules/rrlw_kg07.o       \
+	../modules/rrlw_kg08.o       \
+	../modules/rrlw_kg09.o       \
+	../modules/rrlw_kg10.o       \
+	../modules/rrlw_kg11.o       \
+	../modules/rrlw_kg12.o       \
+	../modules/rrlw_kg13.o       \
+	../modules/rrlw_kg14.o       \
+	../modules/rrlw_kg15.o       \
+	../modules/rrlw_kg16.o       \
+	../modules/rrlw_ncpar.o      \
+	rrtmg_lw_read_nc.f90
+rrtmg_lw_rtrn.o:                     \
+	../modules/parkind.o         \
+	../modules/parrrtm.o         \
+	../modules/rrlw_con.o        \
+	../modules/rrlw_wvn.o        \
+	../modules/rrlw_tbl.o        \
+	../modules/rrlw_vsn.o        \
+	rrtmg_lw_rtrn.f90
+rrtmg_lw_rtrnmr.o:                   \
+	../modules/parkind.o         \
+	../modules/parrrtm.o         \
+	../modules/rrlw_con.o        \
+	../modules/rrlw_wvn.o        \
+	../modules/rrlw_tbl.o        \
+	../modules/rrlw_vsn.o        \
+	rrtmg_lw_rtrnmr.f90
+rrtmg_lw_init.o :                    \
+	../modules/parkind.o         \
+	../modules/parrrtm.o         \
+	../modules/rrlw_wvn.o        \
+	../modules/rrlw_vsn.o        \
+	../modules/rrlw_con.o        \
+	../modules/rrlw_tbl.o        \
+	../modules/rrlw_ref.o        \
+	../modules/rrlw_cld.o        \
+	../modules/rrlw_kg01.o       \
+	../modules/rrlw_kg02.o       \
+	../modules/rrlw_kg03.o       \
+	../modules/rrlw_kg04.o       \
+	../modules/rrlw_kg05.o       \
+	../modules/rrlw_kg06.o       \
+	../modules/rrlw_kg07.o       \
+	../modules/rrlw_kg08.o       \
+	../modules/rrlw_kg09.o       \
+	../modules/rrlw_kg10.o       \
+	../modules/rrlw_kg11.o       \
+	../modules/rrlw_kg12.o       \
+	../modules/rrlw_kg13.o       \
+	../modules/rrlw_kg14.o       \
+	../modules/rrlw_kg15.o       \
+	../modules/rrlw_kg16.o       \
+	rrtmg_lw_setcoef.o           \
+	rrtmg_lw_init.f90
+rrtmg_lw_rad.o:                      \
+	../modules/parkind.o         \
+	../modules/parrrtm.o         \
+	../modules/rrlw_vsn.o        \
+	../modules/rrlw_wvn.o        \
+	../modules/rrlw_con.o        \
+	rrtmg_lw_rtrn.o              \
+	rrtmg_lw_rtrnmr.o            \
+	rrtmg_lw_setcoef.o           \
+	rrtmg_lw_cldprop.o           \
+	rrtmg_lw_taumol.f90 
+
+
+# Common commands
+#
+clean: 
+	$(RM) *.o *.mod *~
+	cd ../modules; $(RM) *.o *.mod *~
+### DO NOT remove this line - make depends on it ###

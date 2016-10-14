@@ -238,9 +238,9 @@ void Graph::WPartGraphVKway(int nparts, vector<float>& pweights, vector<int>& no
 
 #ifndef PARMETIS_V3
   METIS_WPartGraphVKway(&ncnt,  
-			bptr.begin(), edges.begin(), 
-			&nparts, pweights.begin(), options,
-			&edgecut, noddom.begin());
+ 		       bptr.begin(), edges.begin(), 
+ 		       &nparts, pweights.begin(), options,
+		       &edgecut, noddom.begin());
 #endif
 }
 

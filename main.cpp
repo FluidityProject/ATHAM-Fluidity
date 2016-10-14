@@ -26,6 +26,7 @@
     USA
 */
 
+#include "mpi.h"
 #include "Usage.h"
 #include "fmangle.h"
 //#ifdef HAVE_PYTHON

@@ -1176,18 +1176,18 @@ contains
 
       if(present_and_true(initialise_fields)) then
         ! Reinitialise the prognostic fields (where possible)
-        call initialise_prognostic_fields(states)
+        call initialise_prognostic_fields(states, allow_eos=.true.)
         ! Prescribed fields are recalculated
         ! NOTE: we don't have exclude_interpolated, as the only prescribed
         ! fields that are interpolated are from_file which will be skipped
         ! anyway because initial_mesh = .false., and the routine  doesn't know
         ! we're not interpolating other prescribed fields with interpolation
         ! options
-        call set_prescribed_field_values(states)
+        call set_prescribed_field_values(states, allow_eos=.true.)
       else
         ! Prescribed fields are recalculated (except those with interpolation
         ! options)
-        call set_prescribed_field_values(states, exclude_interpolated = .true.)
+        call set_prescribed_field_values(states, exclude_interpolated = .true., allow_eos=.true.)
       end if
 
       ! If strong bc or weak that overwrite then enforce the bc on the fields

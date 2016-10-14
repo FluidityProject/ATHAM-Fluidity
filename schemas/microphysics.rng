@@ -1,0 +1,629 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns:a="http://relaxng.org/ns/compatibility/annotations/1.0" xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <include href="prognostic_field_options.rng"/>
+  <include href="diagnostic_field_options.rng"/>
+  <include href="prescribed_field_options.rng"/>
+  <include href="mesh_options.rng"/>
+  <define name="cloud_microphysics">
+    <element name="cloud_microphysics">
+      <choice>
+        <element name="time_integration">
+          <a:documentation> </a:documentation>
+          <attribute name="name">
+            <value>Direct</value>
+          </attribute>
+        </element>
+        <element name="time_integration">
+          <a:documentation> </a:documentation>
+          <attribute name="name">
+            <value>Splitting</value>
+          </attribute>
+	  <optional>
+	    <element name="limit_after_advance">
+	      <empty/>
+	    </element>
+	  </optional>
+        </element>
+        <element name="time_integration">
+          <a:documentation> </a:documentation>
+          <attribute name="name">
+            <value>Strang</value>
+          </attribute>
+	  <optional>
+	    <element name="limit_after_advance">
+	      <empty/>
+	    </element>
+	  </optional>
+        </element>
+      </choice>
+      <optional>
+        <element name="relaxation">   
+          <a:documentation>Relaxation coefficient for calculation of microphysics sources.
+          Relaxation=1, use values from current non-linear iteration. Relaxation=0, use 
+          values from previous time level.</a:documentation>
+          <ref name="real"/>
+        </element>
+      </optional>
+      <choice>
+        <element name="saturation_adjustment">
+          <optional>
+            <element name="tolerance">
+              <a:documentation>Absolute tolerance (with respect to potential temperature, units K) for the saturation adjustment procedure (default is 1.e-5).</a:documentation>
+              <ref name="real"/>
+	    </element>
+          </optional>
+          <optional>
+            <element name="max_iterations">
+              <a:documentation>Number max of iterations for the saturation adjustment procedure (default is 20).</a:documentation>    
+              <ref name="integer"/>
+	    </element>
+          </optional> 
+        </element>
+	<element name="condensation_evaporation">
+          <a:documentation>Method of integration for condensation/evaporation.</a:documentation>
+          <attribute name="name">
+	    <value>Simple</value>
+	  </attribute>
+	</element>
+	<element name="condensation_evaporation">
+          <a:documentation>Method of integration for condensation evaporation.</a:documentation>
+          <attribute name="name">
+	    <value>Analytic</value>
+	  </attribute>
+	</element>	
+	<element name="condensation_evaporation">
+          <a:documentation>Method of integration for condensation evaporation.</a:documentation>
+          <attribute name="name">
+	    <value>Adaptive</value>
+	  </attribute>
+	  <element name="min_step_size">
+            <ref name="real"/>
+	  </element>
+	  <element name="tolerance">
+            <ref name="real"/>
+	  </element>
+	</element>	
+      </choice>
+      <optional>
+        <element name="no_negative_concentrations">   
+          <a:documentation>Apply hard limitation on microphysics variables: negative values of number and mass concentrations are not allowed and therefore set to 0 when they occur.</a:documentation>
+          <empty/>
+        </element>
+      </optional>
+      <choice>
+        <element name="fortran_microphysics">
+          <element name="scalar_field">
+            <a:documentation>Definition of microphysics source options</a:documentation>
+            <attribute name="name">
+              <value>MicrophysicsSource</value>
+            </attribute>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="velocity_mesh_choice"/>
+              <ref name="internal_algorithm"/>
+              <element name="solver">
+        	<a:documentation>Solver</a:documentation>
+        	<ref name="linear_solver_options_asym_scalar"/>
+              </element>
+              <ref name="diagnostic_scalar_field_no_adapt"/>
+            </element>
+          </element>
+          <element name="scalar_field">
+            <a:documentation>Definition of sinking velocities options</a:documentation>
+            <attribute name="name">
+              <value>SinkingVelocity</value>
+            </attribute>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <element name="diagnostic">
+              <ref name="velocity_mesh_choice"/>
+              <ref name="internal_algorithm"/>
+              <element name="solver">
+        	<a:documentation>Solver</a:documentation>
+        	<ref name="linear_solver_options_asym_scalar"/>
+              </element>
+      	      <ref name="diagnostic_scalar_field_no_adapt"/>
+            </element>
+          </element>
+      	  <optional>
+            <element name="no_sources">   
+              <a:documentation>Switches off the calculation of microphysics sources.</a:documentation>
+              <empty/>
+      	    </element>
+          </optional>
+          <choice>
+            <element name="two_moment_microphysics">
+              <attribute name="name">
+        	<value>seifert_beheng</value>
+              </attribute>
+              <a:documentation>Two moment cloud microphysics schemes from Seifert and Beheng (2006).</a:documentation>
+              <ref name="two_moment_microphysics_warm"/>
+      	      <optional>
+      	  	<element name="cold_microphysics">
+        	  <ref name="two_moment_microphysics_cold"/>
+      	  	</element>
+      	      </optional>
+      	      <ref name="two_moment_microphysics_options"/>
+      	    </element>
+            <element name="two_moment_microphysics">
+              <attribute name="name">
+        	<value>morrison</value>
+              </attribute>
+      	      <a:documentation>Two moment microphysics from Morrison et al. (2008).</a:documentation>
+              <ref name="two_moment_microphysics_warm"/>
+      	      <optional>
+      	  	<element name="cold_microphysics">
+        	  <ref name="two_moment_microphysics_cold"/>
+      	  	</element>
+      	      </optional>
+      	      <ref name="two_moment_microphysics_options"/>
+            </element>
+            <element name="one_moment_microphysics">
+              <attribute name="name">
+        	<value>kessler</value>
+              </attribute>
+              <a:documentation>One moment microphysics from Kessler (1969).</a:documentation> 
+      	      <ref name="one_moment_microphysics_warm"/>
+      	      <optional>
+      	  	<element name="cold_microphysics">
+        	  <ref name="one_moment_microphysics_cold"/>
+      	  	</element>
+      	      </optional>
+              <ref name="one_moment_microphysics_options"/>	      
+      	    </element>
+          </choice>
+        </element>
+        <element name="diagnostic">
+          <element name="scalar_field">
+            <a:documentation>Qdrop</a:documentation>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <attribute name="name">
+              <value>Qdrop</value>
+            </attribute>
+            <a:documentation>Field type</a:documentation>
+            <choice>
+	    <element name="prognostic">
+              <ref name="pressure_mesh_choice"/>
+              <ref name="prognostic_scalar_field"/>
+            </element>
+            <element name="diagnostic">
+              <ref name="internal_algorithm"/>
+              <ref name="pressure_mesh_choice"/>
+              <ref name="diagnostic_scalar_field"/>
+            </element>
+            <element name="prescribed">
+              <ref name="pressure_mesh_choice"/>
+              <ref name="prescribed_scalar_field"/>
+            </element>
+	    </choice>
+          </element>
+          <element name="scalar_field">
+            <a:documentation>Qrain</a:documentation>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <attribute name="name">
+              <value>Qrain</value>
+            </attribute>
+            <a:documentation>Field type</a:documentation>
+	    <choice>
+            <element name="prognostic">
+              <ref name="pressure_mesh_choice"/>
+              <ref name="prognostic_scalar_field"/>
+            </element>
+            <element name="diagnostic">
+              <ref name="internal_algorithm"/>
+              <ref name="pressure_mesh_choice"/>
+              <ref name="diagnostic_scalar_field"/>
+            </element>
+            <element name="prescribed">
+              <ref name="pressure_mesh_choice"/>
+              <ref name="prescribed_scalar_field"/>
+            </element>
+	    </choice>
+          </element>
+        </element>
+      </choice>
+    </element>
+  </define>  
+  <define name="two_moment_microphysics_warm">
+      <a:documentation>Prognostic variables for warm phase two-moment cloud microphysics schemes.</a:documentation>
+      <element name="scalar_field">
+        <a:documentation>CCN</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>CCN</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+	<choice>
+          <element name="prognostic">
+            <ref name="pressure_mesh_choice"/>
+            <ref name="prognostic_scalar_field"/>
+          </element>
+          <element name="prescribed">
+            <ref name="pressure_mesh_choice"/>
+            <ref name="prescribed_scalar_field"/>
+          </element>
+        </choice>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Ndrop</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Ndrop</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+	<choice>
+          <element name="prognostic">
+            <ref name="pressure_mesh_choice"/>
+            <ref name="prognostic_scalar_field"/>
+          </element>
+          <element name="prescribed">
+            <ref name="pressure_mesh_choice"/>
+            <ref name="prescribed_scalar_field"/>
+          </element>
+        </choice>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qdrop</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qdrop</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Nrain</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Nrain</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+	<choice>
+          <element name="prognostic">
+            <ref name="pressure_mesh_choice"/>
+            <ref name="prognostic_scalar_field"/>
+          </element>
+          <element name="prescribed">
+            <ref name="pressure_mesh_choice"/>
+            <ref name="prescribed_scalar_field"/>
+          </element>
+        </choice>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qrain</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qrain</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+  </define>
+  <define name="one_moment_microphysics_warm">
+      <a:documentation>Prognostic variables for warm phase one-moment cloud microphysics schemes.</a:documentation>
+      <element name="scalar_field">
+        <a:documentation>Ndrop</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Ndrop</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prescribed">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prescribed_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qdrop</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qdrop</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Nrain</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Nrain</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="diagnostic">
+          <ref name="internal_algorithm"/>
+          <ref name="pressure_mesh_choice"/>
+          <ref name="diagnostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qrain</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qrain</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+  </define>
+  <define name="no_microphysics_warm">
+      <a:documentation>Only cloud droplets with prognostic mass is included.</a:documentation>
+      <element name="scalar_field">
+        <a:documentation>Ndrop</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Ndrop</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prescribed">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prescribed_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qdrop</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qdrop</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+  </define>
+  <define name="two_moment_microphysics_cold">
+      <a:documentation>Prognostic variables for cold (ice phase) two-moment cloud microphysics schemes.</a:documentation>
+      <element name="scalar_field">
+        <a:documentation>Nice</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Nice</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qice</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qice</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Ngrau</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Ngrau</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qgrau</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qgrau</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Nsnow</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Nsnow</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qsnow</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qsnow</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+  </define>
+  <define name="one_moment_microphysics_cold">
+      <a:documentation>Prognostic variables for cold (ice phase) phase one-moment cloud microphysics schemes.</a:documentation>
+      <element name="scalar_field">
+        <a:documentation>Nice</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Nice</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="diagnostic">
+          <ref name="internal_algorithm"/>
+          <ref name="pressure_mesh_choice"/>
+          <ref name="diagnostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qice</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qice</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Ngrau</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Ngrau</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="diagnostic">
+          <ref name="internal_algorithm"/>
+          <ref name="pressure_mesh_choice"/>
+          <ref name="diagnostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qgrau</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qgrau</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Nsnow</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Nsnow</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="diagnostic">
+          <ref name="internal_algorithm"/>
+          <ref name="pressure_mesh_choice"/>
+          <ref name="diagnostic_scalar_field"/>
+        </element>
+      </element>
+      <element name="scalar_field">
+        <a:documentation>Qsnow</a:documentation>
+        <attribute name="rank">
+          <value>0</value>
+        </attribute>
+        <attribute name="name">
+          <value>Qsnow</value>
+        </attribute>
+        <a:documentation>Field type</a:documentation>
+        <element name="prognostic">
+          <ref name="pressure_mesh_choice"/>
+          <ref name="prognostic_scalar_field"/>
+        </element>
+      </element>
+  </define>
+  <define name="two_moment_microphysics_options">
+    <element name="autoconversion_radius">
+      <a:documentation>Size above which cloud droplets are considered as drizzling drops.</a:documentation>
+      <ref name="real"/>
+    </element>
+    <choice>
+      <element name="simple_activation">
+    	<a:documentation>Simple activation: wherever environmental air is 
+	    supersaturated, the number of droplets is set to the background number
+	    of CCN.</a:documentation>
+    	<empty/>
+      </element>
+      <element name="detailed_activation">
+    	<a:documentation>Detailed activation: activation is computed assuming a
+	    log-normal aerosol size distribution (mono-modal bulk aerosol).</a:documentation>
+    	<element name="CCN_mean_radius">
+    	  <a:documentation>Mean size of CCN particles</a:documentation>
+    	  <ref name="real"/>
+    	</element>
+    	<element name="CCN_dev_radius">
+    	  <a:documentation>Radius standard deviation of CCN particles</a:documentation>
+    	  <ref name="real"/>
+    	</element>
+    	<element name="CCN_kappa">
+    	  <a:documentation>Kappa value for CCN particles</a:documentation>
+    	  <ref name="real"/>
+    	</element>
+      </element>
+    </choice>
+  </define>
+  <define name="one_moment_microphysics_options">
+      <element name="mass_threshold">
+        <a:documentation>Mass threshold to trigger autoconversion (recommended: 0.001 g/kg).</a:documentation>
+        <ref name="real"/>
+      </element>
+  </define>
+</grammar>

@@ -559,7 +559,7 @@ contains
 
              position => get_external_coordinate_field(states(istate), vfield%mesh)
 
-             call initialise_field_over_regions(vfield, &
+             call initialise_field_over_regions(states(istate), vfield, &
                 trim(vfield%option_path)// "/prognostic/prescribed_region", &
                 position,time=time)
 

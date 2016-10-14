@@ -343,7 +343,7 @@ contains
       FLAbort("Cannot create global to universal numbering without MPI support")
     end if
 #endif
-    
+
   end subroutine create_global_to_universal_numbering_order_trailing_receives
 
   function valid_global_to_universal_numbering(halo) result(valid)

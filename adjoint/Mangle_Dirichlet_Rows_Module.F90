@@ -30,8 +30,8 @@ module mangle_dirichlet_rows_module
   use sparse_matrices_fields
   use fields
   use field_options
-  use boundary_conditions_from_options
   use boundary_conditions
+  use boundary_conditions_from_options
   implicit none
 
   interface mangle_dirichlet_rows

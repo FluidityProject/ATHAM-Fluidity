@@ -47,7 +47,7 @@ use parallel_tools
 implicit none
 
   private
-
+  
   public :: allocate, deallocate, incref, decref, has_references, add_faces, &
     & deallocate_faces, zero
   public :: make_element_shape, make_mesh, make_mesh_periodic, make_submesh, &
@@ -216,7 +216,7 @@ contains
 
   subroutine allocate_scalar_field(field, mesh, name, field_type, py_func, py_positions)
     type(scalar_field), intent(out) :: field
-    type(mesh_type), intent(in), target :: mesh
+    type(mesh_type), intent(inout), target :: mesh
     character(len=*), intent(in),optional :: name
     integer, intent(in), optional :: field_type
 
@@ -1097,7 +1097,8 @@ contains
   end function make_mesh
 
   subroutine add_faces(mesh, model, sndgln, sngi, boundary_ids, &
-    periodic_face_map, element_owner, incomplete_surface_mesh, stat)
+    periodic_face_map, element_owner, incomplete_surface_mesh, &
+    allow_duplicate_internal_facets, stat)
     !!< Subroutine to add a faces component to mesh. Since mesh may be 
     !!< discontinuous, a continuous model mesh must
     !!< be provided. To avoid duplicate computations, and ensure 
@@ -1141,10 +1142,20 @@ contains
     !! is provided, internal facets in sndgln are assumed to only appear once
     !! and a copy will be made, its boundary id will be copied as well. This 
     !! means afterwards the surface_element_count() will be higher than the 
-    !! number of facets provided in sndgln.
+    !! number of facets provided in sndgln. The original number of (unique)
+    !! facets is returned by unique_surface_element_count() and the copies
+    !! are numbered between unique_surface_element_count() and surface_element_count()
+    !! If element_owner is present, both copies of the interior facets should be
+    !! present in sndgln (each with a different adjacent element owner)
     integer, dimension(:), intent(in), optional :: element_owner
     !! See comments above sndgln
     logical, intent(in), optional :: incomplete_surface_mesh
+    !! if provided and true duplicate entries in sndgln are allowed for interior facets
+    !! but only if their boundary ids match. The duplicate entries will be stripped out
+    !! meaning that the facet numbering will no longer match that provided in sndgln
+    !! As always interior facets will occur twice, with one copy numbered <=unique_surface_element_count()
+    !! and one copy numbered <=surface_element_count()
+    logical, intent(in), optional :: allow_duplicate_internal_facets
     integer, intent(out), optional :: stat
 
     type(integer_hash_table):: lperiodic_face_map
@@ -1173,6 +1184,11 @@ contains
       end if
     end if
 
+    if (present(element_owner) .and. present_and_true(allow_duplicate_internal_facets)) then
+      ! if element_owner is provided, each internal facet should occur exactly twice (possibly with differen boundary id)
+      FLAbort("You may not provide both element_owner and allow_duplicate_internal_facets in add_faces")
+    end if
+
     allocate(mesh%faces)
     
     ! only created in the first call to get_dg_surface_mesh()
@@ -1188,7 +1204,9 @@ contains
        !       (i.e. there are 2 opposite faces between two elements)
        ! and mesh%faces%face_element_list  storing the element adjacent to
        !     each face
-       call add_faces_face_list(mesh, sndgln, &
+       call add_faces_face_list(mesh, &
+	 allow_duplicate_internal_facets=present_and_true(allow_duplicate_internal_facets), &
+	 sndgln=sndgln, &
          boundary_ids=boundary_ids, &
          element_owner=element_owner, &
          incomplete_surface_mesh=incomplete_surface_mesh)
@@ -1358,6 +1376,7 @@ contains
 
        end do faceloop
     end do eleloop
+    ewrite(2,*) "after loops"
     
     if (present(periodic_face_map)) then  
       call fix_periodic_face_orientation(model, mesh, periodic_face_map)
@@ -1369,6 +1388,7 @@ contains
       end if
     end if
       
+    ewrite(2,*) "before surface mesh"
     if(mesh%shape%numbering%type/=ELEMENT_TRACE) then
        ! this is a surface mesh consisting of all exterior faces
        !    which is often used and therefore created in advance
@@ -1385,12 +1405,17 @@ contains
 
   end subroutine add_faces
 
-  subroutine add_faces_face_list(mesh, sndgln, boundary_ids, &
+  subroutine add_faces_face_list(mesh, allow_duplicate_internal_facets, &
+    sndgln, boundary_ids, &
     element_owner, incomplete_surface_mesh)
     !!< Subroutine to calculate the face_list and face_element_list of the 
     !!< faces component of a 'model mesh'. This should be the linear continuous 
     !!< mesh that may serve as a 'model' for other meshes.
     type(mesh_type), intent(inout) :: mesh
+    !! if true duplicate entries in sndgln are allowed for interior facets
+    !! but only if their boundary ids match
+    !! the duplicate entries will be stripped out
+    logical, intent(in) :: allow_duplicate_internal_facets
     !! surface mesh (ndglno using the same node numbering as in 'mesh')
     !! if present the N elements in this mesh will correspond to the first
     !! N faces of the new faces component.
@@ -1399,10 +1424,10 @@ contains
     integer, dimension(:), intent(in), optional :: element_owner
     logical, intent(in), optional :: incomplete_surface_mesh
 
-    type(integer_hash_table):: internal_facet_map
+    type(integer_hash_table):: internal_facet_map, duplicate_facets
     type(element_type), pointer :: mesh_shape
     type(element_type) :: face_shape
-    logical:: surface_elements_added
+    logical:: surface_elements_added, registered_already
     ! listen very carefully, I shall say this only once:
     logical, save :: warning_given=.false. 
     integer, dimension(:), pointer :: faces, neigh, snodes
@@ -1435,6 +1460,7 @@ contains
     mesh%faces%has_discontinuous_internal_boundaries = present(element_owner)
 
     call allocate(internal_facet_map)
+    call allocate(duplicate_facets)
     
     snloc=face_vertices(mesh_shape)
     if (present(sndgln)) then
@@ -1454,61 +1480,73 @@ contains
           ! we have found the adjacent element
           ele=common_elements(1)
           if (present(element_owner)) then
-            if (element_owner(sele)/=ele) then
-              ewrite(0,*) "Surface element: ", sele
-              ewrite(0,*) "Provided element owner: ", element_owner(sele)
-              ewrite(0,*) "Found adjacent element: ", ele
-              FLExit("Provided element ownership information is incorrect")
-            end if
+	    if (element_owner(sele)/=ele) then
+	      ewrite(0,*) "Surface element: ", sele
+	      ewrite(0,*) "Provided element owner: ", element_owner(sele)
+	      ewrite(0,*) "Found adjacent element: ", ele
+	      FLExit("Provided element ownership information is incorrect")
+	    end if
           end if
           call register_external_surface_element(mesh, sele, ele, snodes)
         else if (no_found==2 .and. present(element_owner)) then
-          ! internal facet with element ownership infomation provided
-          ! so we assume both of the coinciding internal facets are
-          ! present in the provided surface mesh and register only
-          ! one of them here
-          ele = element_owner(sele)
-          if (ele==common_elements(1)) then
-            neighbour_ele = common_elements(2)
-          else if (ele==common_elements(2)) then
-            neighbour_ele = common_elements(1)
-          else
-            ewrite(0,*) "Surface element: ", sele
-            ewrite(0,*) "Provided element owner: ", ele
-            ewrite(0,*) "Found adjacent elements: ", common_elements
-            FLExit("Provided element owner ship information is incorrect")
+	  ! internal facet with element ownership infomation provided
+	  ! so we assume both of the coinciding internal facets are
+	  ! present in the provided surface mesh and register only
+	  ! one of them here
+	  ele = element_owner(sele)
+	  if (ele==common_elements(1)) then
+	    neighbour_ele = common_elements(2)
+	  else if (ele==common_elements(2)) then
+	    neighbour_ele = common_elements(1)
+	  else
+	    ewrite(0,*) "Surface element: ", sele
+	    ewrite(0,*) "Provided element owner: ", ele
+	    ewrite(0,*) "Found adjacent elements: ", common_elements
+	    FLExit("Provided element owner ship information is incorrect")
+	  end if
+	  call register_internal_surface_element(mesh, sele, ele, neighbour_ele, snodes)
+	else if (no_found==2) then
+	  ! internal facet but not element ownership information:
+	  ! we assume this facet only occurs once and we register both
+	  ! copies at once
+
+	  ! first one using the current surface element number:
+	  if (allow_duplicate_internal_facets) then
+	    ! don't error for duplicate facets
+	    call register_internal_surface_element(mesh, sele, common_elements(1), common_elements(2), &
+	      snodes, duplicate_facets=duplicate_facets)
+	    registered_already = has_key(duplicate_facets, sele)
+	  else
+	    ! do error for duplicate facets
+	    call register_internal_surface_element(mesh, sele, common_elements(1), common_elements(2), &
+	      snodes)
+	    registered_already = .false.
+	  end if
+
+	  if (.not. registered_already) then
+	    ! for the second one we create a new facet number at the end of the provided number surface
+	    ! elements:
+	    bdry_count = bdry_count+1
+	    ! note that we don't allow duplicate ones here, since we should have picked this up
+	    ! in the first call - so if only one side is registered already something is definitely wrong
+	    call register_internal_surface_element(mesh, bdry_count, common_elements(2), common_elements(1), snodes)
+	    ! store this pair so we can later copy the boundary id of the first (sele) to the second one (bdry_count)
           end if
-          call register_internal_surface_element(mesh, sele, ele, neighbour_ele)
-        else if (no_found==2) then
-          ! internal facet but not element ownership information:
-          ! we assume this facet only occurs once and we register both
-          ! copies at once
-
-          ! first one using the current surface element number:
-          call register_internal_surface_element(mesh, sele, common_elements(1), common_elements(2))
-
-          ! for the second one we create a new facet number at the end of the provided number surface
-          ! elements:
-          bdry_count = bdry_count+1
-          call register_internal_surface_element(mesh, bdry_count, common_elements(2), common_elements(1))
-          ! store this pair so we can later copy the boundary id of the first (sele) to the second one (bdry_count)
-          call insert(internal_facet_map, sele, bdry_count)
-
-        else if (no_found==0) then
-          ewrite(0,*) "Current surface element: ", sele
-          ewrite(0,*) "With nodes: ", snodes
-          FLExit("Surface element does not exist in the mesh")
+	  
+	else if (no_found==0) then
+	  ewrite(0,*) "Current surface element: ", sele
+	  ewrite(0,*) "With nodes: ", snodes
+	  FLExit("Surface element does not exist in the mesh")
         else
-          ! no_found>2 apparently
-          ! this might happen when calling add_faces on meshes with non-trivial toplogy such
-          ! as calling add_faces on the surface_mesh - we can't really deal with that
-          ewrite(0,*) "Current surface element: ", sele
-          ewrite(0,*) "With nodes: ", snodes
-          FLExit("Surface element (facet) adjacent to more than two elements!")
+	  ! no_found>2 apparently
+	  ! this might happen when calling add_faces on meshes with non-trivial toplogy such
+	  ! as calling add_faces on the surface_mesh - we can't really deal with that
+	  ewrite(0,*) "Current surface element: ", sele
+	  ewrite(0,*) "With nodes: ", snodes
+	  FLExit("Surface element (facet) adjacent to more than two elements!")
         end if
         
       end do
-        
       
     else
     
@@ -1544,9 +1582,9 @@ contains
       end do
 
       if (surface_elements_added .and. key_count(internal_facet_map)>0) then
-        ewrite(0,*) "It appears this mesh has internal boundaries."
-        ewrite(0,*) "In this case all external boundaries need to be marked with a surface id."
-        FLExit("Incomplete surface mesh")
+	ewrite(0,*) "It appears this mesh has internal boundaries."
+	ewrite(0,*) "In this case all external boundaries need to be marked with a surface id."
+	FLExit("Incomplete surface mesh")
       else if (surface_elements_added .and. .not. warning_given) then
         ewrite(0,*) "WARNING: an incomplete surface mesh has been provided."
         ewrite(0,*) "This will not work in parallel."
@@ -1555,7 +1593,7 @@ contains
       end if
 
       if (surface_elements_added) then
-        stotel = bdry_count
+	stotel = bdry_count
       end if
 
     end if
@@ -1583,9 +1621,15 @@ contains
       mesh%faces%boundary_ids(1:size(boundary_ids))=boundary_ids
 
       do j=1, key_count(internal_facet_map)
-        call fetch_pair(internal_facet_map, j, sele, sele2)
-        mesh%faces%boundary_ids(sele2) = boundary_ids(sele)
+	call fetch_pair(internal_facet_map, j, sele, sele2)
+	mesh%faces%boundary_ids(sele2) = boundary_ids(sele)
       end do
+    end if
+
+    if (key_count(duplicate_facets)>0) then
+      call remove_duplicate_facets(mesh, duplicate_facets, sndgln)
+      ! update bdry_count
+      bdry_count = size(mesh%faces%boundary_ids)
     end if
 
     ! register the rest of the boundaries (the interior ones):
@@ -1616,19 +1660,21 @@ contains
     assert(bdry_count==size(mesh%faces%face_list%sparsity%colm))
     assert(.not.any(mesh%faces%face_list%sparsity%colm==0))
     assert(.not.any(mesh%faces%face_list%ival==0))
-
+ 
     call deallocate(internal_facet_map)
+    call deallocate(duplicate_facets)
     
   end subroutine add_faces_face_list
 
-  subroutine register_internal_surface_element(mesh, sele, ele, neighbour_ele)
+  subroutine register_internal_surface_element(mesh, sele, ele, neighbour_ele, snodes, duplicate_facets)
     type(mesh_type), intent(inout):: mesh
     integer, intent(in):: sele, ele, neighbour_ele
+    integer, dimension(:), intent(in):: snodes ! only used to give a more helpful error message
+    ! if provided do not error for facets that have already been registered, but store the map between the two
+    type(integer_hash_table), intent(inout), optional:: duplicate_facets
 
     integer, dimension(:), pointer:: neigh, faces
     integer:: j
-
-    mesh%faces%face_element_list(sele)=ele
 
     ! neigh should contain correct neighbours already for internal facets:
     neigh=>row_m_ptr(mesh%faces%face_list, ele)
@@ -1645,7 +1691,23 @@ contains
       FLAbort("Something wrong with the mesh, sndgln, or mesh%nelist")
     end if
 
-    ! register the surface element in face_list
+    if (faces(j)/=0) then
+      if (present(duplicate_facets)) then
+	call insert(duplicate_facets, sele, faces(j))
+	return
+      else
+	! if you hit this at the start of your simulation you have
+	! marked the same part of the boundary more than once in gmsh
+	! if this occurs later on in the run (e.g. during an adapt)
+	! there may be a bug / unimplemented feature related to internal boundary facets
+	ewrite(0,*) 'Surface element:', faces(j),' and ',sele
+	ewrite(0,*) 'Both define the surface element:', snodes
+	FLExit("Provided surface mesh has duplicate surface elements")
+      end if
+    end if
+
+    ! register the surface element in surface_element_list and face_list
+    mesh%faces%face_element_list(sele)=ele
     faces(j)=sele
 
   end subroutine register_internal_surface_element
@@ -1658,7 +1720,7 @@ contains
     integer, dimension(:), pointer:: neigh, faces, nodes
     integer:: j, nloc
 
-    nloc = ele_loc(mesh, ele)
+    nloc = ele_loc(mesh, ele)  
     
     mesh%faces%face_element_list(sele)=ele
 
@@ -1673,7 +1735,7 @@ contains
     do j=1, mesh%shape%numbering%boundaries
       ! also check negative entries to check for duplicate registrations
       if (neigh(j)<=0) then
-        if (SetContains(snodes, nodes(boundary_numbering(mesh%shape%numbering, j)))) exit
+	if (SetContains(snodes, nodes(boundary_numbering(mesh%shape%numbering, j)))) exit
       end if
     end do
 
@@ -1696,6 +1758,74 @@ contains
 
   end subroutine register_external_surface_element
 
+  subroutine remove_duplicate_facets(mesh, duplicate_facets, sndgln)
+    type(mesh_type), intent(inout) :: mesh
+    type(integer_hash_table), intent(in) :: duplicate_facets
+    integer, dimension(:), intent(in) :: sndgln
+
+    integer, dimension(:), pointer :: old_boundary_ids, faces
+    integer, dimension(:), allocatable :: old_to_new_facet_number
+    integer :: snloc, i, j, facets_to_keep, new_surface_element_count
+
+    old_boundary_ids => mesh%faces%boundary_ids
+    new_surface_element_count = size(old_boundary_ids)-key_count(duplicate_facets)
+    mesh%faces%unique_surface_element_count = mesh%faces%unique_surface_element_count-key_count(duplicate_facets)
+    allocate(old_to_new_facet_number(size(old_boundary_ids)))
+    allocate(mesh%faces%boundary_ids(new_surface_element_count))
+
+    ! number the facets to keep, and check that the duplicate actually have consistent surface ids
+    facets_to_keep = 0
+    do i=1, size(old_boundary_ids)
+      if (has_key(duplicate_facets, i)) then
+	! check that the boundary ids match
+	if (old_boundary_ids(i)/=old_boundary_ids(fetch(duplicate_facets,i))) then
+	  ewrite(0,*) 'Surface element:', i,' and ', fetch(duplicate_facets, i)
+	  ewrite(0,*) 'Both define the surface element:', sndgln((i-1)*snloc+1:i*snloc)
+	  ewrite(0,*) 'but define different surface ids:', old_boundary_ids(i), old_boundary_ids(fetch(duplicate_facets, i))
+	  ! if we hit this here, it's probably a bug as we've explicitly told add_faces() that we expect duplicate
+	  ! interior facets but with boundary ids that agreee.
+	  FLAbort("Provided surface mesh has duplicate surface elements")
+	end if
+      else
+	facets_to_keep = facets_to_keep+1
+	mesh%faces%boundary_ids(facets_to_keep) = old_boundary_ids(i)
+	! note that we don't need to reallocate this one: we're merely shifting it forward
+	mesh%faces%face_element_list(facets_to_keep) = mesh%faces%face_element_list(i)
+	old_to_new_facet_number(i) = facets_to_keep
+      end if
+    end do
+
+    if (facets_to_keep/=new_surface_element_count) then
+      FLAbort("Something wrong in mesh faces administration.")
+    end if
+
+    ! now we can safely deallocate the old boundary ids and fix the mem stats
+    deallocate(old_boundary_ids)
+#ifdef HAVE_MEMORY_STATS
+    call register_deallocation("mesh_type", "integer", size(old_boundary_ids), &
+	 trim(mesh%name)//" boundary_ids")
+    call register_allocation("mesh_type", "integer", new_surface_element_count, &
+	 trim(mesh%name)//" boundary_ids")
+#endif
+
+    ! now renumber the facet numbers we've already stored in face_list
+    do i=1, size(mesh%faces%face_list,1)
+      faces=>row_ival_ptr(mesh%faces%face_list, i)
+      do j=1, size(faces)
+	if (faces(j)/=0) then
+	  faces(j) = old_to_new_facet_number(faces(j))
+	end if
+      end do
+    end do
+
+    deallocate(old_to_new_facet_number)
+
+    ewrite(2,*) "After removing duplicate interior facets:"
+    ewrite(2,*) "Number of surface elements: ", size(mesh%faces%boundary_ids)
+    ewrite(2,*) "Number of unique surface elements: ", mesh%faces%unique_surface_element_count
+
+  end subroutine remove_duplicate_facets
+    
   subroutine add_faces_face_list_periodic_from_non_periodic_model( &
      mesh, model, periodic_face_map)
      ! computes the face_list of a periodic mesh by copying it from
@@ -2499,7 +2629,7 @@ contains
   subroutine add_lists_mesh(mesh, nnlist, nelist, eelist)
     !!< Add requested adjacency lists to the adjacency cache for the supplied mesh
     
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     logical, optional, intent(in) :: nnlist, nelist, eelist
         
     type(csr_sparsity), pointer :: lnnlist, lnelist, leelist
@@ -2543,6 +2673,9 @@ contains
       if(ladd_nnlist) then
         call add_nnlist(mesh)
       end if
+      if(ladd_nelist) then
+        call add_nelist(mesh)
+      end if
       call add_eelist(mesh)  ! The eelist generates the nelist. If we need all
                              ! three then we enter the branch above.
     else if(ladd_nnlist) then
@@ -2558,7 +2691,7 @@ contains
   subroutine add_lists_scalar(field, nnlist, nelist, eelist)
     !!< Add requested adjacency lists to the adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     logical, optional, intent(in) :: nnlist, nelist, eelist
     
     call add_lists(field%mesh, nnlist = nnlist, nelist = nelist, eelist = eelist)
@@ -2568,7 +2701,7 @@ contains
   subroutine add_lists_vector(field, nnlist, nelist, eelist)
     !!< Add requested adjacency lists to the adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     logical, optional, intent(in) :: nnlist, nelist, eelist
     
     call add_lists(field%mesh, nnlist = nnlist, nelist = nelist, eelist = eelist)
@@ -2578,7 +2711,7 @@ contains
   subroutine add_lists_tensor(field, nnlist, nelist, eelist)
     !!< Add requested adjacency lists to the adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     logical, optional, intent(in) :: nnlist, nelist, eelist
     
     call add_lists(field%mesh, nnlist = nnlist, nelist = nelist, eelist = eelist)
@@ -2589,12 +2722,16 @@ contains
     !!< Extract adjacancy lists (generating if necessary) from the
     !!< adjacency cache for the supplied mesh
     
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     type(csr_sparsity), optional, intent(out) :: nnlist
     type(csr_sparsity), optional, intent(out) :: nelist
     type(csr_sparsity), optional, intent(out) :: eelist
     
+    if(present(nnlist))  print*, 'present nnlist'
+    if(present(nelist))  print*, 'present nelist'
+    if(present(eelist))  print*, 'present eelist'
     call add_lists(mesh, nnlist = present(nnlist), nelist = present(nelist), eelist = present(eelist))
+
     assert(associated(mesh%adj_lists))
     if(present(nnlist)) then
       assert(associated(mesh%adj_lists%nnlist))
@@ -2618,7 +2755,7 @@ contains
     !!< Extract adjacancy lists (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     type(csr_sparsity), optional, intent(out) :: nnlist
     type(csr_sparsity), optional, intent(out) :: nelist
     type(csr_sparsity), optional, intent(out) :: eelist
@@ -2631,7 +2768,7 @@ contains
     !!< Extract adjacancy lists (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     type(csr_sparsity), optional, intent(out) :: nnlist
     type(csr_sparsity), optional, intent(out) :: nelist
     type(csr_sparsity), optional, intent(out) :: eelist
@@ -2644,7 +2781,7 @@ contains
     !!< Extract adjacancy lists (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     type(csr_sparsity), optional, intent(out) :: nnlist
     type(csr_sparsity), optional, intent(out) :: nelist
     type(csr_sparsity), optional, intent(out) :: eelist
@@ -2656,7 +2793,7 @@ contains
   subroutine add_nnlist_mesh(mesh)
     !!< Add the node-node list to the adjacency cache for the supplied mesh
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     
     type(csr_sparsity), pointer :: nnlist
     
@@ -2677,7 +2814,7 @@ contains
   subroutine add_nnlist_scalar(field)
     !!< Add the node-node list to the adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     
     call add_nnlist(field%mesh)
   
@@ -2686,7 +2823,7 @@ contains
   subroutine add_nnlist_vector(field)
     !!< Add the node-node list to the adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     
     call add_nnlist(field%mesh)
   
@@ -2695,7 +2832,7 @@ contains
   subroutine add_nnlist_tensor(field)
     !!< Add the node-node list to the adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     
     call add_nnlist(field%mesh)
   
@@ -2705,7 +2842,7 @@ contains
     !!< Extract the node-node list (generating if necessary) from the
     !!< adjacency cache for the supplied mesh
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     
     type(csr_sparsity), pointer :: nnlist
     
@@ -2719,7 +2856,7 @@ contains
     !!< Extract the node-node list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: nnlist
     
@@ -2731,7 +2868,7 @@ contains
     !!< Extract the node-node list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: nnlist
     
@@ -2743,7 +2880,7 @@ contains
     !!< Extract the node-node list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: nnlist
     
@@ -2754,7 +2891,7 @@ contains
   subroutine add_nelist_mesh(mesh)
     !!< Add the node-element list to the adjacency cache for the supplied mesh
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     
     type(csr_sparsity), pointer :: nelist
     
@@ -2775,7 +2912,7 @@ contains
   subroutine add_nelist_scalar(field)
     !!< Add the node-element list to the adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     
     call add_nelist(field%mesh)
   
@@ -2784,7 +2921,7 @@ contains
   subroutine add_nelist_vector(field)
     !!< Add the node-element list to the adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     
     call add_nelist(field%mesh)
   
@@ -2793,7 +2930,7 @@ contains
   subroutine add_nelist_tensor(field)
     !!< Add the node-element list to the adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     
     call add_nelist(field%mesh)
   
@@ -2803,7 +2940,7 @@ contains
     !!< Extract the node-element list (generating if necessary) from the
     !!< adjacency cache for the supplied mesh
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     
     type(csr_sparsity), pointer :: nelist
     
@@ -2817,7 +2954,7 @@ contains
     !!< Extract the node-element list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: nelist
     
@@ -2829,7 +2966,7 @@ contains
     !!< Extract the node-element list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: nelist
     
@@ -2841,7 +2978,7 @@ contains
     !!< Extract the node-element list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: nelist
     
@@ -2852,7 +2989,7 @@ contains
   subroutine add_eelist_mesh(mesh)
     !!< Add the element-element list to the adjacency cache for the supplied mesh
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     
     type(csr_sparsity), pointer :: eelist, nelist
     
@@ -2866,6 +3003,7 @@ contains
       nelist => extract_nelist(mesh)
       ewrite(1, *) "Using the new makeeelist"
       call makeeelist(eelist, mesh, nelist)
+      ewrite(1, *) "after makeeelist"
 #ifdef DDEBUG
     else
       assert(has_references(mesh%adj_lists%eelist))
@@ -2877,7 +3015,7 @@ contains
   subroutine add_eelist_scalar(field)
     !!< Add the element-element list to the adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     
     call add_eelist(field%mesh)
   
@@ -2886,7 +3024,7 @@ contains
   subroutine add_eelist_vector(field)
     !!< Add the element-element list to the adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     
     call add_eelist(field%mesh)
   
@@ -2895,7 +3033,7 @@ contains
   subroutine add_eelist_tensor(field)
     !!< Add the element-element list to the adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     
     call add_eelist(field%mesh)
   
@@ -2905,7 +3043,7 @@ contains
     !!< Extract the element-element list (generating if necessary) from the
     !!< adjacency cache for the supplied mesh
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     
     type(csr_sparsity), pointer :: eelist
     
@@ -2919,7 +3057,7 @@ contains
     !!< Extract the element-element list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(scalar_field), intent(in) :: field
+    type(scalar_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: eelist
     
@@ -2931,7 +3069,7 @@ contains
     !!< Extract the element-element list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(vector_field), intent(in) :: field
+    type(vector_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: eelist
     
@@ -2943,7 +3081,7 @@ contains
     !!< Extract the element-element list (generating if necessary) from the
     !!< adjacency cache for the supplied field
     
-    type(tensor_field), intent(in) :: field
+    type(tensor_field), intent(inout) :: field
     
     type(csr_sparsity), pointer :: eelist
     
@@ -3164,6 +3302,7 @@ contains
     
   end subroutine zero_tensor_field_nodes
 
+    
 #include "Reference_count_mesh_type.F90"
 #include "Reference_count_scalar_field.F90"
 #include "Reference_count_vector_field.F90"

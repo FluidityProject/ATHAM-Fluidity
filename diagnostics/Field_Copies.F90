@@ -35,6 +35,7 @@ module field_copies_diagnostics
   use fldebug
   use global_parameters, only : OPTION_PATH_LEN
   use smoothing_module
+  use filter_diagnostics
   use solvers
   use sparse_tools
   use sparsity_patterns_meshes
@@ -57,6 +58,7 @@ module field_copies_diagnostics
   public :: calculate_lumped_mass_smoothed_tensor
   public :: calculate_helmholtz_anisotropic_smoothed_scalar, calculate_helmholtz_anisotropic_smoothed_vector
   public :: calculate_helmholtz_anisotropic_smoothed_tensor
+  public :: calculate_horizontal_filter_scalar
 
 contains
 
@@ -617,6 +619,25 @@ contains
 
     ewrite(1, *) "Exiting calculate_lumped_mass_smoothed_tensor"
 
-  end subroutine calculate_lumped_mass_smoothed_tensor
+  end subroutine calculate_lumped_mass_smoothed_tensor 
+  
+  subroutine calculate_horizontal_filter_scalar(state, s_field)
+  
+    type(state_type), intent(inout) :: state
+    type(scalar_field), intent(inout) :: s_field
+    type(scalar_field), pointer :: source_field
+    character(len=OPTION_PATH_LEN) :: path
+    real :: alpha
+    integer :: nits
+    
+    path = trim(complete_field_path(s_field%option_path)) // "/algorithm"
+    call get_option(trim(path) // "/alpha", alpha)
+    call get_option(trim(path) // "/number_of_iterations", nits)
+    
+    source_field => scalar_source_field(state, s_field)
+    
+    call calculate_horizontal_filter(state,source_field,s_field,nits,alpha,path,horizontal=.true.)
+
+  end subroutine calculate_horizontal_filter_scalar
 
 end module field_copies_diagnostics

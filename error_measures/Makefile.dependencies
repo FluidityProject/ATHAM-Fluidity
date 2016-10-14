@@ -22,10 +22,10 @@ Anisotropic_ZZ.o ../include/anisotropic_zz_module.mod: Anisotropic_ZZ.F90 \
 Anisotropic_gradation_metric.o ../include/anisotropic_gradation.mod: \
    Anisotropic_gradation_metric.F90 ../include/adjacency_lists.mod \
    ../include/fdebug.h ../include/fields.mod ../include/form_metric_field.mod \
-   ../include/gradation_metric.mod ../include/initialise_fields_module.mod \
+   ../include/initialise_fields_module.mod ../include/gradation_tools.mod\
    ../include/linked_lists.mod ../include/merge_tensors.mod \
    ../include/metric_tools.mod ../include/sparse_tools.mod ../include/spud.mod \
-   ../include/state_module.mod ../include/vector_tools.mod
+   ../include/state_module.mod ../include/vector_tools.mod ../include/gradation_tools.mod
 
 ../include/aspect_ratios_module.mod: Aspect_ratios.o
 	@true
@@ -42,16 +42,18 @@ Assemble_metric.o ../include/metric_assemble.mod: Assemble_metric.F90 \
    ../include/aspect_ratios_module.mod ../include/boundary_metric.mod \
    ../include/bounding_box_metric.mod ../include/edge_length_module.mod \
    ../include/fdebug.h ../include/field_derivatives.mod \
-   ../include/form_metric_field.mod \
+   ../include/form_metric_field.mod ../include/initialise_fields_module.mod \
    ../include/geometric_constraints_metric.mod ../include/goal_metric.mod \
    ../include/goals.mod ../include/gradation_metric.mod \
    ../include/hadapt_metric_based_extrude.mod ../include/halos.mod \
    ../include/interpolation_metric.mod ../include/limit_metric_module.mod \
    ../include/merge_tensors.mod ../include/metric_advection.mod \
    ../include/metric_tools.mod ../include/parallel_tools.mod \
+   ../include/project_metric_to_surface_module.mod \
    ../include/reference_meshes.mod ../include/richardson_metric_module.mod \
    ../include/spud.mod ../include/state_module.mod \
-   ../include/surfacelabels.mod ../include/vtk_interfaces.mod
+   ../include/surfacelabels.mod ../include/vtk_interfaces.mod \
+   ../include/hadapt_advancing_front.mod
 
 ../include/boundary_metric.mod: Boundary_metric.o
 	@true
@@ -113,7 +115,7 @@ Form_metric.o ../include/form_metric_field.mod: Form_metric.F90 \
 Geometric_constraints_metric.o ../include/geometric_constraints_metric.mod: \
    Geometric_constraints_metric.F90 ../include/edge_length_module.mod \
    ../include/fdebug.h ../include/fields.mod ../include/form_metric_field.mod \
-   ../include/gradation_metric.mod ../include/halos.mod \
+   ../include/halos.mod ../include/gradation_tools.mod \
    ../include/merge_tensors.mod ../include/metric_tools.mod \
    ../include/node_boundary.mod ../include/parallel_tools.mod \
    ../include/state_module.mod ../include/vtk_interfaces.mod
@@ -127,7 +129,7 @@ Goal_metric.o ../include/goal_metric.mod: Goal_metric.F90 \
    ../include/fields.mod ../include/fields_data_types.mod \
    ../include/form_metric_field.mod ../include/futils.mod \
    ../include/global_parameters.mod ../include/goals.mod \
-   ../include/gradation_metric.mod ../include/merge_tensors.mod \
+   ../include/merge_tensors.mod \
    ../include/metric_tools.mod ../include/spud.mod ../include/state_module.mod \
    ../include/transform_elements.mod ../include/vtk_interfaces.mod
 
@@ -140,6 +142,9 @@ Goals.o ../include/goals.mod: Goals.F90 ../include/elements.mod \
    ../include/fldebug.mod ../include/spud.mod ../include/state_module.mod \
    ../include/unittest_tools.mod ../include/vector_tools.mod
 
+../include/huang_metric_module.mod: Huang_metric.o
+	@true
+
 ../include/gradation_metric.mod: Gradation_metric.o
 	@true
 
@@ -148,10 +153,17 @@ Gradation_metric.o ../include/gradation_metric.mod: Gradation_metric.F90 \
    ../include/fdebug.h ../include/field_derivatives.mod ../include/fields.mod \
    ../include/linked_lists.mod ../include/metric_tools.mod \
    ../include/node_boundary.mod ../include/unittest_tools.mod \
-   ../include/vtk_interfaces.mod
+   ../include/vtk_interfaces.mod ../include/gradation_tools.mod
 
-../include/huang_metric_module.mod: Huang_metric.o
+../include/gradation_tools.mod: Gradation_tools.o
 	@true
+
+Gradation_tools.o ../include/gradation_tools.mod: Gradation_tools.F90 \
+   ../include/adjacency_lists.mod ../include/edge_length_module.mod \
+   ../include/fdebug.h ../include/field_derivatives.mod ../include/fields.mod \
+   ../include/linked_lists.mod ../include/metric_tools.mod \
+   ../include/node_boundary.mod ../include/unittest_tools.mod \
+   ../include/vtk_interfaces.mod
 
 Huang_metric.o ../include/huang_metric_module.mod: Huang_metric.F90 \
    ../include/fdebug.h ../include/field_options.mod ../include/fields.mod \

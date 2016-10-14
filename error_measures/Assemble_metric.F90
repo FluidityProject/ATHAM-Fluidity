@@ -2,38 +2,42 @@
 
 module metric_assemble
 
-  use VTK_interfaces
+  use spud
   use surfacelabels
 !  use fields
   use field_derivatives
-  use form_metric_field
+  use VTK_interfaces
   use merge_tensors
+  use sparse_tools
+  use form_metric_field
   use edge_length_module
   use interpolation_metric
   use goals
   use goal_metric
-  use gradation_metric
   use bounding_box_metric
   use boundary_metric
-  use geometric_constraints_metric
-  use limit_metric_module
   use metric_tools
+  use gradation_metric
   use state_module
   use halos
-  use spud
   use parallel_tools
+  use hadapt_advancing_front, only: create_columns_sparsity
+  use initialise_fields_module, only: initialise_field
+  use geometric_constraints_metric
+  use project_metric_to_surface_module
+  use limit_metric_module
   use metric_advection
   use anisotropic_gradation
   use richardson_metric_module
-  use anisotropic_zz_module
   use aspect_ratios_module
+  use anisotropic_zz_module
   use reference_meshes
   use hadapt_metric_based_extrude, only: get_1d_mesh, recombine_metric, get_1d_tensor
   
   implicit none
-
+  
   private
-  public :: assemble_metric, apply_vertical_gradation, apply_horizontal_gradation
+  public :: assemble_metric, apply_horizontal_gradation, apply_vertical_gradation
   
   contains
 
@@ -208,7 +212,7 @@ module metric_assemble
       end if
 
       full_positions = get_coordinate_field(state, full_metric%mesh)
-      call initialise_field(full_gamma, path, full_positions)
+      call initialise_field(state, full_gamma, path, full_positions)
 
       call project_metric_to_surface(full_gamma, horizontal_positions, horizontal_gamma)
 
@@ -285,17 +289,17 @@ module metric_assemble
         call allocate(full_gamma, full_metric%mesh, "Gamma")
       end if
 
-      call initialise_field(full_gamma, gamma_path, full_positions)
+      call initialise_field(state, full_gamma, gamma_path, full_positions)
       
       is_constant = (have_option(path // "/tensor_field::MinimumEdgeLengths/anisotropic_symmetric/constant"))
       if (is_constant) then
         call allocate(min_edge, full_metric%mesh, "MinimumEdgeLengths", field_type=FIELD_TYPE_CONSTANT)
-        call initialise_field(min_edge, path // "/tensor_field::MinimumEdgeLengths", full_positions)
+        call initialise_field(state, min_edge, path // "/tensor_field::MinimumEdgeLengths", full_positions)
         call allocate(min_bound, full_metric%mesh, "MaxMetricEigenbound", field_type=FIELD_TYPE_CONSTANT)
         call set(min_bound, eigenvalue_from_edge_length(node_val(min_edge, 1)))
       else
         call allocate(min_edge, full_metric%mesh, "MinimumEdgeLengths")
-        call initialise_field(min_edge, path // "/tensor_field::MinimumEdgeLengths", full_positions)
+        call initialise_field(state, min_edge, path // "/tensor_field::MinimumEdgeLengths", full_positions)
         call allocate(min_bound, full_metric%mesh, "MaxMetricEigenbound")
         do node=1,node_count(full_metric%mesh)
           call set(min_bound, node, eigenvalue_from_edge_length(node_val(min_edge, node)))
@@ -307,12 +311,12 @@ module metric_assemble
       is_constant = (have_option(path // "/tensor_field::MaximumEdgeLengths/anisotropic_symmetric/constant"))
       if (is_constant) then
         call allocate(max_edge, full_metric%mesh, "MaximumEdgeLengths", field_type=FIELD_TYPE_CONSTANT)
-        call initialise_field(max_edge, path // "/tensor_field::MaximumEdgeLengths", full_positions)
+        call initialise_field(state, max_edge, path // "/tensor_field::MaximumEdgeLengths", full_positions)
           call allocate(max_bound, full_metric%mesh, "MinMetricEigenbound", field_type=FIELD_TYPE_CONSTANT)
         call set(max_bound, eigenvalue_from_edge_length(node_val(max_edge, 1)))
       else
         call allocate(max_edge, full_metric%mesh, "MaximumEdgeLengths")
-        call initialise_field(max_edge, path // "/tensor_field::MaximumEdgeLengths", full_positions)
+        call initialise_field(state, max_edge, path // "/tensor_field::MaximumEdgeLengths", full_positions)
         call allocate(max_bound, full_metric%mesh, "MinMetricEigenbound")
         do node=1,node_count(full_metric%mesh)
           call set(max_bound, node, eigenvalue_from_edge_length(node_val(max_edge, node)))

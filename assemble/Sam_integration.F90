@@ -43,7 +43,8 @@ module sam_integration
   use node_boundary
   use parallel_tools
   use boundary_conditions
-  use boundary_conditions_from_options
+  use boundary_conditions_from_options, only: populate_boundary_conditions, &
+					      set_boundary_conditions_values
   use populate_state_module
   use reserve_state_module
   use surface_id_interleaving
@@ -52,11 +53,10 @@ module sam_integration
   
   use data_structures
   use detector_data_types
-  use detector_tools
   use diagnostic_variables
   use pickers
   use ieee_arithmetic
-  use detector_tools  
+  use detector_tools
 
   implicit none
   
@@ -879,7 +879,7 @@ module sam_integration
          do field=1,scount(state)
            field_s => extract_scalar_field(interpolate_states(state), trim(namelist_s(state, field)))
            call remap_field(field_s, linear_s)
-           call sam_add_field(linear_s)
+           call sam_add_field_scalar(linear_s)
            call remove_scalar_field(states(state), trim(namelist_s(state, field)))
            call remove_scalar_field(interpolate_states(state), trim(namelist_s(state, field)))
          end do
@@ -887,7 +887,7 @@ module sam_integration
          do field=1,vcount(state)
            field_v => extract_vector_field(interpolate_states(state), trim(namelist_v(state, field)))
            call remap_field(field_v, linear_v)
-           call sam_add_field(linear_v)
+           call sam_add_field_vector(linear_v)
            call remove_vector_field(states(state), trim(namelist_v(state, field)))
            call remove_vector_field(interpolate_states(state), trim(namelist_v(state, field)))
          end do
@@ -895,7 +895,7 @@ module sam_integration
          do field=1,tcount(state)
            field_t => extract_tensor_field(interpolate_states(state), trim(namelist_t(state, field)))
            call remap_field(field_t, linear_t)
-           call sam_add_field(linear_t)
+           call sam_add_field_tensor(linear_t)
            call remove_tensor_field(states(state), trim(namelist_t(state, field)))
            call remove_tensor_field(interpolate_states(state), trim(namelist_t(state, field)))
          end do
@@ -904,7 +904,7 @@ module sam_integration
        if(present(metric)) then
          ! Add the metric
          call remap_field(metric, linear_t)
-         call sam_add_field(linear_t)
+         call sam_add_field_tensor(linear_t)
        end if
 
        call deallocate(linear_s)
@@ -1259,13 +1259,13 @@ module sam_integration
        dim = mesh_dim(mesh)
        nonods = node_count(mesh)
        totele = ele_count(mesh)
-       stotel = surface_element_count(mesh)
+       stotel = unique_surface_element_count(mesh)
        nloc = mesh%shape%loc
        snloc = mesh%faces%surface_mesh%shape%loc
        ndglno => mesh%ndglno
        allocate(sndgln(stotel * snloc))
        call getsndgln(mesh, sndgln)
-       allocate(surfid(surface_element_count(mesh)))
+       allocate(surfid(unique_surface_element_count(mesh)))
        call interleave_surface_ids(mesh, surfid, max_coplanar_id)
        
        ! Extract the level 1 halo

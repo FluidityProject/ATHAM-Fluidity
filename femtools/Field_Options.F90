@@ -1194,7 +1194,7 @@ contains
     integer :: nmat, nfield, m, f
     character(len=OPTION_PATH_LEN) :: mat_name, field_name
     integer :: equation_type
-    logical :: cv_disc, cg_disc
+    logical :: cv_disc, cg_disc, dg_disc
 
     nmat = option_count("/material_phase")
 
@@ -1209,11 +1209,13 @@ contains
                         "]/prognostic/spatial_discretisation/control_volumes")
         cg_disc=have_option("/material_phase["//int2str(m)//"]/scalar_field["//int2str(f)//&
                         "]/prognostic/spatial_discretisation/continuous_galerkin")
+        dg_disc=have_option("/material_phase["//int2str(m)//"]/scalar_field["//int2str(f)//&
+                        "]/prognostic/spatial_discretisation/discontinuous_galerkin")
         
         equation_type=equation_type_index(trim("/material_phase["//int2str(m)//"]/scalar_field["//int2str(f)//"]"))
         select case(equation_type)
         case(FIELD_EQUATION_CONSERVATIONOFMASS)
-          if(.not.cv_disc) then
+          if(.not.(cv_disc.or.dg_disc)) then
             ewrite(-1,*) "Options checking field "//&
                           trim(field_name)//" in material_phase "//&
                           trim(mat_name)//"."

@@ -31,7 +31,7 @@ module SurfaceLabels
   !!< These IDs are used to indicate how surface
   !!< elements can be coarsened or refined.
 
-  use vector_tools
+  use vector_tools, only: cross_product
   use fldebug
   use linked_lists
   use merge_tensors
@@ -86,7 +86,7 @@ contains
     end if
     
     NNodes=node_count(positions)
-    NElements=surface_element_count(positions)
+    NElements=unique_surface_element_count(positions%mesh)
     SNLOC=face_loc(positions, 1)
     X => positions%val(X_,:)
     Y => positions%val(Y_,:)
@@ -387,6 +387,8 @@ contains
     ewrite(2,*) "Before merge_surface_ids, n/o local coplanes:", current_id-1
 
     call merge_surface_ids(mesh, coplanar_ids, max_id = current_id - 1)
+    
+    ewrite(2,*) "After merge_surface_ids"
 
   end subroutine get_coplanar_ids
   
@@ -490,7 +492,6 @@ contains
         ! a divide and conquer algorithm for the indirect merges.
         FLAbort("Maximum communication count encountered in merge_surface_ids")
       end if
-      ewrite(2, *) "Performing surface merge ", comm
     
       ! Pack the old surface IDs for sending
             
@@ -579,6 +580,7 @@ contains
       ! We have to check for indirect merges (merges with processes that are not
       ! adjacent to this one). Let's go around again ...
     end do comm_loop
+
     call deallocate(sele_halo)
     do i = 1, nprocs
       deallocate(send_buffer(i)%ptr)
@@ -589,7 +591,6 @@ contains
     deallocate(statuses)
     deallocate(requests)
     
-    ewrite(1, *) "Exiting merge_surface_ids"
 #endif
     
   end subroutine merge_surface_ids

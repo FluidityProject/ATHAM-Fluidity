@@ -1116,7 +1116,8 @@ contains
     node_neigh => node_neigh_mesh(field%mesh, node_number)
   end function node_neigh_tensor
 
-  ! Returns the neighbouring face of a given face. The incoming face number is returned if no neighbour face exists.
+  ! Returns the neighbouring face of a given face. 
+  ! The incoming face number is returned if no neighbour face exists.
   function face_neigh_mesh(mesh, face) result(face_neigh)
    integer, intent(in) :: face
    type(mesh_type), intent(in) :: mesh
@@ -3685,7 +3686,7 @@ contains
     
     assert(associated(mesh%faces))
     
-    stotel=surface_element_count(mesh)
+    stotel=unique_surface_element_count(mesh)
     snloc=face_loc(mesh, 1)
     
     assert(size(sndgln)==stotel*snloc)

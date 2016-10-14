@@ -76,7 +76,7 @@ contains
     close(fd)
 
     select case( trim(readWriteStr) )
-
+   
     case("read")
        open( fd, file=trim(filename), action="read", form="formatted", &
             access="stream")
@@ -107,7 +107,7 @@ contains
     close(fd)
 
     select case( trim(readWriteStr) )
-
+    
     case("read")
        open( fd, file=trim(filename), action="read", form="unformatted", &
             access="stream")
@@ -156,6 +156,8 @@ contains
 
   end subroutine toFluidityElementNodeOrdering
 
+
+
   ! -----------------------------------------------------------------
   ! Reorder Fluidity node ordering to GMSH
 
@@ -163,6 +165,7 @@ contains
     integer, pointer :: oldList(:)
     integer, dimension(size(oldList)) :: nodeOrder, gmshNodeList
     integer i, elemType
+
 
     numNodes = size(oldList)
 

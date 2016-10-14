@@ -161,6 +161,7 @@ contains
     integer :: thread_num
     !! Did we successfully prepopulate the transform_to_physical_cache?
     logical :: cache_valid
+
     
     ewrite(1,*) "In assemble_advection_diffusion_fv"
     
@@ -271,7 +272,6 @@ contains
     
     call zero(matrix)
     call zero(rhs)
-    
 
 #ifdef _OPENMP
     cache_valid = prepopulate_transform_cache(coordinate)
@@ -283,6 +283,7 @@ contains
 
     !$OMP PARALLEL DEFAULT(SHARED) &
     !$OMP PRIVATE(clr, len, nnid, ele, thread_num)
+
 
 #ifdef _OPENMP    
     thread_num = omp_get_thread_num()
@@ -299,6 +300,7 @@ contains
        call assemble_advection_diffusion_element_fv(ele, t, matrix, rhs, &
                                                    coordinate, t_coordinate, &
                                                    source, absorption, diffusivity)
+
       end do element_loop
        !$OMP END DO
 
@@ -306,7 +308,7 @@ contains
     !$OMP END PARALLEL
 
     call profiler_toc(t, "advection_diffusion_fv_loop")
-
+    
     ! Add the source directly to the rhs if required 
     ! which must be included before dirichlet BC's.
     if (add_src_directly_to_rhs) call addto(rhs, source)
@@ -651,20 +653,21 @@ contains
               call field_warning(state_name, field_name, &
                 & "Implicitness factor (theta) should = 1.0 when excluding mass")
             end if
-                 
-            if (have_option(trim(path) // "/scalar_field::SinkingVelocity")) then
-               call get_option(trim(complete_field_path(trim(path) // &
-                    "/scalar_field::SinkingVelocity"))//"/mesh[0]/name", &
-                    mesh_0, stat)
-               if(stat == SPUD_NO_ERROR) then
-                  call get_option(trim(complete_field_path("/material_phase[" // int2str(i) // &
-                       "]/vector_field::Velocity")) // "/mesh[0]/name", mesh_1)
-                  if(trim(mesh_0) /= trim(mesh_1)) then
-                     call field_warning(state_name, field_name, &
-                          & "SinkingVelocity is on a different mesh to the Velocity field this could cause problems")
-                  end if
-               end if
-            end if
+		 
+	    if (have_option(trim(path) // "/scalar_field::SinkingVelocity")) then
+	       call get_option(trim(complete_field_path(trim(path) // &
+		    "/scalar_field::SinkingVelocity"))//"/mesh[0]/name", &
+		    mesh_0, stat)
+	       if(stat == SPUD_NO_ERROR) then
+		  call get_option(trim(complete_field_path("/material_phase[" // int2str(i) // &
+		       "]/vector_field::Velocity")) // "/mesh[0]/name", mesh_1)
+		  if(trim(mesh_0) /= trim(mesh_1)) then
+		     call field_warning(state_name, field_name, &
+			  & "SinkingVelocity is on a different mesh to the Velocity field this could cause problems")
+		  end if
+	       end if
+	    end if
+  
             if(have_option(trim(path) // "/spatial_discretisation/finite_volume/advection_terms/exclude_advection_terms")) then
               if(have_option(trim(path) // "/scalar_field::SinkingVelocity")) then
                 call field_warning(state_name, field_name, &

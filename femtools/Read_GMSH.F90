@@ -31,13 +31,15 @@ module read_gmsh
   ! This module reads GMSH files and results in a vector field of
   ! positions.
 
+  use fldebug
+  use global_parameters, only : OPTION_PATH_LEN
   use futils
   use elements
+  use spud
+  use parallel_tools
   use fields
   use state_module
-  use spud
   use gmsh_common
-  use global_parameters, only : OPTION_PATH_LEN
 
   implicit none
 
@@ -92,7 +94,6 @@ contains
     type(GMSHnode), pointer :: nodes(:)
     type(GMSHelement), pointer :: elements(:), faces(:)
 
-
     ! If running in parallel, add the process number
     if(isparallel()) then
        lfilename = trim(parallel_filename(filename)) // ".msh"
@@ -122,7 +123,6 @@ contains
     ! According to fluidity/bin/gmsh2triangle, Fluidity doesn't need
     ! anything past $EndElements, so we close the file.
     close( fd )
-
 
     numNodes = size(nodes)
     numFaces = size(faces)
@@ -182,6 +182,7 @@ contains
       coordinate_dim  = dim
     end if
 
+    ewrite(2,*) "hear 3", numFaces, numElements
     loc = size( elements(1)%nodeIDs )
     if (numFaces>0) then
       sloc = size( faces(1)%nodeIDs )
@@ -206,7 +207,6 @@ contains
     call deallocate(mesh)
     call deallocate(shape)
     call deallocate(quad)
-
 
     if (haveRegionIDs) then
       allocate( field%mesh%region_ids(numElements) )
@@ -252,6 +252,7 @@ contains
     end do
 
     ! If we've got boundaries, do something
+    ewrite(2,*) "have Bounds", haveBounds, haveElementOwners
     if( haveBounds ) then
        if ( haveElementOwners ) then
           call add_faces( field%mesh, &
@@ -267,6 +268,7 @@ contains
        ewrite(2,*) "WARNING: no boundaries in GMSH file "//trim(lfilename)
        call add_faces( field%mesh, sndgln = sndglno(1:numFaces*sloc) )
     end if
+    ewrite(2,*) "before deallocate"
 
     ! Deallocate arrays
     deallocate(sndglno)
@@ -276,6 +278,7 @@ contains
     deallocate(nodes)
     deallocate(faces)
     deallocate(elements)
+    ewrite(2,*) "end"
 
     return
 
@@ -332,7 +335,7 @@ contains
     ! Done with error checking... set format (ie. ascii or binary)
     gmshFormat = gmshFileType
 
-#ifdef __INTEL_COMPILER
+#ifdef IO_ADVANCE_BUG
 !   for intel the call to ascii_formatting causes the first read after it to have advance='no'
 !   therefore forcing it to jump to a newline here
     if(gmshFormat == binaryFormat) read(fd, *) charBuf
@@ -393,7 +396,7 @@ contains
     if( trim(charBuf) .ne. "$EndNodes" ) then
        FLExit("Error: can't find '$EndNodes' in GMSH file '"//trim(filename)//"'")
     end if
-#ifdef __INTEL_COMPILER
+#ifdef IO_ADVANCE_BUG
 !   for intel the call to ascii_formatting causes the first read after it to have advance='no'
 !   therefore forcing it to jump to a newline here
     if(gmshFormat == binaryFormat) read(fd, *) charBuf
@@ -484,7 +487,7 @@ contains
        FLExit("Error: cannot find '$EndNodeData' in GMSH mesh file")
     end if
 
-#ifdef __INTEL_COMPILER
+#ifdef IO_ADVANCE_BUG
 !   for intel the call to ascii_formatting causes the first read after it to have advance='no'
 !   therefore forcing it to jump to a newline here
     if(gmshFormat == binaryFormat) read(fd, *) charBuf
@@ -599,7 +602,7 @@ contains
        FLExit("Error: cannot find '$EndElements' in GMSH mesh file")
     end if
 
-#ifdef __INTEL_COMPILER
+#ifdef IO_ADVANCE_BUG
 !   for intel the call to ascii_formatting causes the first read after it to have advance='no'
 !   therefore forcing it to jump to a newline here
     if(gmshFormat == binaryFormat) read(fd, *) charBuf

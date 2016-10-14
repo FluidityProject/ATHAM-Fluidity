@@ -17,7 +17,7 @@ Boundary_Conditions_From_Options.o \
    ../include/sparse_tools_petsc.mod ../include/spud.mod \
    ../include/state_module.mod ../include/synthetic_bc.mod \
    ../include/tidal_module.mod ../include/vector_tools.mod \
-   ../include/vtk_interfaces.mod
+   ../include/vtk_interfaces.mod ../include/Surface_Ocean_COARE.mod
 
 ../include/field_priority_lists.mod: Field_Priority_Lists.o
 	@true
@@ -45,6 +45,13 @@ Physics_From_Options.o ../include/physics_from_options.mod: \
    Physics_From_Options.F90 ../include/fdebug.h ../include/fields.mod \
    ../include/spud.mod ../include/state_module.mod
 
+../include/vtk_cache_module.mod: VTK_Cache.o
+	@true
+
+VTK_Cache.o ../include/vtk_cache_module.mod: VTK_Cache.F90 ../include/fdebug.h \
+   ../include/fields.mod ../include/state_module.mod \
+   ../include/vtk_interfaces.mod
+
 ../include/populate_state_module.mod: Populate_State.o
 	@true
 
@@ -53,6 +60,7 @@ Populate_State.o ../include/populate_state_module.mod: Populate_State.F90 \
    ../include/coordinates.mod ../include/data_structures.mod \
    ../include/diagnostic_variables.mod ../include/elements.mod \
    ../include/fdebug.h ../include/field_options.mod \
+   ../include/vtk_cache_module.mod \
    ../include/fields_halos.mod ../include/fields_manipulation.mod \
    ../include/fldebug.mod ../include/global_parameters.mod \
    ../include/hadapt_extrude.mod ../include/hadapt_extrude_radially.mod \
@@ -63,8 +71,9 @@ Populate_State.o ../include/populate_state_module.mod: Populate_State.F90 \
    ../include/read_triangle.mod ../include/reserve_state_module.mod \
    ../include/spud.mod ../include/state_module.mod \
    ../include/surfacelabels.mod ../include/tictoc.mod \
-   ../include/transform_elements.mod ../include/vtk_cache_module.mod
-
+   ../include/transform_elements.mod \
+   ../include/Surface_Ocean_COARE.mod
+   
 ../include/populate_sub_state_module.mod: Populate_Sub_State.o
 	@true
 
@@ -96,17 +105,20 @@ Reserve_State.o ../include/reserve_state_module.mod: Reserve_State.F90 \
 ../include/tidal_module.mod: Tidal_Modelling.o
 	@true
 
+../include/Surface_Ocean_COARE.mod: Surface_Ocean_COARE.o
+	@true
+
+Surface_Ocean_COARE.o ../include/Surface_Ocean_COARE.mod: Surface_Ocean_COARE.F90 ../include/fdebug.h \
+   ../include/spud.mod ../include/fldebug.mod \
+   ../include/elements.mod ../include/fields.mod \
+   ../include/field_options.mod ../include/state_module.mod \
+   ../include/boundary_conditions.mod ../include/equation_of_state.mod \
+   ../include/interpolation_module.mod
+
 Tidal_Modelling.o ../include/tidal_module.mod: Tidal_Modelling.F90 \
    ../include/coordinates.mod ../include/fdebug.h ../include/fields.mod \
    ../include/fldebug.mod ../include/sparse_matrices_fields.mod \
    ../include/spud.mod ../include/state_module.mod
-
-../include/vtk_cache_module.mod: VTK_Cache.o
-	@true
-
-VTK_Cache.o ../include/vtk_cache_module.mod: VTK_Cache.F90 ../include/fdebug.h \
-   ../include/fields.mod ../include/state_module.mod \
-   ../include/vtk_interfaces.mod
 
 ../include/synthetic_bc.mod: synthetic_bc.o
 	@true

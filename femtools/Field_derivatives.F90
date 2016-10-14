@@ -225,7 +225,7 @@ module field_derivatives
       type(scalar_field) :: bc_value
       !! Integer array of all surface elements indicating bc type::
       integer, dimension(:), allocatable :: bc_type
-
+      
       dim = gradient%dim
       do i=1,dim
         pardiff(i) = extract_scalar_field(gradient, i)
@@ -238,9 +238,7 @@ module field_derivatives
         !! required for dg gradient calculation
         allocate(bc_type(1:surface_element_count(infield)))
         call get_entire_boundary_condition(infield, (/"weakdirichlet"/), bc_value, bc_type)
-        
         call differentiate_field(infield, positions, derivatives, pardiff, bc_value, bc_type)
-        
         call deallocate(bc_value)
         deallocate(bc_type)
       else
@@ -1266,8 +1264,8 @@ module field_derivatives
         ! Compute detwei.
         call transform_to_physical(positions, ele, &
            ele_shape(infields(1), ele), dshape=dt_t, detwei=detwei)
-
-        r = shape_dshape(ele_shape(mesh, ele), dt_t, detwei)
+	
+	r = shape_dshape(ele_shape(mesh, ele), dt_t, detwei)
         do i=1, size(infields)
           
           if (compute(i)) then
@@ -1860,27 +1858,23 @@ module field_derivatives
       type(vector_field), intent(in):: infield, positions
       type(scalar_field), intent(inout), target  :: divergence
 
-      type(scalar_field) :: component
-      type(scalar_field), dimension(1) :: derivative
-      type(mesh_type), pointer :: mesh
-      logical, dimension(mesh_dim(infield)) :: derivatives
+      type(vector_field) :: gradient
+      type(scalar_field) :: s_field
       integer :: i
-
-      mesh => divergence%mesh
-      call allocate(derivative(1), mesh, "Derivative")
-
-      call zero(divergence)
-      derivatives = .false.
-
+      
+      call allocate(gradient, infield%dim, divergence%mesh, "Gradient")
+      call allocate(s_field, divergence%mesh, "Component")
+      
       do i=1,mesh_dim(infield)
-        derivatives(i) = .true.
-        component = extract_scalar_field(infield, i)
-        call differentiate_field(component, positions, derivatives, derivative)
-        call addto(divergence, derivative(1))
-        derivatives = .false.
+        call zero(s_field)
+	call addto(s_field, infield, i)
+        call grad_scalar (s_field, positions, gradient)
+        call addto(divergence, gradient, i)
       end do
 
-      call deallocate(derivative(1))
+      call deallocate(gradient)
+      call deallocate(s_field)
+      
     end subroutine div
     
     function insphere_tet(positions) result(centre)

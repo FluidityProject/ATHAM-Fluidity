@@ -90,7 +90,7 @@ contains
     !!< Given a level 2 node halo for the supplied mesh, strip it down to form
     !!< a level 1 node halo
     
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     type(halo_type), intent(in) :: l2_halo
     !! By default the l1 halo will inherit it's ordering scheme from the l2
     !! halo. Supply this to override.
@@ -238,7 +238,7 @@ contains
   function derive_maximal_element_halo(mesh, node_halo, ordering_scheme, create_caches) result(element_halo)
     !!< Given a node halo for the supplied mesh, derive the maximal element halo
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     type(halo_type), intent(in) :: node_halo
     !! By default the maximal element halo will have a HALO_ORDER_GENERAL
     !! ordering scheme. Supply this to override.
@@ -428,7 +428,7 @@ contains
     !!<     and l2 sends
     !!<  3. Walking the eelist from the l1 sends to form the l1 and l2 receives
   
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     type(halo_type), intent(in) :: l2_halo
     type(halo_type), dimension(2), intent(out) :: element_halos
     !! By default the element halos will have HALO_ORDER_GENERAL
@@ -649,7 +649,7 @@ contains
     !!< Invert an element halo receives to form the element halo sends, using
     !!< the unn cache of a node halo
 
-    type(mesh_type), intent(in) :: mesh
+    type(mesh_type), intent(inout) :: mesh
     type(halo_type), intent(in) :: node_halo
     type(halo_type), intent(inout) :: element_halo
     
@@ -1297,7 +1297,7 @@ contains
     deallocate(sub_nsends)
 
   end function derive_sub_halo
-
+  
   function combine_halos(halos, node_maps, name) result (halo_out)
     !!< Combine two or more halos of a number of subproblems into a single
     !!< halo, where the numbering of the dofs (nodes) of each subproblem is
@@ -1356,17 +1356,17 @@ contains
 
       do jproc=1, nprocs
 
-        do k=1, halo_send_count(halos(ihalo), jproc)
-          new_node_no = node_maps(ihalo)%ptr(halo_send(halos(ihalo), jproc, k))
-          call set_halo_send(halo_out, jproc, send_count(jproc)+k, new_node_no)
-        end do
-        send_count(jproc) = send_count(jproc) + halo_send_count(halos(ihalo), jproc)
+	do k=1, halo_send_count(halos(ihalo), jproc)
+	  new_node_no = node_maps(ihalo)%ptr(halo_send(halos(ihalo), jproc, k))
+	  call set_halo_send(halo_out, jproc, send_count(jproc)+k, new_node_no)
+	end do
+	send_count(jproc) = send_count(jproc) + halo_send_count(halos(ihalo), jproc)
 
-        do k=1, halo_receive_count(halos(ihalo), jproc)
-          new_node_no = node_maps(ihalo)%ptr(halo_receive(halos(ihalo), jproc, k))
-          call set_halo_receive(halo_out, jproc, receive_count(jproc)+k, new_node_no)
-        end do
-        receive_count(jproc) = receive_count(jproc) + halo_receive_count(halos(ihalo), jproc)
+	do k=1, halo_receive_count(halos(ihalo), jproc)
+	  new_node_no = node_maps(ihalo)%ptr(halo_receive(halos(ihalo), jproc, k))
+	  call set_halo_receive(halo_out, jproc, receive_count(jproc)+k, new_node_no)
+	end do
+	receive_count(jproc) = receive_count(jproc) + halo_receive_count(halos(ihalo), jproc)
       end do
 
     end do
@@ -1415,8 +1415,8 @@ contains
     ! owned nodes
     do i=1, size(halos1)
       do j=1, halo_nowned_nodes(halos1(i))
-        node_maps(i)%ptr(j) = new_node
-        new_node = new_node + 1
+	node_maps(i)%ptr(j) = new_node
+	new_node = new_node + 1
       end do
     end do
 
@@ -1425,8 +1425,8 @@ contains
       allocate(all_recvs(1:halo_all_receives_count(halos1(i))))
       call extract_all_halo_receives(halos1(i), all_recvs)
       do j=1, size(all_recvs)
-        node_maps(i)%ptr(all_recvs(j)) = new_node
-        new_node = new_node + 1
+	node_maps(i)%ptr(all_recvs(j)) = new_node
+	new_node = new_node + 1
       end do
       deallocate(all_recvs)
     end do
@@ -1436,11 +1436,11 @@ contains
       allocate(all_recvs(1:halo_all_receives_count(halos2(i))))
       call extract_all_halo_receives(halos2(i), all_recvs)
       do j=1, size(all_recvs)
-        if (node_maps(i)%ptr(all_recvs(j))==0) then
-          ! only include those that weren't recv nodes of halos1 already
-          node_maps(i)%ptr(all_recvs(j)) = new_node
-          new_node = new_node + 1
-        end if
+	if (node_maps(i)%ptr(all_recvs(j))==0) then
+	  ! only include those that weren't recv nodes of halos1 already
+	  node_maps(i)%ptr(all_recvs(j)) = new_node
+	  new_node = new_node + 1
+	end if
       end do
       deallocate(all_recvs)
     end do

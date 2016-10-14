@@ -40,8 +40,9 @@ module Petsc_Tools
 #ifdef HAVE_PETSC_MODULES
   use petsc 
 #endif
-  implicit none
 
+  implicit none
+  
 #include "petsc_legacy.h"
 
   PetscReal, parameter, private :: dummy_petsc_real = 0.0
@@ -113,6 +114,7 @@ module Petsc_Tools
   public addup_global_assembly
   ! for petsc_numbering:
   public incref, decref, addref
+
   ! for unit-testing:
   logical, public, save :: petsc_test_error_handler_called = .false.
   public petsc_test_error_handler
@@ -122,6 +124,7 @@ module Petsc_Tools
 #if PETSC_VERSION_MINOR<5
   public mykspgetoperators
 #endif
+  
 contains
 
   ! Note about definitions in this module:
@@ -576,10 +579,10 @@ contains
 
 #if PETSC_VERSION_MINOR>=2
     call ISCreateGeneral(MPI_COMM_FEMTOOLS, nnodp, petsc_numbering%gnn2unn(:,dim), &
-         PETSC_COPY_VALUES, index_set, ierr)
+	 PETSC_COPY_VALUES, index_set, ierr)
 #else
     call ISCreateGeneral(MPI_COMM_FEMTOOLS, nnodp, petsc_numbering%gnn2unn(:,dim), &
-         index_set, ierr)
+	 index_set, ierr)
 #endif
        
   end function petsc_numbering_create_is_dim
@@ -613,9 +616,9 @@ contains
       
       ! this check should be unnecessary but is a work around for a bug in petsc, fixed in 18ae1927 (pops up with intel 15)
       if (nnodp>0) then
-        call VecGetValues(vec, nnodp, &
-          petsc_numbering%gnn2unn( 1:nnodp, b ), &
-          array( start+1:start+nnodp ), ierr)
+	call VecGetValues(vec, nnodp, &
+	  petsc_numbering%gnn2unn( 1:nnodp, b ), &
+	  array( start+1:start+nnodp ), ierr)
       end if
         
       ! go to next field:
@@ -633,10 +636,10 @@ contains
     do b=1, nfields
       
       if (nnodp>0) then
-        call VecGetValues(vec, nnodp, &
-          petsc_numbering%gnn2unn( 1:nnodp, b ), &
-          vals, ierr)
-        array( start+1:start+nnodp ) = vals
+	call VecGetValues(vec, nnodp, &
+	  petsc_numbering%gnn2unn( 1:nnodp, b ), &
+	  vals, ierr)
+	array( start+1:start+nnodp ) = vals
       end if
         
       ! go to next field:
@@ -683,9 +686,9 @@ contains
       call profiler_tic(fields(b), "petsc2field")
       ! this check should be unnecessary but is a work around for a bug in petsc, fixed in 18ae1927 (pops up with intel 15)
       if (nnodp>0) then
-        call VecGetValues(vec, nnodp, &
-          petsc_numbering%gnn2unn( 1:nnodp, b ), &
-          fields(b)%val( 1:nnodp ), ierr)
+	call VecGetValues(vec, nnodp, &
+	  petsc_numbering%gnn2unn( 1:nnodp, b ), &
+	  fields(b)%val( 1:nnodp ), ierr)
       end if
       call profiler_toc(fields(b), "petsc2field")
         
@@ -696,9 +699,9 @@ contains
       
       call profiler_tic(fields(b), "petsc2field")
       if (nnodp>0) then
-        call VecGetValues(vec, nnodp, &
-          petsc_numbering%gnn2unn( 1:nnodp, b ), &
-          vals, ierr)
+	call VecGetValues(vec, nnodp, &
+	  petsc_numbering%gnn2unn( 1:nnodp, b ), &
+	  vals, ierr)
       end if
       fields(b)%val( 1:nnodp ) = vals
       call profiler_toc(fields(b), "petsc2field")
@@ -784,12 +787,12 @@ contains
       
       call profiler_tic(fields(i), "petsc2field")
       do j=1, fields(i)%dim
-         ! this check should be unnecessary but is a work around for a bug in petsc, fixed in 18ae1927 (pops up with intel 15)
-         if (nnodp>0) then
-           call VecGetValues(vec, nnodp, &
-             petsc_numbering%gnn2unn( 1:nnodp, b ), &
-             fields(i)%val(j, 1:nnodp ), ierr)
-         end if
+	 ! this check should be unnecessary but is a work around for a bug in petsc, fixed in 18ae1927 (pops up with intel 15)
+	 if (nnodp>0) then
+	   call VecGetValues(vec, nnodp, &
+	     petsc_numbering%gnn2unn( 1:nnodp, b ), &
+	     fields(i)%val(j, 1:nnodp ), ierr)
+	 end if
          b=b+1
       end do
       call profiler_toc(fields(i), "petsc2field")
@@ -802,11 +805,11 @@ contains
       
       call profiler_tic(fields(i), "petsc2field")
       do j=1, fields(i)%dim
-         if (nnodp>0) then
-           call VecGetValues(vec, nnodp, &
-             petsc_numbering%gnn2unn( 1:nnodp, b ), &
-             vals, ierr)
-         end if
+	 if (nnodp>0) then
+	   call VecGetValues(vec, nnodp, &
+	     petsc_numbering%gnn2unn( 1:nnodp, b ), &
+	     vals, ierr)
+	 end if
          fields(i)%val(j, 1:nnodp ) = vals
          b=b+1
       end do
@@ -1269,7 +1272,7 @@ contains
 
     call MatCreateMPIAIJ(MPI_COMM_FEMTOOLS, nrowsp, ncolsp, nrows, ncols, &
       PETSC_NULL_INTEGER, d_nnz, PETSC_NULL_INTEGER, o_nnz, M, ierr)
-      
+
     if (.not. present_and_true(use_inodes)) then
       call MatSetOption(M, MAT_USE_INODES, PETSC_FALSE, ierr)
     end if
@@ -1375,9 +1378,9 @@ contains
             j=j+1
           end if
         end do
-        ! This is stupid, we were given copies in MatGetRow so it could
-        ! have restored its internal tmp arrays straight away, anyway:
-        call MatRestoreRow(matrix, offset+i, ncols, row_cols, row_vals, ierr)
+	! This is stupid, we were given copies in MatGetRow so it could
+	! have restored its internal tmp arrays straight away, anyway:
+	call MatRestoreRow(matrix, offset+i, ncols, row_cols, row_vals, ierr)
       end do
       A%sparsity%findrm(i+1)=j
 
@@ -1580,13 +1583,13 @@ subroutine mykspgetoperators(ksp, amat, pmat, ierr)
   PetscErrorCode, intent(out):: ierr
 
   MatStructure:: mat_structure
-  
+
   ! need small caps, to avoid #define from include/petsc_legacy.h
   call  kspgetoperators(ksp, amat, pmat, mat_structure, ierr)
 
 end subroutine mykspgetoperators
 #endif
-
+  
 #include "Reference_count_petsc_numbering_type.F90"
 end module Petsc_Tools
 
@@ -1603,4 +1606,3 @@ PetscErrorCode, intent(out):: ierr
   call MatGetInfo(A, flag, info, ierr)
   
 end subroutine myMatGetInfo
-

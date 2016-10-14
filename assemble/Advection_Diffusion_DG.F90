@@ -38,6 +38,7 @@ module advection_diffusion_DG
   use state_module
   use shape_functions
   use transform_elements
+  use parallel_tools
   use vector_tools
   use fldebug
   use vtk_interfaces
@@ -46,18 +47,26 @@ module advection_diffusion_DG
   use boundary_conditions
   use boundary_conditions_from_options
   use field_options
+  use field_derivatives
+  use fields_calculations
   use spud
+  use helmholtz_projection
   use upwind_stabilisation
   use slope_limiters_dg
   use sparsity_patterns
   use sparse_matrices_fields
   use sparsity_patterns_meshes
-  use diagnostic_fields, only: calculate_diagnostic_variable
-  use global_parameters, only: OPTION_PATH_LEN, FIELD_NAME_LEN, COLOURING_DG2, &
+  use diagnostic_fields, only: calculate_diagnostic_variable, safe_set
+  use global_parameters, only : FIELD_NAME_LEN, OPTION_PATH_LEN, COLOURING_DG2, &
        COLOURING_DG0
   use porous_media
+  use equation_of_state, only : scale_pressure, compressible_eos
+  use initialise_fields_module, only : initialise_field
   use colouring
   use Profiler
+  use filter_diagnostics
+  use les_module
+  use state_fields_module
 #ifdef _OPENMP
   use omp_lib
 #endif
@@ -70,16 +79,19 @@ module advection_diffusion_DG
   private
   public solve_advection_diffusion_dg, construct_advection_diffusion_dg, &
        advection_diffusion_dg_check_options
+  public :: correct_scalars, have_continuity_residual
 
   ! Local private control parameters. These are module-global parameters
   ! because it would be expensive and/or inconvenient to re-evaluate them
   ! on a per-element or per-face basis
-  real :: dt, theta
+  real :: dt, theta, theta_rho
 
   ! Whether the advection term is only integrated by parts once.
   logical :: integrate_by_parts_once=.false.
   ! Whether the conservation term is integrated by parts or not
   logical :: integrate_conservation_term_by_parts=.false.
+  ! Project velocity divergence
+  logical :: have_velocity_divergence=.false.
   ! Weight between conservative and non-conservative forms of the advection
   ! equation. 
   ! 1 is for conservative 0 is for non-conservative.
@@ -101,11 +113,18 @@ module advection_diffusion_DG
   integer :: flux_scheme
   integer, parameter :: UPWIND_FLUX=1
   integer, parameter :: LAX_FRIEDRICHS_FLUX=2
+  integer, parameter :: HLL_FLUX=3
+  ! Projected velocity mesh name
+  character(len=FIELD_NAME_LEN) :: pmesh_name
+  ! equation type
+  integer :: equation_type
+  !! Is there a hydrostatic profile
+  logical :: have_reference, have_subtract_reference
   
   ! Boundary condition types:
   ! (the numbers should match up with the order in the 
   !  get_entire_boundary_condition call)
-  integer :: BCTYPE_WEAKDIRICHLET=1, BCTYPE_DIRICHLET=2, BCTYPE_NEUMANN=3
+  integer :: BCTYPE_WEAKDIRICHLET=1, BCTYPE_DIRICHLET=2, BCTYPE_NEUMANN=3, BCTYPE_FLUX=4, BCTYPE_COARE=5
 
   logical :: include_mass
   ! are we moving the mesh?
@@ -146,10 +165,16 @@ module advection_diffusion_DG
   ! Vertical diffusion by mixing option
   logical :: have_buoyancy_adjustment_by_vertical_diffusion
   logical :: have_buoyancy_adjustment_diffusivity
+  ! Subsidence
+  logical :: have_subsidence
+  
+  ! LES
+  logical :: have_les, have_eddy_diffusivity, have_richardson
+  logical :: have_sponge, have_nudge, have_horizontal_mean, have_atmos_forcing
 
 contains
 
-  subroutine solve_advection_diffusion_dg(field_name, state, velocity_name)
+  subroutine solve_advection_diffusion_dg(field_name, state, velocity_name, global_it)
     !!< Construct and solve the advection-diffusion equation for the given
     !!< field using discontinuous elements.
 
@@ -158,19 +183,26 @@ contains
     !! Collection of fields defining system state.
     type(state_type), intent(inout) :: state
     character(len=*), optional, intent(in) :: velocity_name
+    integer, optional, intent(in) :: global_it
 
     !! Tracer to be solved for.
     type(scalar_field), pointer :: T
 
     !! Local velocity name.
-    character(len=FIELD_NAME_LEN) :: lvelocity_name, pmesh_name
+    character(len=FIELD_NAME_LEN) :: lvelocity_name
 
     !! Projected velocity field for them as needs it. 
-    type(vector_field) :: pvelocity
+    type(vector_field) :: pvelocity, U_proj
+    type(scalar_field) :: divergence
     !! Nonlinear velocity field.
-    type(vector_field), pointer :: U_nl, X
+    type(vector_field), pointer :: U_nl, U, old_U, X
+    type(scalar_field), pointer :: density
     !! Mesh for projeced velocity.
     type(mesh_type), pointer :: pmesh
+    
+    type(scalar_field), pointer :: s_field
+    type(vector_field), pointer :: v_field
+    integer :: stat
 
     ewrite(1,*) "In solve_advection_diffusion_dg"
     ewrite(1,*) "Solving advection-diffusion equation for field " // &
@@ -183,6 +215,9 @@ contains
     else
        lvelocity_name="NonlinearVelocity"
     end if
+    
+    U_nl=>extract_vector_field(state, lvelocity_name)
+    pmesh_name=U_nl%mesh%name
 
     if (have_option(trim(T%option_path)//"/prognostic/spatial_discretisation"//&
          &"/discontinuous_galerkin/advection_scheme"//&
@@ -216,10 +251,56 @@ contains
 
     end if
 
+!    if (have_option(trim(T%option_path)//"/prognostic/spatial_discretisation"//&
+!         &"/discontinuous_galerkin/advection_scheme"//&
+!         &"/project_velocity_divergence")) then
+!          
+!       call get_option(trim(T%option_path)&
+!            //"/prognostic/spatial_discretisation"//&
+!            &"/discontinuous_galerkin/advection_scheme"//&
+!            &"/project_velocity_divergence/mesh/name",pmesh_name) 
+	    
+!       X=>extract_vector_field(state, "Coordinate")
+!       pmesh=>extract_mesh(state, pmesh_name)
+       
+!       call allocate(divergence, pmesh, "Divergence")
+       
+!       call project_velocity_divergence(state, T, divergence, X, lvelocity_name)
+
+!       s_field=>extract_scalar_field(state,"ProjectedDivergence",stat=stat)
+!       if (stat==0) call set(s_field,divergence)
+    
+!       call insert(state, divergence, "Divergence")
+!       call deallocate(divergence)
+
+!       X=>extract_vector_field(state, "Coordinate")
+!       pmesh=>extract_mesh(state, pmesh_name)
+       
+!       call allocate(divergence, pmesh, "Divergence")
+       
+!       call project_irrotational_velocity(state, T, divergence, U_proj, X, lvelocity_name)
+!       call project_irrotational_velocity_simple(state, T, divergence, X, lvelocity_name)
+
+!       s_field=>extract_scalar_field(state,"ProjectedDivergence",stat=stat)
+!       if (stat==0) call set(s_field,divergence)
+
+!       call insert(state, divergence, "Divergence")
+
+       ! Discard the additional reference.
+!       call deallocate(divergence)
+
+!    end if
 
     call get_option(trim(T%option_path)//"/prognostic/spatial_discretisation/"//&
          &"conservative_advection", beta)
 
+    if (have_option(trim(state%option_path)//'/equation_of_state/compressible')) then
+      density=>extract_scalar_field(state, "Density")
+      call get_option(trim(density%option_path)//"/prognostic/temporal_discretisation/theta", theta_rho)
+    else
+      theta_rho=1.
+    endif
+    
     ! by default we assume we're integrating by parts twice
     integrate_by_parts_once = have_option(trim(T%option_path)//"/prognostic/spatial_discretisation/"//&
          &"discontinuous_galerkin/advection_scheme/integrate_advection_by_parts/once")
@@ -378,7 +459,7 @@ contains
     else
        call solve_advection_diffusion_dg_theta(field_name, state, lvelocity_name)
     end if
-
+      
   end subroutine solve_advection_diffusion_dg
 
   subroutine solve_advection_diffusion_dg_theta(field_name, state, velocity_name)
@@ -435,18 +516,17 @@ contains
     call construct_advection_diffusion_dg(matrix, rhs, field_name, state,&
          velocity_name=velocity_name) 
 
-    
     ! Apply strong dirichlet boundary conditions.
     ! This is for big spring boundary conditions.
     call apply_dirichlet_conditions(matrix, rhs, T, dt)
 
     call zero(delta_T) ! Impose zero initial guess.
     ! Solve for the change in T.
-    call petsc_solve(delta_T, matrix, rhs, state)
-
+    call petsc_solve(delta_T, matrix, rhs, state, option_path=T%option_path)
+    
     ! Add the change in T to T.
     call addto(T, delta_T, dt)
-
+        
     call deallocate(delta_T)
     call deallocate(matrix)
     call deallocate(rhs)
@@ -465,11 +545,16 @@ contains
     character(len = *), intent(in) :: velocity_name
 
     !! Tracer to be solved for.
-    type(scalar_field), pointer :: T, T_old, s_field
+    type(scalar_field), pointer :: T, T_old, T_ref, s_field
+    
+    !! Densities
+    type(scalar_field), pointer :: density, old_density
+    type(scalar_field) :: remap_density
 
     !! Coordinate field
     type(vector_field), pointer :: X, U_nl
-
+    type(vector_field) :: position
+    
     !! Change in T over one timestep.
     type(scalar_field) :: delta_T
 
@@ -493,16 +578,24 @@ contains
     !! Number of advection subcycles.
     integer :: subcycles
     real :: max_courant_number
-
+    
     character(len=FIELD_NAME_LEN) :: limiter_name
-    integer :: i
+    integer :: i, stat
     
     !! Courant number field name used for temporal subcycling
     character(len=FIELD_NAME_LEN) :: Courant_number_name
+    
+    have_reference=.false.
+    have_subtract_reference=have_option(trim(state%option_path)//&
+          '/equation_of_state/compressible/subtract_out_reference_profile')
 
     T=>extract_scalar_field(state, field_name)
     T_old=>extract_scalar_field(state, "Old"//field_name)
-    X=>extract_vector_field(state, "Coordinate")
+    T_ref=>extract_scalar_field(state, "HydrostaticReference"//field_name, stat=stat)
+    if (stat == 0) have_reference=.true.
+    
+    density=>extract_scalar_field(state, "Density")
+    old_density=>extract_scalar_field(state, "OldDensity")
 
     ! Reset T to value at the beginning of the timestep.
     call set(T, T_old)
@@ -536,6 +629,8 @@ contains
     call allocate(rhs, T%mesh, trim(field_name)//" RHS")
     call allocate(rhs_diff, T%mesh, trim(field_name)//" Diffusion RHS")
    
+    equation_type=equation_type_index(trim(t%option_path))
+
     call construct_advection_diffusion_dg(matrix, rhs, field_name, state, &
          mass=mass, diffusion_m=matrix_diff, diffusion_rhs=rhs_diff, semidiscrete=.true., &
          velocity_name=velocity_name)
@@ -602,6 +697,8 @@ contains
           limiter=LIMITER_FPN
        case("Vertex_Based")
           limiter=LIMITER_VB
+       case("Vertex_Based_Julien")
+          limiter=LIMITER_VBJ
        case default
           FLAbort('No such limiter')
        end select
@@ -609,18 +706,22 @@ contains
     end if
 
     U_nl=>extract_vector_field(state, velocity_name)
+    X=>extract_vector_field(state, "Coordinate")
 
     do i=1, subcycles
-       
+
        ! dT = Advection * T
        call mult(delta_T, matrix, T)
+       
        ! dT = dT + RHS
        call addto(delta_T, RHS, -1.0)
+       
        ! dT = M^(-1) dT
        call dg_apply_mass(inv_mass, delta_T)
-       
+
        ! T = T + dt/s * dT
        call addto(T, delta_T, scale=-dt/subcycles)
+    
        call halo_update(T)
        if (limit_slope) then
           ! Filter wiggles from T
@@ -632,10 +733,20 @@ contains
     if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion) then
        ! Form RHS of diffusion equation.
        call mult(delta_T, matrix_diff, T)
+
        call addto(RHS_diff, delta_T,-1.0)
-    
+       
+       call zero(delta_T)
+       if (have_reference.and.have_subtract_reference) then
+         call mult(delta_T, matrix_diff, T_ref)
+
+         call addto(RHS_diff, delta_T)
+       endif
+       
        call scale(matrix_diff, theta*dt)
+
        call addto(matrix_diff,mass)
+
        call zero(delta_T) ! Impose zero initial guess.
        ! Solve for the change in T.
        call petsc_solve(delta_T, matrix_diff, RHS_diff, state)
@@ -643,7 +754,7 @@ contains
        ! Add the change in T to T.
        call addto(T, delta_T, dt)
     end if
-    
+        
     call deallocate(delta_T)
     call deallocate(matrix)
     call deallocate(matrix_diff)
@@ -700,10 +811,19 @@ contains
     !! Tracer to be solved for.
     type(scalar_field) :: T
     !! Diffusivity
+    character(len=OPTION_PATH_LEN) :: les_option_path, forcing_option_path
     type(tensor_field) :: Diffusivity
+    type(vector_field) :: U_les
 
     !! Source and absorption
     type(scalar_field) :: Source, Absorption
+    type(scalar_field) :: MicroSource, RadSource
+    type(scalar_field), pointer :: tke_source
+    
+    !! Initial tracer_field
+    type(scalar_field) :: T_0
+    !! Horizontally averaged scalar field
+    type(scalar_field) :: T_hmean
 
     !! Local velocity name
     character(len = FIELD_NAME_LEN) :: lvelocity_name
@@ -715,16 +835,23 @@ contains
     integer :: stat
 
     !! Gravitational sinking term
-    type(scalar_field) :: Sink
+    type(scalar_field) :: Sink, Sink_remap
     !! Direction of gravity
     type(vector_field) :: gravity
     !! Backup of U_nl for calculating sinking
     type(vector_field) :: U_nl_backup
+    !! Velocity Divergence field.
+    type(scalar_field) :: divergence, divergence_backup
     !! Buoyancy and gravity
     type(scalar_field) :: buoyancy
     type(scalar_field) :: buoyancy_from_state
     real :: gravity_magnitude
     real :: mixing_diffusion_amplitude
+
+    !! Pressure and density for internal energy equation
+    type(scalar_field), pointer :: pressure, old_pressure, density, old_density
+    type(scalar_field) :: sound_speed, gamma, qc_p, qc_v
+    type(scalar_field) :: pressure_scale
 
     !! Mesh for auxiliary variable
     type(mesh_type), save :: q_mesh
@@ -739,23 +866,34 @@ contains
     !! (see below call to get_entire_boundary_condition):
     integer, dimension(:), allocatable :: bc_type
 
-    type(mesh_type), pointer :: mesh_cg
+    type(mesh_type), pointer :: mesh_cg, pmesh
     
     ! Porosity field
     type(scalar_field) :: porosity_theta
     
     !! Add the Source directly to the right hand side?
-    logical :: add_src_directly_to_rhs
+    logical :: add_src_directly_to_rhs, clean_up
 
+    !! Nudging or sponge layer forcing
+    real :: time_scale, alpha
+    integer :: nits
+
+    !! Large scale subsidence
+    real :: ls_divergence
+    type(vector_field) :: X_vel
+    type(scalar_field) :: Subsidence, T_subs, Z
 
     type(integer_set), dimension(:), pointer :: colours
-    integer :: len, clr, nnid
+    integer :: len, clr, nnid, i
     !! Is the transform_to_physical cache we prepopulated valid
     logical :: cache_valid
     integer :: num_threads
 
     !! Diffusivity to add due to the buoyancy adjustment by vertical mixing scheme
     type(scalar_field) :: buoyancy_adjustment_diffusivity
+    
+    logical :: compressible
+    type(scalar_field), target :: dummydensity
 
     ewrite(1,*) "Writing advection-diffusion equation for "&
          &//trim(field_name)
@@ -794,9 +932,9 @@ contains
     if (.not.have_option(trim(T%option_path)//"/prognostic"//&
          &"/spatial_discretisation/discontinuous_galerkin"//&
          &"/advection_scheme/none")) then
+       include_advection=.true.
        U_nl_backup=extract_vector_field(state, lvelocity_name)
        call incref(U_nl_backup)
-       include_advection=.true.
     else
        ! Forcing a zero NonlinearVelocity will disable advection.
        U=extract_vector_field(state, "Velocity", stat)
@@ -814,48 +952,64 @@ contains
          &"/spatial_discretisation/discontinuous_galerkin"//&
          &"/advection_scheme/lax_friedrichs")) then
        flux_scheme=LAX_FRIEDRICHS_FLUX
+    else if (have_option(trim(T%option_path)//"/prognostic"//&
+         &"/spatial_discretisation/discontinuous_galerkin"//&
+         &"/advection_scheme/hll")) then
+       flux_scheme=HLL_FLUX
+    
     end if
-
+    
     call allocate(U_nl, U_nl_backup%dim, U_nl_backup%mesh, "LocalNonlinearVelocity")
     call set(U_nl, U_nl_backup)
 
-
-    Diffusivity=extract_tensor_field(state, trim(field_name)//"Diffusivity"&
-         &, stat=stat)
-    if (stat/=0) then
-       call allocate(Diffusivity, T%mesh, trim(field_name)//"Diffusivity",&
-            FIELD_TYPE_CONSTANT)
-       call zero(Diffusivity)
-       include_diffusion=.false.
+    have_velocity_divergence=.false.
+    if (.not.have_option(trim(T%option_path)//"/prognostic"//&
+         &"/spatial_discretisation/discontinuous_galerkin"//&
+         &"/advection_scheme/none") .and. &
+         &have_option(trim(T%option_path)//"/prognostic/spatial_discretisation"//&
+         &"/discontinuous_galerkin/advection_scheme"//&
+         &"/include_projected_divergence")) then
+       have_velocity_divergence=.true.
+       divergence_backup=extract_scalar_field(state, "ProjectedDivergence", stat)
+       call incref(divergence_backup)
     else
-       ! Grab an extra reference to cause the deallocate below to be safe.
-       call incref(Diffusivity)
-       include_diffusion=.true.
-    end if
-
-    Source=extract_scalar_field(state, trim(field_name)//"Source"&
-         &, stat=stat)
+       call allocate(divergence_backup, U_nl_backup%mesh, "BackupDivergence")
+       call zero(divergence_backup)
+    endif
+    call allocate(divergence, divergence_backup%mesh, "LocalDivergence")
+    call set(divergence, divergence_backup)
+    ewrite_minmax(divergence)
+    
+    ! Sources
+    Source=extract_scalar_field(state,trim(field_name)//"Source", stat=stat)
     if (stat/=0) then
-       call allocate(Source, T%mesh, trim(field_name)//"Source",&
-            FIELD_TYPE_CONSTANT)
+      if (has_scalar_field(state, trim(field_name)//"MicrophysicsSource") .and. &
+          have_option('/material_phase[0]/cloud_microphysics/time_integration::Direct')) &
+	Source=extract_scalar_field(state,trim(field_name)//"MicrophysicsSource", stat=stat)
+      if (has_scalar_field(state, trim(field_name)//"RadiationSource")) then
+	RadSource=extract_scalar_field(state,trim(field_name)//"RadiationSource", stat=stat)
+        if (stat==0) call addto(Source,RadSource)
+      endif
+    endif
+
+    if (stat/=0) then
+       call allocate(Source, T%mesh, trim(field_name)//"Source",FIELD_TYPE_CONSTANT)
        call zero(Source)
-       
        add_src_directly_to_rhs = .false.
     else
        ! Grab an extra reference to cause the deallocate below to be safe.
        call incref(Source)
-      
        add_src_directly_to_rhs = have_option(trim(Source%option_path)//'/diagnostic/add_directly_to_rhs')
-      
        if (add_src_directly_to_rhs) then 
           ewrite(2, *) "Adding Source field directly to the right hand side"
           assert(node_count(Source) == node_count(T))
        end if
-
+       ewrite_minmax(Source)
     end if
-
-    Absorption=extract_scalar_field(state, trim(field_name)//"Absorption"&
-         &, stat=stat)
+    
+    ! Absorption terms
+    Absorption=extract_scalar_field(state, trim(field_name)//"Absorption", &
+        & stat=stat)
     if (stat/=0) then
        call allocate(Absorption, T%mesh, trim(field_name)//"Absorption",&
             FIELD_TYPE_CONSTANT)
@@ -863,20 +1017,136 @@ contains
     else
        ! Grab an extra reference to cause the deallocate below to be safe.
        call incref(Absorption)
+       ewrite_minmax(Absorption)
     end if
+       
+    have_sponge=.false.
+    have_nudge=.false.
+    have_horizontal_mean=.false.
+    have_atmos_forcing=.false.
+    call allocate(T_0, T%mesh, trim(T%name)//"Initial")
+    call zero(T_0)
+    call allocate(T_hmean, T%mesh, trim(T%name)//"Horizontal")
+    call zero(T_hmean)    
+    if (have_option(trim(Absorption%option_path)//'/diagnostic/algorithm::atmosphere_forcing_scalar')) then
+      forcing_option_path=trim(Absorption%option_path)//'/diagnostic/algorithm::atmosphere_forcing_scalar'
+      have_atmos_forcing=.true.
+      
+      call initialise_field(state,T_0,forcing_option_path,X,field_name=trim(T%name))
+      ewrite_minmax(T_0)
+    
+      if (have_option(trim(forcing_option_path)//'/sponge_layer_scalar_absorption')) then
+        have_sponge=.true.
+        ewrite(2,*) 'At least one sponge layer for scalar '//trim(T%name)
+      endif
+    
+      if (have_option(trim(forcing_option_path)//'/scalar_nudging')) then
+        have_nudge=.true.
+        have_horizontal_mean= &
+             have_option(trim(forcing_option_path)//'/scalar_nudging/use_horizontal_mean')
+	
+        if (have_horizontal_mean) then
+          call get_option(trim(forcing_option_path)//'/scalar_nudging/use_horizontal_mean/number_of_iterations',nits)
+          call get_option(trim(forcing_option_path)//'/scalar_nudging/use_horizontal_mean/alpha',alpha)
+	  call calculate_horizontal_filter(state, T, T_hmean, nits=nits, alpha=alpha, base_path=T%option_path, horizontal=.true.)
+        endif
+	
+        ewrite(2,*) 'Have nudging for '//trim(T%name)
+        ewrite_minmax(T_hmean)
+      endif
+    endif
+    
+    ! Large scale subsidence as a source
+    call allocate(Subsidence, T%mesh, "Subsidence")	 
+    call allocate(T_subs, T%mesh, "SubsidenceScalar")
+    call zero(Subsidence)
+    call zero(T_subs)
+    have_subsidence=have_option(trim(T%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/subsidence")
+    if (have_subsidence) then   
+      call get_option(trim(T%option_path)//&
+           &"/prognostic/spatial_discretisation/discontinuous_galerkin/subsidence", &
+           &ls_divergence)
+      have_horizontal_mean= &
+          have_option(trim(T%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/subsidence/use_horizontal_average")
+
+      if (have_horizontal_mean) then
+        call get_option(trim(T%option_path)//'/prognostic/spatial_discretisation/discontinuous_galerkin/subsidence/use_horizontal_mean/number_of_iterations',nits)
+        call get_option(trim(T%option_path)//'/prognostic/spatial_discretisation/discontinuous_galerkin/subsidence/use_horizontal_mean/alpha',alpha)
+        
+        call calculate_horizontal_filter(state, T, T_subs, nits=nits, alpha=alpha, base_path=T%option_path, horizontal=.true.)
+      ewrite_minmax(T_subs)
+      else
+        call addto(T_subs, T)
+      endif
+      
+      call allocate(X_vel, X%dim, T%mesh, "RemapPosition")    
+      call allocate(Z, T%mesh, "RemapVerticalPosition")    
+      
+      call remap_field(X,X_vel)
+      Z = extract_scalar_field_from_vector_field(X_vel,X%dim)
+      call set(Subsidence,-1.*ls_divergence)       
+      call scale(Subsidence,Z)
+      
+      call deallocate(Z)
+      call deallocate(X_vel)
+      
+      ewrite(2,*) 'Large scale subsidence for scalar ', trim(T%name)
+      ewrite_minmax(T_subs)
+    endif
+        
+    ! Sink terms
+    call get_option("/physical_parameters/gravity/magnitude", gravity_magnitude)
+    gravity=extract_vector_field(state, "GravityDirection")
 
     Sink=extract_scalar_field(state, trim(field_name)//"SinkingVelocity"&
          &, stat=stat)
     if (stat==0) then
-       gravity=extract_vector_field(state, "GravityDirection")
-
-       ! this may perform a "remap" internally from CoordinateMesh to VelocityMesh
-       call addto(U_nl, gravity, scale=Sink)
-       ! Gravitational sinking only makes sense if you include advection
-       ! terms.
+       call allocate(Sink_remap,U_nl%mesh,"RemappedSinkingVelocity")
+       call set(Sink_remap,0.0)
+       call safe_set(state,Sink_remap,Sink)
+       
+       ! Use safe_set to avoid problems when remapping from discontinuous to continuous mesh
+       call addto(U_nl, gravity, scale=Sink_remap)
+       
+       ! Gravitational sinking only makes sense if you include advection terms.
        include_advection=.true.
+       call deallocate(Sink_remap)
     end if
 
+    call allocate(dummydensity, T%mesh, "DummyDensity", field_type=FIELD_TYPE_CONSTANT)
+    call set(dummydensity,1.0)
+		              
+    compressible=have_option(trim(state%option_path)//'/equation_of_state/compressible')
+    if (compressible) then
+       pressure => extract_scalar_field(state,"Pressure",stat=stat)
+       old_pressure => extract_scalar_field(state,"OldPressure",stat=stat)
+       density => extract_scalar_field(state,"Density",stat=stat)
+       old_density => extract_scalar_field(state,"OldDensity",stat=stat)
+       
+       
+       call allocate(gamma, pressure%mesh, "Gamma")
+       call allocate(qc_p, pressure%mesh, "C_P")
+       call allocate(qc_v, pressure%mesh, "C_V")
+       call allocate(sound_speed, pressure%mesh, "Sound")
+       call compressible_eos(state, full_pressure=pressure, qc_p=qc_p, qc_v=qc_v, sound_speed=sound_speed)
+       call set(gamma,qc_v)
+       call invert(gamma)
+       call scale(gamma,qc_p)
+
+       ! Calculate scaling for pressure depending on Internal Energy variable  
+       if (equation_type == FIELD_EQUATION_INTERNALENERGY) then
+         call allocate (pressure_scale,pressure%mesh,"PressureScale")     
+         call scale_pressure (t, state, pressure, pressure_scale) 
+       endif
+       call deallocate(qc_p)
+       call deallocate(qc_v)
+    else
+       pressure => dummydensity
+       density => dummydensity
+       old_pressure => dummydensity
+       old_density => dummydensity
+    endif
+    
     ! Porosity
     if (have_option(trim(T%option_path)//'/prognostic/porosity')) then
        include_porosity = .true.
@@ -888,6 +1158,49 @@ contains
        call allocate(porosity_theta, T%mesh, field_type=FIELD_TYPE_CONSTANT)
        call set(porosity_theta, 1.0)
     end if
+    
+    ! LES, Diffusivity options
+    have_les=have_option(trim(T%option_path)//'/prognostic/spatial_discretisation/discontinuous_galerkin/les_model')
+    have_richardson=.false.; have_eddy_diffusivity=.false.
+    if (have_les) then
+       les_option_path=(trim(T%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/les_model")
+       
+       les_second_order=have_option(trim(les_option_path)//"/second_order")
+       les_tke=have_option(trim(les_option_path)//"/tke")
+       if (les_second_order .or. les_tke) then
+          if (les_tke .and. (.not.has_scalar_field(state,"TurbulentKineticEnergy"))) &
+              FLAbort("TKE subgrid scale model selected, but no TurbulentKineticEnergy field")
+          have_eddy_diffusivity=.true.
+
+    	  ! Initialise the eddy diffusivity field. Calling this subroutine works because
+    	  ! you can't have 2 different types of LES model for the same material phase.
+	  have_richardson=has_scalar_field(state,"RichardsonNumber")
+    	  call les_init_diagnostic_fields(state, .true., .false., .false., .false., have_richardson)
+
+	  ! Compute eddy diffusivity
+	  if (have_eddy_diffusivity)  &
+	         call compute_les_scalar_dg (state, X, U_nl, T, density, gravity_magnitude, les_option_path)
+       endif
+    
+       if (les_tke .and. trim(T%name)=="TurbulentKineticEnergy") then
+         tke_source=>extract_scalar_field(state, "TKESource", stat=stat)
+         if (stat == 0) call addto(Source,tke_source)
+       endif
+    endif
+    
+    Diffusivity=extract_tensor_field(state, trim(field_name)//"Diffusivity"&
+         &, stat=stat)
+    if (stat/=0) then
+       call allocate(Diffusivity, T%mesh, trim(field_name)//"Diffusivity",&
+            FIELD_TYPE_CONSTANT)
+       call zero(Diffusivity)
+       include_diffusion=.false.
+    else
+       ! Grab an extra reference to cause the deallocate below to be safe.
+       call incref(Diffusivity)
+       include_diffusion=.true.
+       ewrite_minmax(Diffusivity)
+    end if    
 
     ! Retrieve scalar options from the options dictionary.
     if (.not.semi_discrete) then
@@ -942,11 +1255,13 @@ contains
     ! BCTYPE_WEAKDIRICHLET=1)
     allocate( bc_type(1:surface_element_count(T)) )
     call get_entire_boundary_condition(T, &
-       & (/"weakdirichlet", &
-       &   "dirichlet    ", &
-       &   "neumann      "/), &
-       & bc_value, bc_type)
-
+       & (/"weakdirichlet       ",   &
+       &   "dirichlet           ",   &
+       &   "neumann             ",   &
+       &   "flux                ",   &
+       &   "surface_ocean_COARE3"/), &
+       &   bc_value, bc_type)
+    
     call zero(big_m)
     call zero(RHS)
     if (present(mass)) call zero(mass)
@@ -964,8 +1279,8 @@ contains
         call zero(buoyancy)
         ! Grab an extra reference to cause the deallocate below to be safe.
         ! Check this is OK
-        call lumped_mass_galerkin_projection_scalar(state, buoyancy, buoyancy_from_state)
         ewrite(3,*) "Buoyancy adjustment by vertical mixing: projecting to continuous space"
+        call lumped_mass_galerkin_projection_scalar(state, buoyancy, buoyancy_from_state)
       else
         ewrite(3,*) "Buoyancy adjustment by vertical mixing: no projection"
         buoyancy = extract_scalar_field(state, "VelocityBuoyancyDensity", stat)
@@ -991,21 +1306,21 @@ contains
       ! Check if the diagnostic associated with the buoyancy adjustment by vertical mixing scheme is required
       buoyancy_adjustment_diffusivity = extract_scalar_field(state, "BuoyancyAdjustmentDiffusivity", stat)
       if (stat==0) then
-        have_buoyancy_adjustment_diffusivity = .true.
-        ewrite(3,*) "Buoynacy adjustment by vertical mixing: Updating BuoyancyAdjustmentDiffusivity field."
+	have_buoyancy_adjustment_diffusivity = .true.
+	ewrite(3,*) "Buoynacy adjustment by vertical mixing: Updating BuoyancyAdjustmentDiffusivity field."
       else
-        have_buoyancy_adjustment_diffusivity = .false.
+	have_buoyancy_adjustment_diffusivity = .false.
       end if
-
+      
     end if
 
     if (include_diffusion) then
        call get_mesh_colouring(state, T%mesh, COLOURING_DG2, colours)
 #ifdef _OPENMP
       if(diffusion_scheme == MASSLUMPED_RT0) then
-         call omp_set_num_threads(1)
-         ewrite(1,*) "WARNING: hybrid assembly can't support The MASSLUMPED_RT0 scheme yet, &
-         set threads back to 1"
+	 call omp_set_num_threads(1)
+	 ewrite(1,*) "WARNING: hybrid assembly can't support The MASSLUMPED_RT0 scheme yet, &
+	 set threads back to 1"
       endif
 #endif
     else
@@ -1026,32 +1341,44 @@ contains
 
       !$OMP DO SCHEDULE(STATIC)
       element_loop: do nnid = 1, len
-       ele = fetch(colours(clr), nnid)
-       call construct_adv_diff_element_dg(ele, big_m, rhs, big_m_diff,&
-            & rhs_diff, X, X_old, X_new, T, U_nl, U_mesh, Source, &
-            & Absorption, Diffusivity, bc_value, bc_type, q_mesh, mass, &
-            & buoyancy, gravity, gravity_magnitude, mixing_diffusion_amplitude, &
+       ele = fetch(colours(clr), nnid) 
+       call construct_adv_diff_element_dg(state, ele, big_m, rhs, big_m_diff,&
+            & rhs_diff, X, X_old, X_new, T, T_0, U_nl, U_mesh, divergence, &
+	    & density, old_density, Source, Subsidence, T_subs, T_hmean, Absorption, Diffusivity, &
+            & pressure, old_pressure, pressure_scale, sound_speed, gamma, &
+            & bc_value, bc_type, q_mesh, mass, &
+            & buoyancy, gravity, gravity_magnitude, mixing_diffusion_amplitude,&
             & buoyancy_adjustment_diffusivity, &
-            & add_src_directly_to_rhs, porosity_theta) 
+            add_src_directly_to_rhs, porosity_theta) 
        
       end do element_loop
       !$OMP END DO
 
     end do colour_loop
     !$OMP END PARALLEL
-
     call profiler_toc(t, "advection_diffusion_dg_loop")
+
     ! Add the source directly to the rhs if required 
     ! which must be included before dirichlet BC's.
     if (add_src_directly_to_rhs) call addto(rhs, Source)
     
     ! Drop any extra field references.
     if (have_buoyancy_adjustment_by_vertical_diffusion) call deallocate(buoyancy)
+    if (compressible.and.equation_type==FIELD_EQUATION_INTERNALENERGY)  call deallocate(pressure_scale)
+    if (compressible) call deallocate (gamma)
+    if (compressible) call deallocate(sound_speed)
+    call deallocate(T_0)
+    call deallocate(T_hmean)
+    call deallocate(dummydensity)
     call deallocate(Diffusivity)
+    call deallocate(Subsidence)
+    call deallocate(T_subs)
     call deallocate(Source)
     call deallocate(Absorption)
     call deallocate(U_nl)
     call deallocate(U_nl_backup)
+    call deallocate(divergence)
+    call deallocate(divergence_backup)
     call deallocate(bc_value)
     call deallocate(porosity_theta)
     
@@ -1143,9 +1470,10 @@ contains
          
    end subroutine lumped_mass_galerkin_projection_scalar
 
-   subroutine construct_adv_diff_element_dg(ele, big_m, rhs, big_m_diff,&
-       & rhs_diff, &
-       & X, X_old, X_new, T, U_nl, U_mesh, Source, Absorption, Diffusivity,&
+   subroutine construct_adv_diff_element_dg(state, ele, big_m, rhs, big_m_diff, rhs_diff, &
+       & X, X_old, X_new, T, T_0, U_nl, U_mesh, divergence, Rho, OldRho, Source, &
+       & Subsidence, T_subs, T_hmean, Absorption, Diffusivity,&
+       & pressure, old_pressure, pressure_scale, sound_speed, gamma, &
        & bc_value, bc_type, &
        & q_mesh, mass, buoyancy, gravity, gravity_magnitude, mixing_diffusion_amplitude, &
        & buoyancy_adjustment_diffusivity, &
@@ -1153,6 +1481,8 @@ contains
     !!< Construct the advection_diffusion equation for discontinuous elements in
     !!< acceleration form.
     implicit none
+    !! State
+    type(state_type), intent(inout) :: state
     !! Index of current element
     integer :: ele
     !! Main advection and diffusion matrices.
@@ -1171,16 +1501,22 @@ contains
     
     !! Position and velocity.
     type(vector_field), intent(in) :: X, U_nl
+    type(scalar_field), intent(in) :: divergence
     type(vector_field), pointer :: X_old, X_new, U_mesh
+    !! Sources and absorption
+    type(scalar_field), intent(inout) :: T, T_0, Rho, OldRho, Source, Absorption
+    type(scalar_field), intent(inout) :: Subsidence, T_subs, T_hmean
+    
+    ! Pressure term for internal energy equation
+    type(scalar_field), intent(in) ::pressure, old_pressure, pressure_scale, sound_speed, gamma
 
-    type(scalar_field), intent(in) :: T, Source, Absorption
     !! Diffusivity
     type(tensor_field), intent(in) :: Diffusivity
 
     !! Diffusivity to add due to the buoyancy adjustment by vertical mixing scheme
     type(scalar_field), intent(inout) :: buoyancy_adjustment_diffusivity
     
-    !! If adding Source directly to rhs then
+    !! If adding Source/Absorption directly to rhs then
     !! do nothing with it here
     logical, intent(in) :: add_src_directly_to_rhs
     
@@ -1209,15 +1545,12 @@ contains
     real, dimension(mesh_dim(T), ele_loc(q_mesh,ele), &
          ele_and_faces_loc(T,ele)) :: Grad_T_mat, Div_T_mat 
 
-    real, dimension(ele_face_count(T,ele), mesh_dim(T), ele_loc(q_mesh,ele), &
-         ele_and_faces_loc(T,ele)) :: Grad_T_face_mat
-
     real, dimension(ele_and_faces_loc(T,ele),ele_and_faces_loc(T,ele)) ::&
          & Diffusivity_mat
     real, dimension(Diffusivity%dim(1), Diffusivity%dim(2), &
          & ele_loc(Diffusivity,ele)) :: Diffusivity_ele
-    
 
+ 
     ! Local assembly matrices.
     real, dimension(ele_loc(T,ele), ele_loc(T,ele)) :: l_T_mat
     real, dimension(ele_loc(T,ele)) :: l_T_rhs
@@ -1225,8 +1558,6 @@ contains
     ! Local node number map for 2nd order element.
     integer, dimension(ele_and_faces_loc(T,ele)) :: local_glno
 
-    ! Local variables.
-    
     ! Neighbour element, face and neighbour face.
     integer :: ele_2, face, face_2, ele_2_X
     ! Count variable for loops over dimension.
@@ -1245,18 +1576,24 @@ contains
     ! Transformed gradient function for velocity.
     real, dimension(ele_loc(U_nl, ele), ele_ngi(U_nl, ele), mesh_dim(T)) ::&
          & du_t 
-    ! Transformed gradient function for grid velocity.
-    real, dimension(ele_loc(X, ele), ele_ngi(U_nl, ele), mesh_dim(T)) ::&
-         & dug_t 
+    ! Transformed gradient function for additional velocities.
+    real, dimension(ele_loc(U_nl, ele), ele_ngi(U_nl, ele), mesh_dim(T)) ::&
+         & dug_t
     ! Transformed gradient function for auxiliary variable.
     real, dimension(ele_loc(q_mesh,ele), ele_ngi(q_mesh,ele), mesh_dim(T)) :: dq_t
     ! Different velocities at quad points.
     real, dimension(U_nl%dim, ele_ngi(U_nl, ele)) :: u_nl_q
-    real, dimension(ele_ngi(U_nl, ele)) :: u_nl_div_q
+    real, dimension(ele_ngi(U_nl, ele))  :: u_nl_div_q
+    ! Transform density to physical
+    type(element_type), pointer :: rho_shape
+    real, dimension(ele_loc(Rho, ele), ele_ngi(Rho, ele), mesh_dim(Rho)) :: drho_t    
+    ! Density at quad points
+    real, dimension(ele_ngi(Rho, ele)) :: rho_q, old_rho_q
+    real, dimension(mesh_dim(Rho), ele_ngi(Rho, ele)) :: rho_grad_q
 
     ! Node and shape pointers.
     integer, dimension(:), pointer :: t_ele
-    type(element_type), pointer :: t_shape, u_shape, q_shape
+    type(element_type), pointer :: t_shape, u_shape, uproj_shape, q_shape
     ! Neighbours of this element.
     integer, dimension(:), pointer :: neigh, x_neigh
     ! Whether the tracer field is continuous.
@@ -1297,6 +1634,7 @@ contains
     real, dimension(ele_loc(T,ele), ele_ngi(T,ele), mesh_dim(T)) :: dt_rho
     real, dimension(mesh_dim(T), ele_ngi(T,ele)) :: grad_rho
     real, dimension(mesh_dim(T),ele_ngi(T,ele)) :: grav_at_quads
+    real, dimension(ele_ngi(T,ele)) :: density_at_quad
     real, dimension(ele_ngi(T,ele)) :: buoyancysample 
     real, dimension(ele_ngi(T,ele)) :: drho_dz
     real, dimension(mesh_dim(T), mesh_dim(T), T%mesh%shape%ngi) :: mixing_diffusion
@@ -1311,7 +1649,12 @@ contains
     real, dimension(X%dim, X%dim, ele_loc(T, ele)) :: mixing_diffusion_rhs, mixing_diffusion_loc
     real, dimension(ele_loc(T, ele), ele_loc(T, ele)) :: t_mass 
     real, dimension(ele_ngi(T, ele)) :: detwei_rho
-
+    
+    ! For subsidence
+    real, dimension(ele_loc(T_subs, ele), ele_ngi(T_subs, ele), mesh_dim(T_subs)) :: dts_t
+    type(element_type), pointer :: t_subs_shape
+    real, dimension(mesh_dim(T_subs),ele_ngi(T,ele)) :: dtsdz
+    
     ! element centre and neighbour centre
     ! for IP parameters
 
@@ -1319,7 +1662,6 @@ contains
          & face_centre, face_centre_2
 
     !Debugging variables
-
     real, dimension(ele_loc(T,ele)) :: test_vals
     real, dimension(ele_ngi(T,ele)) :: test_vals_out_1, test_vals_out_2
     real :: test_val
@@ -1376,13 +1718,14 @@ contains
             & t_shape , dshape=dt_t, detwei=detwei)
     else
        call transform_to_physical(X,ele,&
-            & t_shape , dshape=dt_t, detwei=detwei, J=J_mat)
+         & t_shape , dshape=dt_t, detwei=detwei, J=J_mat)
     end if
 
     ! Transform U_nl derivatives and weights into physical space.
     call transform_to_physical(X,ele,&
          & u_shape , dshape=du_t)
     
+    ! Transform density into physical space.
     if ((include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion).and..not.primal) then
        ! Transform q derivatives into physical space.
        call transform_to_physical(X,ele,&
@@ -1448,13 +1791,13 @@ contains
                  &* gravity_magnitude * dr**2 * gravity_at_node(i) * drho_dz(:)
          end do
        end if
-        
+	
        if(have_buoyancy_adjustment_diffusivity) then
-        call set(buoyancy_adjustment_diffusivity, T_ele, mixing_diffusion_amplitude * dt&
-              &* gravity_magnitude * dr**2 * maxval(drho_dz(:)))
-         ewrite(4,*) "Buoynacy adjustment diffusivity, ele:", ele, "diffusivity:", mixing_diffusion_amplitude * dt * gravity_magnitude * dr**2 * maxval(drho_dz(:))
+	 call set(buoyancy_adjustment_diffusivity, T_ele, mixing_diffusion_amplitude * dt&
+	       &* gravity_magnitude * dr**2 * maxval(drho_dz(:)))
+	 ewrite(4,*) "Buoyancy adjustment diffusivity, ele:", ele, "diffusivity:", mixing_diffusion_amplitude * dt * gravity_magnitude * dr**2 * maxval(drho_dz(:))
        end if 
-        
+	
        !! Buoyancy adjustment by vertical mixing scheme debugging statements
        ewrite(4,*) "mixing_grad_rho", minval(grad_rho(:,:)), maxval(grad_rho(:,:))
        ewrite(4,*) "mixing_drho_dz", minval(drho_dz(:)), maxval(drho_dz(:))
@@ -1474,9 +1817,9 @@ contains
     !----------------------------------------------------------------------
     ! Construct element-wise quantities.
     !----------------------------------------------------------------------
-
+    
     Diffusivity_ele = ele_val(Diffusivity, ele) + mixing_diffusion_loc
-
+    
     !----------------------------------------------------------------------
     ! Construct bilinear forms.
     !----------------------------------------------------------------------
@@ -1489,87 +1832,97 @@ contains
       mass_mat = shape_shape(T_shape, T_shape, detwei_new)
     else
       if (include_porosity) then
-        assert(ele_ngi(T, ele)==ele_ngi(porosity_theta, ele))
-        mass_mat = shape_shape(T_shape, T_shape, detwei*ele_val_at_quad(porosity_theta, ele))      
+	assert(ele_ngi(T, ele)==ele_ngi(porosity_theta, ele))
+	mass_mat = shape_shape(T_shape, T_shape, detwei*ele_val_at_quad(porosity_theta, ele))	   
       else
-        mass_mat = shape_shape(T_shape, T_shape, detwei)
+	mass_mat = shape_shape(T_shape, T_shape, detwei)
       end if
-    end if
+    end if 
 
     if (include_advection) then
 
       ! Advecting velocity at quadrature points.
       U_nl_q=ele_val_at_quad(U_nl,ele)
-
+      rho_q=ele_val_at_quad(Rho,ele)
+      old_rho_q=ele_val_at_quad(OldRho,ele)
+      
       if(integrate_conservation_term_by_parts) then
-          ! Element advection matrix
-          !         /                                          /
-          !  - beta | (grad T dot U_nl) T Rho dV + (1. - beta) | T (U_nl dot grad T) Rho dV
-          !         /                                          /
-          
-          ! Introduce grid velocities in non-linear terms. 
-          Advection_mat = -beta* dshape_dot_vector_shape(dt_t, U_nl_q, t_shape, detwei)  &
-               + (1.-beta) * shape_vector_dot_dshape(t_shape, U_nl_q, dt_t, detwei)
-          if(move_mesh) then
-            if(integrate_by_parts_once) then
-              Advection_mat = Advection_mat &
-                              + dshape_dot_vector_shape(dt_t, ele_val_at_quad(U_mesh,ele), t_shape, detwei)
-            else
-              Advection_mat = Advection_mat &
-                              - shape_vector_dot_dshape(t_shape, ele_val_at_quad(U_mesh,ele), dt_t, detwei) &
-                              - shape_shape(t_shape, t_shape, ele_div_at_quad(U_mesh, ele, dug_t) * detwei)
+         ! Element advection matrix
+         !	   /					      /
+         !  - beta | (grad T dot U_nl) T Rho dV + (1. - beta) | T (U_nl dot grad T) Rho dV
+         !	   /					      /
+         
+	 ! Introduce grid velocities in non-linear terms. 
+	 Advection_mat = -beta* dshape_dot_vector_shape(dt_t, U_nl_q, t_shape, detwei)  &
+	 	       + (1.-beta) * shape_vector_dot_dshape(t_shape, U_nl_q, dt_t, detwei)
+	      
+	 if(move_mesh) then
+	   if(integrate_by_parts_once) then
+	     Advection_mat = Advection_mat &
+	        	     + dshape_dot_vector_shape(dt_t, ele_val_at_quad(U_mesh,ele), t_shape, detwei)
+	   else
+	     Advection_mat = Advection_mat &
+	        	     - shape_vector_dot_dshape(t_shape, ele_val_at_quad(U_mesh,ele), dt_t, detwei) &
+	        	     - shape_shape(t_shape, t_shape, ele_div_at_quad(U_mesh, ele, dug_t) * detwei)
+	   end if
+	 end if
+      else
+         ! Introduce grid velocities in non-linear terms. 
+         if(move_mesh) then
+           ! NOTE: modifying the velocities at the gauss points in this case!
+           U_nl_q = U_nl_q - ele_val_at_quad(U_mesh, ele)
+         end if
+         
+         if (have_velocity_divergence) then
+           U_nl_div_q=ele_val_at_quad(divergence, ele)
+         else
+	   U_nl_div_q=ele_div_at_quad(U_nl, ele, du_t)	 
+         endif
+         
+         if(integrate_by_parts_once) then
+            ! Element advection matrix
+            !	 /					    /
+            !  - | (grad T dot U_nl) T Rho dV - (1. - beta) | T ( div U_nl ) T Rho dV
+            !	 /					    /
+            Advection_mat = - dshape_dot_vector_shape(dt_t, U_nl_q, t_shape, detwei)  &
+        		  - shape_shape(t_shape, t_shape, U_nl_div_q * detwei)  		 
+         else
+            ! Element advection matrix
+            !  /				   /
+            !  | T (U_nl dot grad T) Rho dV + beta | T ( div U_nl ) T Rho dV
+            !  /				   /
+            Advection_mat = shape_vector_dot_dshape(t_shape, U_nl_q, dt_t, detwei)		   
+            
+            if(move_mesh) then
+               Advection_mat = Advection_mat &
+        	     - shape_shape(t_shape, t_shape, ele_div_at_quad(U_mesh, ele, dug_t) * detwei)
             end if
-          end if
-       else
-          ! Introduce grid velocities in non-linear terms. 
-          if(move_mesh) then
-            ! NOTE: modifying the velocities at the gauss points in this case!
-            U_nl_q = U_nl_q - ele_val_at_quad(U_mesh, ele)
-          end if
-          U_nl_div_q=ele_div_at_quad(U_nl, ele, du_t)
-          
-          if(integrate_by_parts_once) then
-             ! Element advection matrix
-             !    /                                          /
-             !  - | (grad T dot U_nl) T Rho dV - (1. - beta) | T ( div U_nl ) T Rho dV
-             !    /                                          /
-             Advection_mat = - dshape_dot_vector_shape(dt_t, U_nl_q, t_shape, detwei)  &
-                  - (1.-beta) * shape_shape(t_shape, t_shape, U_nl_div_q * detwei)
-          else
-             ! Element advection matrix
-             !  /                                   /
-             !  | T (U_nl dot grad T) Rho dV + beta | T ( div U_nl ) T Rho dV
-             !  /                                   /
-             Advection_mat = shape_vector_dot_dshape(t_shape, U_nl_q, dt_t, detwei)  &
-                  + beta * shape_shape(t_shape, t_shape, U_nl_div_q * detwei)
-             if(move_mesh) then
-                Advection_mat = Advection_mat &
-                      - shape_shape(t_shape, t_shape, ele_div_at_quad(U_mesh, ele, dug_t) * detwei)
-             end if
-          end if
-       end if
-       
-       ! Add stabilisation to the advection term if requested by the user.
-       if (stabilisation_scheme==UPWIND) then
-          ! NOTE: U_nl_q may (or may not) have been modified by the grid velocity
-          ! with a moving mesh.  Don't know what's appropriate so changes may be
-          ! required above!  Hence, this should FLAbort above.
-          Advection_mat = Advection_mat + &
-               element_upwind_stabilisation(t_shape, dt_t, U_nl_q, J_mat,&
-               & detwei)
-       end if
+         end if
+         
+         ! Add velocity divergence for conservative form
+         Advection_mat = Advection_mat &
+        	 + beta * shape_shape(t_shape, t_shape, U_nl_div_q * detwei)
+         
+      end if
+      
+      ! Add stabilisation to the advection term if requested by the user.
+      if (stabilisation_scheme==UPWIND) then
+         ! NOTE: U_nl_q may (or may not) have been modified by the grid velocity
+         ! with a moving mesh.  Don't know what's appropriate so changes may be
+         ! required above!  Hence, this should FLAbort above.
+         Advection_mat = Advection_mat + &
+        	element_upwind_stabilisation(t_shape, dt_t, U_nl_q, J_mat, detwei)
+      end if
 
     else
        Advection_mat=0.0
     end if
-
-    ! Absorption matrix.
-    Abs_mat = shape_shape(T_shape, T_shape, detwei*ele_val_at_quad(Absorption,ele))
-
+    
     ! Diffusion.
     Diffusivity_mat=0.0
-
-    if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion) then
+    
+    if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion.or.have_les) then
+       
        if (primal) then
           if(.not.remove_element_integral) then
 
@@ -1632,11 +1985,10 @@ contains
           call cholesky_factor(Q_inv)
           
           Grad_T_mat=0.0
-          Grad_T_face_mat=0.0
           Div_T_mat=0.0
-          Grad_T_mat(:, :, :size(T_ele)) = -dshape_shape(dq_t, T_shape,&
-               detwei)
-!!$       Grad_T_mat(:, :, :size(T_ele)) = shape_dshape(q_shape, dt_t, detwei)
+	  
+          Grad_T_mat(:, :, :size(T_ele)) = -dshape_shape(dq_t, T_shape, detwei)
+	  
           Div_T_mat(:, :, :size(T_ele)) = -shape_dshape(q_shape, dt_t, detwei)
        end if
     end if
@@ -1645,20 +1997,51 @@ contains
     ! Perform global assembly.
     !----------------------------------------------------------------------
 
+    ! Absorption matrix.
+    Abs_mat = shape_shape(T_shape, T_shape, detwei*ele_val_at_quad(Absorption,ele))
+    
     if (.not.semi_discrete) then
        ! Advection and absorbtion
-       l_T_rhs= - matmul(Advection_mat &
-            + Abs_mat(:,:), ele_val(T,ele))
+       l_T_rhs= - matmul(Advection_mat, ele_val(T,ele))
     else
        l_T_rhs=0.0
     end if
 
     ! Source term
     if (.not. add_src_directly_to_rhs) then
-       l_T_rhs=l_T_rhs &
-              + shape_rhs(T_shape, detwei*ele_val_at_quad(Source, ele))
+      l_T_rhs=l_T_rhs &
+             + shape_rhs(T_shape, detwei*ele_val_at_quad(Source, ele)) 
     end if
-        
+    
+    ! Subsidence term
+    if (have_subsidence) then
+      !Assemble subsidence term : Subsidence=-div*z*(dTsub/dz)
+      t_subs_shape=>ele_shape(T_subs, ele)
+      call transform_to_physical(X, ele, t_subs_shape , dshape=dts_t)
+      
+      dtsdz=ele_grad_at_quad(T_subs, ele, dts_t)
+      
+      l_T_rhs=l_T_rhs &
+            + shape_rhs(T_shape, detwei*dtsdz(mesh_dim(T_subs),:)*ele_val_at_quad(Subsidence, ele))
+    endif
+	     
+    ! Nudging w. horizontal mean
+    if (have_nudge.and.have_horizontal_mean) then
+       l_T_rhs=l_T_rhs - matmul(Abs_mat(:,:), ele_val(T_hmean,ele))
+    else if (.not.semi_discrete) then
+       l_T_rhs=l_T_rhs - matmul(Abs_mat(:,:), ele_val(T,ele))
+    endif    
+    
+    ! Sponge layer or nudging
+    if (have_sponge .or. have_nudge) then
+      l_T_rhs=l_T_rhs + matmul(Abs_mat(:,:), ele_val(T_0,ele))
+    endif
+    
+    ! Pressure contribution to internal energy equation.
+    if (equation_type == FIELD_EQUATION_INTERNALENERGY) then
+       call add_pressurediv_element_dg (ele, T_shape, t, U_nl, pressure, old_pressure, pressure_scale, du_t, detwei, l_T_rhs)
+    end if
+
     if(move_mesh) then
       l_T_rhs=l_T_rhs &
          -shape_rhs(T_shape, ele_val_at_quad(t, ele)*(detwei_new-detwei_old)/dt)
@@ -1669,9 +2052,10 @@ contains
     ! Assemble matrix.
     
     ! Advection.
-    l_T_mat= Advection_mat*theta*dt    &
-         ! Absorption.
-         + Abs_mat(:,:)*theta*dt
+    l_T_mat= Advection_mat*theta*dt 
+	 
+    ! Absorption.
+    if (.not.have_horizontal_mean) l_T_mat=l_T_mat + Abs_mat(:,:)*theta*dt
 
     if (present(mass)) then
        ! Return mass separately.
@@ -1769,8 +2153,8 @@ contains
 
        if(primal) then
           call construct_adv_diff_interface_dg(ele, face, face_2, ni,&
-               & centre_vec,& 
-               & big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, X, T, U_nl,&
+               & centre_vec, big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, X, T, U_nl, &
+	       & divergence, pressure, sound_speed, gamma, Rho, OldRho, &
                & bc_value, bc_type, &
                & U_mesh, q_mesh, cdg_switch_in, &
                & primal_fluxes_mat, ele2grad_mat,diffusivity, &
@@ -1788,10 +2172,10 @@ contains
 
        else
           call construct_adv_diff_interface_dg(ele, face, face_2, ni,&
-               & centre_vec,&
-               & big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, X, T, U_nl,&
+               & centre_vec, big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, X, T, U_nl, &
+	       & divergence, pressure, sound_speed, gamma, Rho, OldRho, &
                & bc_value, bc_type, &
-               & U_mesh, q_mesh)
+               & U_mesh, q_mesh, cdg_switch_in)
        end if
 
        if (dg) then
@@ -1904,6 +2288,23 @@ contains
     end if
 
   contains
+  
+    subroutine add_pressurediv_element_dg(ele, T_shape, t, U_nl, pressure, old_pressure, pressure_scale, du_t, detwei, l_T_rhs)
+  
+    integer, intent(in) :: ele
+    type(element_type), intent(in) :: T_shape
+    type(scalar_field), intent(in) :: t
+    type(vector_field), intent(in) :: U_nl
+    type(scalar_field), intent(in) :: pressure, old_pressure, pressure_scale
+    real, dimension(ele_ngi(t, ele)), intent(in) :: detwei
+    real, dimension(ele_loc(t, ele)), intent(inout) :: l_T_rhs
+    real, dimension(ele_loc(U_nl, ele), ele_ngi(U_nl, ele), mesh_dim(t)) :: du_t
+
+    l_T_rhs = l_T_rhs - shape_rhs(T_shape,detwei*ele_div_at_quad(U_nl,ele,du_t)* &
+         ele_val_at_quad(pressure_scale, ele)*(beta*ele_val_at_quad(pressure, ele)  & 
+	 + (1. - beta)*ele_val_at_quad(old_pressure, ele)))
+    
+    end subroutine add_pressurediv_element_dg
     
     subroutine local_assembly_arbitrary_upwind
       
@@ -1937,7 +2338,7 @@ contains
             ! Where G^T*G = inverse(Q_mass)
             Diffusivity_mat=Diffusivity_mat&
                  +matmul(matmul(transpose(grad_T_mat(dim1,:,:))&
-                 &         ,mat_diag_mat(Q_inv, Diffusivity_ele(dim1,dim2,:)))&
+                 &     ,mat_diag_mat(Q_inv, Diffusivity_ele(dim1,dim2,:)))&
                  &     ,grad_T_mat(dim2,:,:))
             
          end do
@@ -2085,7 +2486,7 @@ contains
     !!< = -\frac{1}{2} \int_e {\tau^+ + \tau^-}.(u^+n^+ + u^-n^-) dS
     !!< = -\frac{1}{2} \int_e {\tau^+ + \tau^-}.n^+(u^+ - u^-) dS
 
-      !!< Where + is the ele side, and - is the ele_2 side, and e is the edge
+    !!< Where + is the ele side, and - is the ele_2 side, and e is the edge
 
     !!< The lifting operator l^e is defined by
     !!< \int_E \tau . l^e(C_{12}.[u])dV = - \int_e C_{12}.[u][\tau] dS
@@ -2355,7 +2756,7 @@ contains
   
   subroutine construct_adv_diff_interface_dg(ele, face, face_2, &
        ni, centre_vec,big_m, rhs, rhs_diff, Grad_T_mat, Div_T_mat, &
-       & X, T, U_nl,&
+       & X, T, U_nl, divergence, P, Sound, Gamma, Rho, OldRho,&
        & bc_value, bc_type, &
        & U_mesh, q_mesh, CDG_switch_in, &
        & primal_fluxes_mat, ele2grad_mat,diffusivity, &
@@ -2372,12 +2773,12 @@ contains
     ! We pass these additional fields to save on state lookups.
     type(vector_field), intent(in) :: X, U_nl
     type(vector_field), pointer :: U_mesh
-    type(scalar_field), intent(in) :: T
+    type(scalar_field), intent(in) :: T, Rho, OldRho, P, Sound, Gamma, divergence
     !! Mesh of the auxiliary variable in the second order operator.
     type(mesh_type), intent(in) :: q_mesh
     !! switch for CDG fluxes
     logical, intent(inout), optional :: CDG_switch_in
-   !! Field over the entire surface mesh containing bc values:
+    !! Field over the entire surface mesh containing bc values:
     type(scalar_field), intent(in):: bc_value
     !! Integer array of all surface elements indicating bc type
     !! (see above call to get_entire_boundary_condition):
@@ -2402,14 +2803,19 @@ contains
 
     ! Note that both sides of the face can be assumed to have the same
     ! number of quadrature points.
-    real, dimension(U_nl%dim, face_ngi(U_nl, face)) :: normal, u_nl_q,&
-         & u_f_q, u_f2_q, div_u_f_q
+    real, dimension(U_nl%dim, face_ngi(U_nl, face)) :: normal, u_nl_q, div_u_f_q, &
+         & u_f_q, u_f2_q, ud_f_1, ud_f2_q
     logical, dimension(face_ngi(U_nl, face)) :: inflow
     real, dimension(face_ngi(U_nl, face)) :: u_nl_q_dotn, income
     ! Variable transform times quadrature weights.
     real, dimension(face_ngi(T,face)) :: detwei
     real, dimension(face_ngi(T,face)) :: inner_advection_integral, outer_advection_integral
 
+    ! For HLL fluxes
+    real, dimension(U_nl%dim,face_ngi(T,face)) :: advection_integral
+    real, dimension(face_ngi(U_nl, face)) :: p_f_q, p_f2_q, g_q, rho_q, c_q
+    real, dimension(face_ngi(U_nl, face)) :: p_star, s_star, q_plus, q_min, s_plus, s_min, u_star, t_plus, t_min
+    
     ! Bilinear forms
     real, dimension(face_loc(T,face),face_loc(T,face)) :: nnAdvection_out
     real, dimension(face_loc(T,face),face_loc(T,face_2)) :: nnAdvection_in
@@ -2418,7 +2824,7 @@ contains
     real, dimension(:,:,:), allocatable :: kappa_gi
 
     integer :: dim, start, finish
-    logical :: boundary, dirichlet, neumann
+    logical :: boundary, dirichlet, neumann, flux
 
     logical :: do_primal_fluxes
 
@@ -2462,11 +2868,14 @@ contains
     boundary=(face==face_2)
     dirichlet=.false.
     neumann=.false.
+    flux=.false.
     if (boundary) then
        if (bc_type(face)==BCTYPE_WEAKDIRICHLET) then
          dirichlet=.true.
        elseif (bc_type(face)==BCTYPE_NEUMANN) then
          neumann=.true.
+       elseif (bc_type(face)==BCTYPE_FLUX.or.bc_type(face)==BCTYPE_COARE) then
+         flux=.true.
        end if
     end if
 
@@ -2486,12 +2895,12 @@ contains
     !----------------------------------------------------------------------
 
     if (include_advection.and.(flux_scheme==UPWIND_FLUX)) then
-       
        ! Advecting velocity at quadrature points.
        u_f_q = face_val_at_quad(U_nl, face)
-       u_f2_q = face_val_at_quad(U_nl, face_2)
+       u_f2_q = face_val_at_quad(U_nl, face_2)       
+       
        U_nl_q=0.5*(u_f_q+u_f2_q)
-
+       
        if(p0_vel) then
          ! A surface integral around the inside of a constant
          ! velocity field will always produce zero so it's
@@ -2537,6 +2946,7 @@ contains
           inner_advection_integral = inner_advection_integral &
                                      - sum(u_f_q*normal,1)
        end if
+       
        if(integrate_conservation_term_by_parts) then
           if(integrate_by_parts_once) then
             inner_advection_integral = inner_advection_integral &
@@ -2547,15 +2957,17 @@ contains
                                        + beta*sum(div_u_f_q*normal,1)
           end if
        end if
-       nnAdvection_out=shape_shape(T_shape, T_shape,  &
-            &                     inner_advection_integral * detwei) 
-       
+	    
        ! now the integral around the outside of the element
        ! (this is the flux *in* to the element)
        outer_advection_integral = income * u_nl_q_dotn
+       
+       nnAdvection_out=shape_shape(T_shape, T_shape,  &
+            &                     inner_advection_integral * detwei) 
+	          
        nnAdvection_in=shape_shape(T_shape, T_shape_2, &
             &                       outer_advection_integral * detwei) 
-       
+              
     else if (include_advection.and.(flux_scheme==LAX_FRIEDRICHS_FLUX)) then
 
 !!$       if(p0_vel) then
@@ -2596,16 +3008,64 @@ contains
 
        nnAdvection_out=shape_shape(T_shape, T_shape,  &
             &                     inner_advection_integral * detwei) 
-
+       
        ! Velocity over exterior face:
        outer_advection_integral=&
             0.5*(sum(face_val_at_quad(U_nl, face_2)*normal,1)-C)
 
-       nnAdvection_in=shape_shape(T_shape, T_shape_2, &
-            &                       outer_advection_integral * detwei) 
+	nnAdvection_in=shape_shape(T_shape, T_shape_2, &
+             &                       outer_advection_integral * detwei) 
 
+              
+    else if (include_advection.and.(flux_scheme==HLL_FLUX)) then
+
+       u_f_q = face_val_at_quad(U_nl, face)
+       u_f2_q = face_val_at_quad(U_nl, face_2)       
+       p_f_q = face_val_at_quad(P, face)
+       p_f2_q = face_val_at_quad(P, face_2)       
+            
+       rho_q = 0.5*(face_val_at_quad(Rho, face)+face_val_at_quad(Rho, face_2))
+       c_q = 0.5*(face_val_at_quad(Sound, face)+face_val_at_quad(Sound, face_2))
+       g_q=0.5*(face_val_at_quad(Gamma, face)+face_val_at_quad(Gamma, face_2))  
+       
+       p_star=0.5*(p_f_q+p_f2_q) - 0.5*sum((u_f2_q-u_f_q)*normal,1)*rho_q*c_q
+       u_star=0.5*sum((u_f_q+u_f2_q)*normal,1) - 0.5*(p_f2_q-p_f_q)/(rho_q*c_q)
+       
+       q_min=1.
+       q_plus=1.
+       do i = 1, face_ngi(T,face)
+         if (p_star(i) > p_f2_q(i)) q_plus(i)=sqrt(1. + 0.5*(g_q(i)+1.)/g_q(i)*(p_star(i)/p_f2_q(i) - 1.))
+         if (p_star(i) > p_f_q(i)) q_min(i)=sqrt(1. + 0.5*(g_q(i)+1.)/g_q(i)*(p_star(i)/p_f_q(i) - 1.))
+       enddo
+       s_min=sum(u_f_q*normal,1) - face_val_at_quad(Sound, face)*q_min
+       s_plus=face_val_at_quad(Sound, face_2)*q_plus + sum(u_f2_q*normal,1)
+
+       t_min=(s_min-sum(normal*u_f_q,1))/(s_min-u_star)
+       t_plus=(s_plus-sum(normal*u_f2_q,1))/(s_plus-u_star)
+       
+       ! Velocity over interior face:
+       inner_advection_integral=0.0
+       outer_advection_integral=0.0
+       do i = 1, face_ngi(T,face)
+         if (s_min(i) >= 0.) then
+           inner_advection_integral(i)=sum(normal(:,i)*u_f_q(:,i))
+         else if (s_plus(i) <= 0.) then
+           outer_advection_integral(i)=sum(normal(:,i)*u_f2_q(:,i))
+         else if (s_min(i) <= 0. .and. u_star(i) >= 0.) then
+           inner_advection_integral(i)=sum(normal(:,i)*u_f_q(:,i)) + s_min(i)*(t_min(i) - 1.)
+	 else if (s_plus(i) >= 0. .and. u_star(i) <= 0.) then
+           outer_advection_integral(i)=sum(normal(:,i)*u_f2_q(:,i)) + s_plus(i)*(t_plus(i) - 1.)
+         endif
+       enddo
+       
+       nnAdvection_out=shape_shape(T_shape, T_shape,  &
+            &                      inner_advection_integral * detwei) 
+       
+       nnAdvection_in=shape_shape(T_shape, T_shape_2,  &
+            &                      outer_advection_integral * detwei) 
 
     end if
+    
     if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion) then
        
        if (continuity(T)<0) then
@@ -2630,6 +3090,7 @@ contains
              call get_normal_mat
           end select
        end if
+       
     end if
 
     !----------------------------------------------------------------------
@@ -2658,33 +3119,34 @@ contains
           ! this is automagic.
 
           if (.not.semi_discrete) then
-             call addto(RHS, T_face, &
+            call addto(RHS, T_face, &
                   ! Outflow boundary integral.
                   -matmul(nnAdvection_out,face_val(T,face))&
                   ! Inflow boundary integral.
-                  -matmul(nnAdvection_in,face_val(T,face_2)))
-          end if
+                  -matmul(nnAdvection_in,face_val(T,face_2)))	    
+	  end if
 
        else
 
           ! Inflow and outflow of Dirichlet value.
           call addto(RHS, T_face, &
-               -matmul(nnAdvection_in,&
-               ele_val(bc_value, face)))
-
+                 -matmul(nnAdvection_in,&
+                 ele_val(bc_value, face)))
+		 
           if(.not.semi_discrete) then
              ! The interior integral is still interior!
              call addto(RHS, T_face, &
-                  -matmul(nnAdvection_out,face_val(T,face)))
+                    -matmul(nnAdvection_out,face_val(T,face)))
           end if
-
+	  
        end if
-      
+ 
     end if
-
+    
    ! Add non-zero contributions from Neumann boundary conditions (if present)
-   if (neumann) then
-      call addto(RHS_diff, T_face, shape_rhs(T_shape, detwei * ele_val_at_quad(bc_value, face)))
+   if (boundary.and.(neumann.or.flux)) then
+      call addto(RHS_diff, T_face, shape_rhs(T_shape, detwei * ele_val_at_quad(bc_value,face)))
+       print*, 'add surface boundary for scalar ', trim(T%name)
    end if
 
   contains
@@ -3121,7 +3583,296 @@ contains
     end subroutine initialise_aijxy
      
   end function masslumped_rt0_aij
+
+  subroutine compute_les_scalar_dg (state, X, U, T, Rho, gravity, les_option_path)
+    implicit none    
+    type(state_type) :: state
+    type(scalar_field), intent(inout) :: T, Rho
+    type(vector_field), intent(inout) :: X, U
+    real, intent(in) :: gravity
+    character(len=OPTION_PATH_LEN), intent(in) :: les_option_path
+      
+    integer :: ele, stat, i
+    type(scalar_field), pointer :: pt
+    type(scalar_field) :: pt_remap
+    type(vector_field) :: grad_pt
+    type(scalar_field), target  :: dummyscalar
+    type(tensor_field), pointer :: Diffusivity
+    type(scalar_field), pointer :: TKE_source
+    type(tensor_field)          :: local_diffusivity
+    type(scalar_field)          :: local_tke_source
+    type(vector_field), dimension(x%dim) :: grad_U
+    logical :: have_sponge
+    type(scalar_field) :: sponge
     
+    call allocate(local_diffusivity, U%mesh, "LocalDiffusivity")
+    call allocate(local_tke_source, U%mesh, "LocalTKESource")
+    call allocate(dummyscalar, U%mesh, "DummyScalar")
+    call zero(dummyscalar)
+    call zero(local_diffusivity)
+    call zero(local_tke_source)	
+ 
+    ! Calculate gradients: Velocity and potential temperature
+    do i=1,X%dim
+      call allocate(grad_U(i), U%dim, U%mesh, "Grad_Ui")
+    end do
+    call grad(U, X, grad_U)
+       
+    call get_les_options(les_option_path, .false.)
+    
+    ! Calculate remapped potential temperature and gradient
+    if (les_second_order.and.buoyancy_correction) then
+      if (use_hydrostatic.and.has_scalar_field(state, "HydrostaticReferencePotentialTemperature")) then
+        pt => extract_scalar_field(state, "HydrostaticReferencePotentialTemperature")      
+      else if (has_scalar_field(state, "PotentialTemperature")) then
+        pt => extract_scalar_field(state, "PotentialTemperature")
+      else
+        call compressible_eos(state, potentialtem=pt)
+      endif
+    else
+      pt => dummyscalar
+    endif
+    
+    call allocate(grad_pt, U%dim, U%mesh, 'Grad_Pt')
+    call allocate(pt_remap, U%mesh, 'RemappedPotentialTemperature')    
+    call project_field(pt, pt_remap, X)    
+    call grad(pt_remap, X, grad_pt)
+    
+    ! Calculate eddy viscosity
+    do ele = 1, ele_count(U)
+
+      call assemble_les_scalar_dg (state, ele, X, T, U, grad_U, pt_remap, grad_pt, Rho, gravity, &
+          local_diffusivity, local_tke_source)
+       
+    end do
+    
+    call scale(local_diffusivity, 1./prandtl_number)
+    
+    pt => extract_scalar_field(state, "PotentialTemperature", stat=stat)
+    if (stat==0) then
+      have_sponge = have_option(trim(pt%option_path)//&
+         "/prognostic/scalar_field::Absorption/diagnostic/algorithm::atmosphere_forcing_scalar/sponge_layer_scalar_absorption")
+      if (have_sponge) then
+         call allocate(sponge, U%mesh, "SpongeLayer")
+         call calculate_sponge_coefficient_scalar (sponge, X, pt%option_path)
+      
+         call scale(local_diffusivity, sponge)
+         call deallocate(sponge)
+      endif
+    endif
+    call halo_update(local_diffusivity)
+    
+    ewrite(2,*) "EddyDiffusivity has been computed for ", trim(T%name)
+    Diffusivity=>extract_tensor_field(state, trim(T%name)//"Diffusivity", stat=stat)
+    if (stat==0) call safe_set(state, Diffusivity, local_diffusivity)
+    
+    TKE_source=>extract_scalar_field(state, "TKESource", stat=stat)
+    if (stat==0) call safe_set(state, tke_source, local_tke_source)
+    
+    call deallocate(local_diffusivity)
+    call deallocate(local_tke_source)
+    call deallocate(dummyscalar)
+    call deallocate(pt_remap)
+    call deallocate(grad_pt)
+    do i=1,X%dim
+      call deallocate(grad_U(i))
+    enddo
+
+    ewrite(2,*) "Eddy Diffusivity computed for scalar: ", trim(T%name)
+  
+  end subroutine compute_les_scalar_dg
+  
+  subroutine assemble_les_scalar_dg (state, ele, X, T, U, grad_U, pottem, grad_pt, Rho, gravity, diffusivity_field, source_field)
+    implicit none
+    type(state_type) :: state
+    integer, intent(in) :: ele
+    type(tensor_field), intent(inout) :: diffusivity_field
+    type(scalar_field), intent(inout) :: source_field
+    type(scalar_field), intent(inout) :: T, Rho, pottem
+    type(vector_field), intent(inout) :: X, U, grad_pt
+    type(vector_field), dimension(X%dim), intent(in) :: grad_U
+    real, intent(in) :: gravity
+      
+    type(scalar_field), pointer :: richardson, tke, hb
+    type(tensor_field), pointer :: tfield
+    type(scalar_field), target  :: dummyscalar
+    real, dimension(U%dim, U%dim, ele_ngi(U, ele)) :: les_tensor_gi
+    real, dimension(ele_ngi(U, ele))		   :: les_coef_gi, tke_source_gi
+    real, dimension(ele_loc(U, ele), ele_ngi(U, ele), mesh_dim(U)) :: du_t    
+    real, dimension(ele_ngi(U, ele)) :: detwei
+    real, dimension(U%dim,U%dim,ele_loc(U,ele)) :: les_tensor_loc
+    
+    call allocate(dummyscalar, U%mesh, "DummyScalar")
+    call zero(dummyscalar)	
+
+    les_tensor_gi = 0.0
+    les_coef_gi=0.0
+
+    call transform_to_physical(X, ele, ele_shape(U,ele), dshape=du_t, detwei=detwei)
+       
+    if (buoyancy_correction.and.has_scalar_field(state, "RichardsonNumber")) then
+      richardson => extract_scalar_field(state, "RichardsonNumber")
+      assert(richardson%mesh==U%mesh)
+    else
+      richardson => dummyscalar
+    endif
+    
+    if (les_tke.and.have_subtract_reference) then
+      hb => extract_scalar_field(state,"HydrostaticReferenceDensity")
+    else
+      hb => dummyscalar
+    endif
+    
+    if (buoyancy_correction) call calculate_richardson(state, ele, X, U, grad_U, pottem, grad_pt, gravity, richardson)
+      
+    if(have_eddy_diffusivity.and.les_second_order) then 
+       call smagorinsky_2nd_sgs (ele, X, U, grad_U, du_t, richardson, les_coef_gi, les_tensor_gi)
+    	          
+       call set(diffusivity_field, ele_nodes(diffusivity_field, ele), shape_tensor_rhs(ele_shape(U,ele), les_tensor_gi, detwei))
+    
+    else if (have_eddy_diffusivity.and.les_tke) then
+       tke=>extract_scalar_field(state, "TurbulentKineticEnergy")
+       call tke_sgs (ele, gravity, X, T, U, grad_U, du_t, Rho, hb, richardson, tke, les_tensor_gi, tke_source_gi)
+       
+       call set(diffusivity_field, ele_nodes(diffusivity_field, ele), shape_tensor_rhs(ele_shape(U,ele), les_tensor_gi, detwei))
+       call set(source_field, ele_nodes(source_field, ele), shape_rhs(ele_shape(U,ele), tke_source_gi*detwei))
+    
+    else
+       FLAbort("Unknown LES model")
+    end if
+     	    
+    call deallocate(dummyscalar)
+	     
+  end subroutine assemble_les_scalar_dg
+
+  subroutine correct_scalars(states, x, p)
+  
+    type(state_type), dimension(:), target, intent(in) :: states
+    type(scalar_field), intent(inout) :: p
+    type(vector_field), intent(in) :: x
+    
+    type(state_type), pointer :: state => null()
+    type(scalar_field), pointer :: rho, rho_old, new_rho, residual, T, T_old
+    type(scalar_field) :: invrho, T_new
+    real :: theta
+    integer :: ele, s, f, nfields
+        
+    do s = 1, size(states)
+      state=>states(s)
+          
+      residual=>extract_scalar_field(state, "ContinuityResidual")
+      rho=>extract_scalar_field(state, "Density")
+      rho_old=>extract_scalar_field(state, "OldDensity")
+      
+      call compressible_eos(state, full_pressure=p, density=new_rho)
+      
+      nfields=scalar_field_count(state)
+      do f = 1, nfields
+        T=>extract_scalar_field(state, f)
+        if(option_count("/material_phase/equation_of_state/compressible") > 0 .and. &
+    	   have_option(trim(T%option_path)//"/prognostic/spatial_discretisation"//&
+    		       &"/discontinuous_galerkin/include_continuity_residual")) then
+    
+          call get_option(trim(T%option_path)//"/prognostic/temporal_discretisation/theta", theta)
+
+          T_old=>extract_scalar_field(state, "Old"//trim(T%name))
+          
+          call allocate(T_new,T%mesh,"CorrectedScalar")
+          call allocate(invrho,p%mesh,"InverseDensity")
+          
+	  call zero(T_new)
+          call set(invrho,new_rho)
+          call invert(invrho)
+          
+          do ele = 1, ele_count(T)
+          
+            call assemble_scalar_correction (state, ele, theta, X, T, T_old, rho, rho_old, invrho, residual, T_new)
+            
+          enddo
+	  call set(T,T_new)
+          
+          call deallocate(T_new)
+          call deallocate(invrho)
+	
+	endif
+      enddo
+      
+    enddo
+    
+    contains
+    
+    subroutine assemble_scalar_correction (state, ele, theta, X, T, T_old, rho, rho_old, invrho, residual, T_new)
+      type(state_type), intent(inout) :: state
+      integer, intent(in) :: ele
+      type(scalar_field), intent(inout) :: T_new
+      type(scalar_field), intent(in) :: T, T_old, rho, rho_old, invrho, residual
+      type(vector_field), intent(in) :: X
+      real, intent(in) :: theta
+       
+      integer :: ngi, gi
+      type(element_type), pointer 	:: shape
+      real, dimension(ele_ngi(T, ele))	:: detwei
+      real, dimension(ele_ngi(T, ele))  :: T_q, T_old_q, T_si_q
+      real, dimension(ele_ngi(p, ele))  :: res_q, rho_q, rho_old_q, invrho_q 
+      real, dimension(ele_ngi(T, ele))  :: correction, T_weighted
+      
+      shape=>ele_shape(T, ele)
+      call transform_to_physical(X, ele, detwei=detwei)
+      
+      T_q=ele_val_at_quad(T,ele)
+      T_old_q=ele_val_at_quad(T_old,ele)
+      T_si_q=theta*T_q + (1.-theta)*T_old_q
+      
+      rho_q=ele_val_at_quad(Rho,ele)
+      rho_old_q=ele_val_at_quad(Rho_old,ele)
+      res_q=ele_val_at_quad(residual,ele)
+      invrho_q=ele_val_at_quad(invrho,ele)
+      
+      do gi = 1, ele_ngi(T, ele)
+        
+        correction(gi) = theta*(rho_q(gi) - rho_old_q(gi))*(T_q(gi) - T_old_q(gi))
+        correction(gi) = correction(gi) - T_si_q(gi)*res_q(gi)
+        correction(gi) = invrho_q(gi)*correction(gi)
+        
+        T_weighted(gi) = invrho_q(gi)*rho_q(gi)*T_q(gi)
+        
+      enddo
+      
+      call set(T_new, ele_nodes(T, ele), shape_rhs(shape, T_weighted*detwei))
+      call addto(T_new, ele_nodes(T, ele), shape_rhs(shape, correction*detwei))
+    
+    end subroutine
+    
+  end subroutine correct_scalars  
+  
+  function have_continuity_residual(states) result(test)
+  
+    type(state_type), dimension(:), target :: states
+    type(state_type), pointer :: state => null()
+    type(scalar_field), pointer :: T
+    integer :: p, f, nfields
+    logical :: test
+    
+    test=.false.
+    do p =1, size(states)
+      state=>states(p)
+      
+      nfields=scalar_field_count(state)
+      do f = 1, nfields
+        T=>extract_scalar_field(state, f)
+        if(option_count("/material_phase/equation_of_state/compressible") > 0 .and. &
+    	      &have_option(trim(T%option_path)//"/prognostic/spatial_discretisation"//&
+    	      &"/discontinuous_galerkin/include_continuity_residual")) then
+          test=.true.
+	  exit
+	endif
+      enddo
+    enddo
+    
+    return 
+     
+  end function have_continuity_residual   
+  
   subroutine advection_diffusion_dg_check_options
     !!< Check DG advection-diffusion specific options
     
@@ -3142,36 +3893,36 @@ contains
        call get_option(trim(path) // "/name", state_name)
 
        do j = 0, option_count(trim(path) // "/scalar_field") - 1
-          path = "/material_phase[" // int2str(i) // "]/scalar_field[" // int2str(j) // "]"
-          call get_option(trim(path) // "/name", field_name)
+	  path = "/material_phase[" // int2str(i) // "]/scalar_field[" // int2str(j) // "]"
+	  call get_option(trim(path) // "/name", field_name)
 
-          if(field_name /= "Pressure") then
+	  if(field_name /= "Pressure") then
 
-             path = trim(path) // "/prognostic"
+	     path = trim(path) // "/prognostic"
 
-             if(have_option(trim(path) // "/spatial_discretisation/discontinuous_galerkin").and.&
-                  have_option(trim(path) // "/equation[0]")) then   
-                 
-                if (have_option(trim(path) // "/scalar_field::SinkingVelocity")) then
-                   call get_option(trim(complete_field_path(trim(path) // &
-                        "/scalar_field::SinkingVelocity"))//"/mesh[0]/name", &
-                        mesh_0, stat)
-                   if(stat == SPUD_NO_ERROR) then
-                      call get_option(trim(complete_field_path("/material_phase[" // int2str(i) // &
-                           "]/vector_field::Velocity")) // "/mesh[0]/name", mesh_1)
-                      if(trim(mesh_0) /= trim(mesh_1)) then
-                         call field_warning(state_name, field_name, &
-                              "SinkingVelocity is on a different mesh to the Velocity field this could "//&
-                              "cause problems. If using advection_scheme/project_velocity_to_continuous "//&
-                              "and a discontinuous Velocity field, then SinkingVelocity must be on a "//&
-                              "continuous mesh and hence should not be on the same mesh as the Velocity")
-                      end if
-                   end if
-                end if
+	     if(have_option(trim(path) // "/spatial_discretisation/discontinuous_galerkin").and.&
+		  have_option(trim(path) // "/equation[0]")) then   
+		 
+		if (have_option(trim(path) // "/scalar_field::SinkingVelocity")) then
+		   call get_option(trim(complete_field_path(trim(path) // &
+			"/scalar_field::SinkingVelocity"))//"/mesh[0]/name", &
+			mesh_0, stat)
+		   if(stat == SPUD_NO_ERROR) then
+		      call get_option(trim(complete_field_path("/material_phase[" // int2str(i) // &
+			   "]/vector_field::Velocity")) // "/mesh[0]/name", mesh_1)
+		      if(trim(mesh_0) /= trim(mesh_1)) then
+			 call field_warning(state_name, field_name, &
+			      "SinkingVelocity is on a different mesh to the Velocity field this could "//&
+			      "cause problems. If using advection_scheme/project_velocity_to_continuous "//&
+			      "and a discontinuous Velocity field, then SinkingVelocity must be on a "//&
+			      "continuous mesh and hence should not be on the same mesh as the Velocity")
+		      end if
+		   end if
+		end if
 
-             end if
+	       end if
 
-          end if
+	    end if
        end do
     end do
 

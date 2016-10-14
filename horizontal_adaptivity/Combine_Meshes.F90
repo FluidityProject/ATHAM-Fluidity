@@ -17,7 +17,7 @@ module hadapt_combine_meshes
 
   private
   
-  public :: combine_z_meshes, combine_r_meshes
+  public :: combine_z_meshes, combine_r_meshes, append_to_structures, derive_extruded_l2_node_halo
 
   contains
 
