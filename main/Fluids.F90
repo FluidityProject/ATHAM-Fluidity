@@ -174,7 +174,7 @@ contains
 
     ! cloud_microphysics
     logical :: have_cloud_microphysics
-    logical :: have_diagnostic_microphysics, have_saturation_adjustment
+    logical :: have_diagnostic_microphysics, have_saturation_adjustment, have_strong
 
     ! radiation_model
     logical :: have_radiation
@@ -401,6 +401,18 @@ contains
        FLExit("Rejig your FLML: /io/dump_format")
     end if
 
+    ! Initialise microphysics
+    have_cloud_microphysics=have_option('/material_phase[0]/cloud_microphysics')
+    have_diagnostic_microphysics=have_cloud_microphysics.and. &
+        (have_option('/material_phase[0]/cloud_microphysics/diagnostic').or. &
+       have_option('/material_phase[0]/cloud_microphysics/fortran_microphysics/one_moment_microphysics'))
+    have_saturation_adjustment=have_option('/material_phase[0]/cloud_microphysics/saturation_adjustment')
+    have_strong=have_option('/material_phase[0]/cloud_microphysics/saturation_adjustment/strong_coupling')
+    if (have_cloud_microphysics) then
+       call initialise_microphysics(state,current_time,dt)
+       call calculate_diagnostic_microphysics(state,current_time,dt,init=.true.)
+    end if
+
     ! initialise the multimaterial fields
     call initialise_diagnostic_material_properties(state)
 
@@ -410,17 +422,6 @@ contains
     ! has a non-zero value before the first adapt.
     if (have_option("/ocean_biology")) then
        call calculate_biology_terms(state(1))
-    end if
-
-    ! Initialise microphysics
-    have_cloud_microphysics=have_option('/material_phase[0]/cloud_microphysics')
-    have_diagnostic_microphysics=have_cloud_microphysics.and. &
-        (have_option('/material_phase[0]/cloud_microphysics/diagnostic').or. &
-	 have_option('/material_phase[0]/cloud_microphysics/fortran_microphysics/one_moment_microphysics'))
-    have_saturation_adjustment=have_option('/material_phase[0]/cloud_microphysics/saturation_adjustment')
-    if (have_cloud_microphysics) then
-       call initialise_microphysics(state,current_time,dt)
-       call calculate_diagnostic_microphysics(state,current_time,dt,init=.true.)
     end if
 
     ! Initialise radiation
@@ -514,6 +515,15 @@ contains
 
        ewrite(2,*)'steady_state_tolerance,nonlinear_iterations:',steady_state_tolerance,nonlinear_iterations
 
+       ! Microphysics needs to be done early
+       if (have_cloud_microphysics.and.(.not.have_diagnostic_microphysics) &
+           .and.have_option('/material_phase[0]/cloud_microphysics/time_integration::Strang')) then
+!         call copy_to_stored_values(state,"Old")
+         call calculate_microphysics_forcings(state, current_time, dt/2.)
+         call assemble_split_microphysics(state, dt/2.)
+         call calculate_diagnostic_microphysics(state,current_time,dt/2.)
+       endif
+
        call copy_to_stored_values(state,"Old")
        if (have_option('/mesh_adaptivity/mesh_movement') .and. .not. have_option('/mesh_adaptivity/mesh_movement/free_surface')) then
           ! Coordinate isn't handled by the standard timeloop utility calls.
@@ -557,13 +567,6 @@ contains
        call enforce_discrete_properties(state, only_prescribed=.true., &
             exclude_interpolated=.true., &
             exclude_nonreprescribed=.true.)
-       
-       ! Microphysics
-       if (have_cloud_microphysics.and.(.not.have_diagnostic_microphysics) &
-           .and.have_option('/material_phase[0]/cloud_microphysics/time_integration::Strang')) then
-         call calculate_microphysics_forcings(state, current_time, dt/2.)
-	 call assemble_split_microphysics(state, dt/2.)
-       endif
        
 #ifdef HAVE_HYPERLIGHT
        ! Calculate multispectral irradiance fields from hyperlight
@@ -830,10 +833,14 @@ contains
              end if
           end if
 
+          if (have_saturation_adjustment.and.have_strong) then
+            ! Diagnostic microphysics: update thermodynamical and microphysical
+            !          variables according to diagnostic microphysical processes
+            call calculate_diagnostic_microphysics(state,current_time,dt)
+          end if
+
           if(have_solids) then
-             ewrite(2,*) 'into solid_data_update'
              call solid_data_update(state(ss:ss), its, nonlinear_iterations)
-             ewrite(2,*) 'out of solid_data_update'
           end if 
 
        end do nonlinear_iteration_loop
@@ -843,13 +850,15 @@ contains
            .and.have_option('/material_phase[0]/cloud_microphysics/time_integration::Splitting')) then
          call calculate_microphysics_forcings(state, current_time, dt)
 	 call assemble_split_microphysics(state, dt)
+         call calculate_diagnostic_microphysics(state,current_time,dt)
        else if (have_cloud_microphysics.and.(.not.have_diagnostic_microphysics) &
            .and.have_option('/material_phase[0]/cloud_microphysics/time_integration::Strang')) then
          call calculate_microphysics_forcings(state, current_time, dt/2.)
 	 call assemble_split_microphysics(state, dt/2.)
+         call calculate_diagnostic_microphysics(state,current_time,dt/2.)
        endif
 
-       if (have_diagnostic_microphysics.or.have_saturation_adjustment) then
+       if (have_diagnostic_microphysics.or.(have_saturation_adjustment.and.(.not.have_strong))) then
           ! Diagnostic microphysics: update thermodynamical and microphysical
           !		 variables according to diagnostic microphysical processes
           call calculate_diagnostic_microphysics(state,current_time,dt)
@@ -994,6 +1003,7 @@ contains
     end if
     ! Dump at end, unless explicitly disabled
     if(.not. have_option("/io/disable_dump_at_end")) then
+       call write_surface(dump_no, state)
        call write_state(dump_no, state)
     end if
 
