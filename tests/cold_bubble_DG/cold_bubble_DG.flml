@@ -76,7 +76,7 @@
       <real_value rank="0">900.0</real_value>
     </finish_time>
     <nonlinear_iterations>
-      <integer_value rank="0">3</integer_value>
+      <integer_value rank="0">2</integer_value>
       <tolerance>
         <real_value rank="0">1.E-10</real_value>
         <infinity_norm/>
@@ -149,7 +149,6 @@
             <string_value lines="1">never</string_value>
           </poisson_pressure_solution>
           <use_projection_method/>
-          <update_density_from_eos/>
         </scheme>
         <solver>
           <iterative_method name="gmres">
@@ -157,14 +156,14 @@
               <integer_value rank="0">30</integer_value>
             </restart>
           </iterative_method>
-          <preconditioner name="mg"/>
+          <preconditioner name="eisenstat"/>
           <relative_error>
             <real_value rank="0">1e-7</real_value>
           </relative_error>
           <max_iterations>
             <integer_value rank="0">1000</integer_value>
           </max_iterations>
-          <never_ignore_solver_failures/>
+          <ignore_all_solver_failures/>
           <diagnostics>
             <monitors/>
           </diagnostics>
@@ -203,20 +202,13 @@
       <prognostic>
         <mesh name="PressureMesh"/>
         <spatial_discretisation>
-          <discontinuous_galerkin>
-            <advection_scheme>
-              <upwind/>
-              <project_velocity_to_continuous>
-                <mesh name="CoordinateMesh"/>
-              </project_velocity_to_continuous>
-              <integrate_advection_by_parts>
-                <twice/>
-              </integrate_advection_by_parts>
-            </advection_scheme>
-            <diffusion_scheme>
-              <bassi_rebay/>
-            </diffusion_scheme>
-          </discontinuous_galerkin>
+          <continuous_galerkin>
+            <stabilisation>
+              <no_stabilisation/>
+            </stabilisation>
+            <advection_terms/>
+            <mass_terms/>
+          </continuous_galerkin>
           <conservative_advection>
             <real_value rank="0">0.0</real_value>
           </conservative_advection>
@@ -297,14 +289,11 @@
         </spatial_discretisation>
         <temporal_discretisation>
           <theta>
-            <real_value rank="0">0.55</real_value>
+            <real_value rank="0">0.75</real_value>
           </theta>
           <relaxation>
             <real_value rank="0">0.</real_value>
           </relaxation>
-          <theta_divergence>
-            <real_value rank="0">0.55</real_value>
-          </theta_divergence>
           <discontinuous_galerkin>
             <maximum_courant_number_per_subcycle>
               <real_value rank="0">0.2</real_value>
@@ -334,6 +323,12 @@
             <real_value shape="2" dim1="dim" rank="1">0.0 0.0</real_value>
           </constant>
         </initial_condition>
+        <boundary_conditions name="boundaries">
+          <surface_ids>
+            <integer_value shape="4" rank="1">8 9 10 11</integer_value>
+          </surface_ids>
+          <type name="no_normal_flow"/>
+        </boundary_conditions>
         <tensor_field name="Viscosity" rank="2">
           <prescribed>
             <value name="WholeMesh">
@@ -572,7 +567,7 @@ for n in range(field.node_count):
         </spatial_discretisation>
         <temporal_discretisation>
           <theta>
-            <real_value rank="0">0.52</real_value>
+            <real_value rank="0">0.75</real_value>
           </theta>
           <discontinuous_galerkin>
             <maximum_courant_number_per_subcycle>
