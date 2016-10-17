@@ -1054,7 +1054,7 @@ contains
             
               p0 = p(j,k-1)
               do it = 1, 10
-                den0 = p0/(r*pt0*(p0/1.e+5)**(-r/cp)
+                den0 = p0/(r*pt0)*(p0/1.e+5)**(-r/cp)
                 p0 = p(j,k-1) - 0.5*9.81*(den(j,k-1)+den0)*(z-h(j,k-1))
               enddo
         		    
@@ -1275,7 +1275,7 @@ contains
     
       p(k) = p_o
       do it = 1, 10
-    	den(k) = p(k)/(r*pt(k)*(p(k)/1.e+5)**(-r/cp)
+    	den(k) = p(k)/(r*pt(k))*(p(k)/1.e+5)**(-r/cp)
     	p(k) = p_o - 0.5*9.81*(den(k)+den_o)*(h(k)-h_o)
       enddo
     enddo
