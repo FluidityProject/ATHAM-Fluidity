@@ -780,7 +780,7 @@ subroutine diff_analytic (dt, w, qs, gsat, g, cp, lqv, lqc, lnc, lqr, lnr, lnccn
 
   implicit none
   integer :: i
-  real  :: dt, fl, fv, vis, dif, lambda, gamm, tau, fac, aa
+  real  :: dt, fl, fv, vis, dif, gamm, tau, fac, aa
   real  :: dql, ql, qc, nc, qr, nr, qv, ss
   real  :: w, qs, es, dqsdt, g, cp, tem, pp, den, sat0, sat, gsat
   real, dimension(5) :: lqv,lqr,lnr,lqc,lnc,lp,ltem,lrho,lnccn,cd
@@ -967,6 +967,9 @@ subroutine droplet_adjustment(qc, qr, qv, pp, tem)
 end subroutine
 
 subroutine aucr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
+  ! autoconversion of cloud droplets into rain drops
+  ! plus droplet self-collection
+  ! following Seifert and Beheng (2001)
   implicit none
   real :: xav, xr, xnc, xnr
   real :: aun, auq, scnc, aunr
@@ -974,7 +977,7 @@ subroutine aucr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   
   real :: dt
   real, dimension(5) :: lq_r,lq_c,ln_r,ln_c,lrho  
-  real, parameter :: kc=4.44e+09
+  real, parameter :: kc=9.44e+09
   
   xprim = 1000.*4./3.*pi*rauto**3.
   
@@ -990,11 +993,14 @@ subroutine aucr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
     tau = min(max(tau,1.e-9),0.98)
     fautau = 600.*tau**0.68 * (1. - tau**0.68)**3.
   
+    ! autoconversion rate (droplet conversion)
     auq = kc/(20.*xprim)*(nu_sb(1)+2.)*(nu_sb(1)+4.)/(nu_sb(1)+1.)**2.	&
         * xc**2.*xav**2.*(1. + fautau/(1.-tau)**2.) * rho0/dens
-	  
+    
+    ! autoconversion (rain formation)
     aunr = auq/xprim
     
+    ! autoconversion + self-collection (droplet removal)
     scnc = kc*xc**2.*(nu_sb(1)+2.)/(nu_sb(1)+1.) * rho0/dens
     
     lq_c(5) = lq_c(5) - min(auq/dens,lq_c1/dt)
@@ -1006,6 +1012,7 @@ subroutine aucr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
 end subroutine
 
 subroutine scr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
+  ! Rain self-collection and break-up following Seifert and Beheng (2006)
   implicit none
   real :: lambda, avd
   real :: dens, xc, xr, xnc, xnr, xav
@@ -1022,7 +1029,7 @@ subroutine scr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
   xnr = dens*(relaxation*ln_r1+(1.-relaxation)*ln_r0)
 
   if (xnr > xnmin .and. xr > xmin) then
-    lambda = cal_lambda_sb (2, xc, xnc)
+    lambda = cal_lambda_sb (2, xr, xnr)
     
     avd = 0.12407/lambda
     if (avd < 0.45e-3) then
@@ -1031,7 +1038,7 @@ subroutine scr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
       phibr = 1000.*(avd - deq)
     endif
     
-    crrn = -phibr*krr*xr*xnr * sqrt(rho0/dens)
+    crrn = -phibr*krr*xr*xnr * (1. + kar/lambda)**(-9.) * sqrt(rho0/dens)
     
     ln_r(5) = ln_r(5) - min(crrn/dens,ln_r1/dt)
   endif  
@@ -1039,6 +1046,7 @@ subroutine scr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
 end subroutine
 
 subroutine ccr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
+  ! Accretion of cloud droplets by rain drops (Seifert and Beheng 2006)
   implicit none
   real  :: dens, xc, xr, xnc, xnr
   real  :: tau, factau
@@ -1059,8 +1067,10 @@ subroutine ccr_sb (dt, lrho, lq_c, lq_r, ln_c, ln_r)
     tau = min(max(tau,1.e-9),0.98)
     factau = (tau / (tau + 5.e-5))**4.
     
+    ! accretion of cloud droplets by rain (rain formation)
     clr  = kr*xc*xr*factau * sqrt(rho0/dens)
     
+    ! accretion (droplet removal)
     clrn = kr*xnc*xr*factau * sqrt(rho0/dens)
     
     lq_c(5) = lq_c(5) - min(clr/dens,lq_c1/dt)
