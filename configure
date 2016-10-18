@@ -14631,6 +14631,20 @@ rm -f core conftest.err conftest.$ac_objext \
         if test "x$VTK_INSTALL_PREFIX" == "x"; then
             VTK_INSTALL_PREFIX=/usr/include
         fi
+for i in `echo $LD_LIBRARY_PATH | sed -e 's/:/ /g'`; do
+  echo "looking in $i"
+  if test \( -f $i/libvtkCommon.a \) -o \( -f $i/libvtkCommon.so \)
+  then
+      { echo "$as_me:$LINENO: VTK library is in $i." >&5
+  echo "$as_me: VTK library is in $i." >&6;}
+  LIBS="$LIBS -L$i"
+  fi
+done
+for i in `echo $INCLUDE | sed -e 's/:/ /g'`; do
+  if test \( -f $i/vtkCellData.h \); then
+  VTK_INCLUDE=$i
+  fi
+done
 
         # Loop through potential vtk installations and get the highest version number
         vtk_version=0
@@ -14682,20 +14696,6 @@ $as_echo "$as_me: Found and using VTK major version: $vtk_version" >&6;}
         if [ "x$vtk_version" == "x5" ]; then
             # Usually the location of the libraries is not a mystery. The
             # header files are another matter.
-for i in `echo $LD_LIBRARY_PATH | sed -e 's/:/ /g'`; do
-  echo "looking in $i"
-  if test \( -f $i/libvtkCommon.a \) -o \( -f $i/libvtkCommon.so \)
-  then
-      { echo "$as_me:$LINENO: VTK library is in $i." >&5
-  echo "$as_me: VTK library is in $i." >&6;}
-  LIBS="$LIBS -L$i"
-  fi
-done
-for i in `echo $INCLUDE | sed -e 's/:/ /g'`; do
-  if test \( -f $i/vtkCellData.h \); then
-  VTK_INCLUDE=$i
-  fi
-done
             { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -ldl" >&5
 $as_echo_n "checking for main in -ldl... " >&6; }
 if ${ac_cv_lib_dl_main+:} false; then :
