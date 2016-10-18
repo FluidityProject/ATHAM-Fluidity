@@ -1531,6 +1531,7 @@ contains
 	    ! in the first call - so if only one side is registered already something is definitely wrong
 	    call register_internal_surface_element(mesh, bdry_count, common_elements(2), common_elements(1), snodes)
 	    ! store this pair so we can later copy the boundary id of the first (sele) to the second one (bdry_count)
+            call insert(internal_facet_map, sele, bdry_count)
           end if
 	  
 	else if (no_found==0) then
@@ -1597,6 +1598,7 @@ contains
       end if
 
     end if
+      
       
     ! the size of this array will be the way to store the n/o
     ! exterior boundaries (returned by surface_element_count())

@@ -375,6 +375,12 @@ contains
 	    end if
             call allocate(position, dim, mesh, "EmptyCoordinate")
             call add_faces(mesh)
+            if (mesh_dims(4)>0) then
+              ! rank 0 has element ownership for facets, allowing for multi-valued internal
+              ! facets (needed for periodic meshes). Setting this flag will allow us the
+              ! same when we receive facets after the redecomposition
+              mesh%faces%has_discontinuous_internal_boundaries=.true.
+            end if
             if (column_ids>0) then
               ! the association status of mesh%columns should be collective
               allocate(mesh%columns(1:0))

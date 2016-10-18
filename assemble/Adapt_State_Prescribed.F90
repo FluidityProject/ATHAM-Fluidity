@@ -162,11 +162,9 @@ contains
       assert(associated(new_positions%mesh%faces))
       assert(associated(new_positions%mesh%faces%boundary_ids))
       unique_sids = unique_surface_element_count(new_positions%mesh)
-      
       allocate(sndgln(unique_sids * face_loc(new_positions%mesh, 1)))
       call getsndgln(new_positions%mesh, sndgln)
       call add_faces(lnew_positions_mesh, sndgln = sndgln, boundary_ids = new_positions%mesh%faces%boundary_ids(1:unique_sids))
-      call add_faces(lnew_positions_mesh, sndgln = sndgln, boundary_ids = new_positions%mesh%faces%boundary_ids)
       deallocate(sndgln)
       if(associated(new_positions%mesh%region_ids)) then
         allocate(lnew_positions_mesh%region_ids(ele_count(new_positions%mesh)))
