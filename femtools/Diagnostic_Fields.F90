@@ -1370,7 +1370,7 @@ contains
     ! Extract velocity    
     velocity => extract_vector_field(state, "Velocity")
     if (.not.have_option(trim(velocity%option_path)//"/prognostic/spatial_discretisation/continuous_galerkin/les_model") .and. &
-        .not.have_option(trim(velocity%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/les_model")) then
+        .not.have_option(trim(velocity%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/les_model_AF")) then
     assert(velocity%dim == mesh_dim(ri))
     assert(ele_count(velocity) == ele_count(ri))
     ewrite_minmax(velocity)

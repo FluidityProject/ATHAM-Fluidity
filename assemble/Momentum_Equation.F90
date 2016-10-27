@@ -1359,7 +1359,9 @@
          have_les = have_option(trim(u%option_path)//"/prognostic/spatial_discretisation/"//&
             &"/continuous_galerkin/les_model").or.&
 	            &have_option(trim(u%option_path)//"/prognostic/spatial_discretisation/"//&
-	    &"/discontinuous_galerkin/les_model")
+	    &"/discontinuous_galerkin/les_model").or.&
+	            &have_option(trim(u%option_path)//"/prognostic/spatial_discretisation/"//&
+	    &"/discontinuous_galerkin/les_model_AF")
          
 	 have_coriolis = have_option("/physical_parameters/coriolis")
 

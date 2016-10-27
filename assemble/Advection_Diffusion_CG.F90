@@ -97,9 +97,6 @@ module advection_diffusion_cg
   real :: density_theta
   ! Which terms do we have?
   
-  ! LES
-  real :: prandtl_number
-  
   ! Mass term?
   logical :: have_mass
   ! Lump mass?
@@ -126,8 +123,6 @@ module advection_diffusion_cg
   logical :: compressible = .false.
   ! Are we running a multiphase flow simulation?
   logical :: multiphase
-  ! LES?
-  logical :: have_les
 
 contains
 
@@ -375,9 +370,6 @@ contains
         
     ! Diffusivity
     diffusivity => extract_tensor_field(state, trim(t%name) // "Diffusivity", stat = stat)
-    have_les=have_option(trim(t%option_path)//'/prognostic/continuous_galerkin/les_model')
-    if (have_les) &
-        call get_option(trim(t%option_path)//'/prognostic/continuous_galerkin/les_model/Prandtl_turbulent',prandtl_number)
     have_diffusivity = stat == 0
     if(have_diffusivity) then
       assert(all(diffusivity%dim == mesh_dim(t)))
@@ -386,8 +378,6 @@ contains
       isotropic_diffusivity = option_count(complete_field_path(diffusivity%option_path)) &
         & == option_count(trim(complete_field_path(diffusivity%option_path)) // "/value/isotropic")
         
-      if (have_les) call scale(diffusivity,1./prandtl_number)
-	
       if(isotropic_diffusivity) then
         ewrite(2, *) "Isotropic diffusivity"
         assert(all(diffusivity%dim > 0))

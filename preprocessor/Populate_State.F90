@@ -103,25 +103,27 @@ module populate_state_module
        
   !! A list of relative paths under /material_phase[i]
   !! that are searched for additional fields to be added.
-  character(len=OPTION_PATH_LEN), dimension(17) :: additional_fields_relative=&
+  character(len=OPTION_PATH_LEN), dimension(19) :: additional_fields_relative=&
        (/ &
-       "/subgridscale_parameterisations/Mellor_Yamada                                                          ", &
-       "/subgridscale_parameterisations/prescribed_diffusivity                                                 ", &
-       "/subgridscale_parameterisations/GLS                                                                    ", &
-       "/subgridscale_parameterisations/k-epsilon                                                              ", &
-       "/subgridscale_parameterisations/k-epsilon/debugging_options/source_term_output_fields                  ", &
-       "/subgridscale_parameterisations/k-epsilon/debugging_options/prescribed_source_terms                    ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/second_order   ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/fourth_order   ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/wale           ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/dynamic_les    ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/second_order", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/fourth_order", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/wale        ", &
-       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/dynamic_les ", &
-       "/vector_field::Velocity/prognostic/equation::ShallowWater                                              ", &
-       "/vector_field::Velocity/prognostic/equation::ShallowWater/bottom_drag                                  ", &
-       "/vector_field::BedShearStress/diagnostic/calculation_method/velocity_gradient                          " &
+       "/subgridscale_parameterisations/Mellor_Yamada                                                             ", &
+       "/subgridscale_parameterisations/prescribed_diffusivity                                                    ", &
+       "/subgridscale_parameterisations/GLS                                                                       ", &
+       "/subgridscale_parameterisations/k-epsilon                                                                 ", &
+       "/subgridscale_parameterisations/k-epsilon/debugging_options/source_term_output_fields                     ", &
+       "/subgridscale_parameterisations/k-epsilon/debugging_options/prescribed_source_terms                       ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/second_order      ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/fourth_order      ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/wale              ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/continuous_galerkin/les_model/dynamic_les       ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model_AF/second_order", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model_AF/fourth_order", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model_AF/wale        ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model_AF/dynamic_les ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/               ", &
+       "/vector_field::Velocity/prognostic/spatial_discretisation/discontinuous_galerkin/les_model/debug/         ", &
+       "/vector_field::Velocity/prognostic/equation::ShallowWater                                                 ", &
+       "/vector_field::Velocity/prognostic/equation::ShallowWater/bottom_drag                                     ", &
+       "/vector_field::BedShearStress/diagnostic/calculation_method/velocity_gradient                             " &
        /)
 
   !! Relative paths under a field that are searched for grandchildren

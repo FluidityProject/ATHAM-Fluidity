@@ -40,6 +40,7 @@ module advection_diffusion_DG
   use transform_elements
   use parallel_tools
   use vector_tools
+  use field_derivatives
   use fldebug
   use vtk_interfaces
   use Coordinates
@@ -168,7 +169,7 @@ module advection_diffusion_DG
   logical :: have_subsidence
   
   ! LES
-  logical :: have_les, have_eddy_diffusivity, have_richardson
+  logical :: have_les_AF, have_eddy_diffusivity, have_richardson
   logical :: have_sponge, have_nudge, have_horizontal_mean, have_atmos_forcing
 
 contains
@@ -817,6 +818,24 @@ contains
     character(len=OPTION_PATH_LEN) :: les_option_path, forcing_option_path
     type(tensor_field) :: Diffusivity
     type(vector_field) :: U_les
+    type(tensor_field), pointer :: Diffusivity_ptr
+    
+    !! Turbulent diffusion - LES (sp911)
+    type(scalar_field), pointer :: scalar_eddy_visc
+    type(scalar_field) :: eddy_visc_component
+    type(vector_field) :: eddy_visc
+    real :: prandtl
+    integer :: i
+    !! Ri dependent LES (sp911)
+    real :: Ri_c, N_2, U_2, Ri, f_Ri
+    type(scalar_field), pointer :: rho
+    type(vector_field) :: grad_rho
+    type(tensor_field) :: grad_u
+    real, dimension(:), allocatable :: gravity_val, grad_rho_val, dU_dz
+    ! non-linear velocity (U_nl) is zero when advection is disabled
+    ! I want this to be the actual non-linear velocity so I obtain it myself
+    type(vector_field), pointer :: u_nl_ri
+    real, dimension(:,:), allocatable :: grad_u_val
 
     !! Source and absorption
     type(scalar_field) :: Source, Absorption
@@ -886,7 +905,7 @@ contains
     type(scalar_field) :: Subsidence, T_subs, Z
 
     type(integer_set), dimension(:), pointer :: colours
-    integer :: len, clr, nnid, i
+    integer :: len, clr, nnid
     !! Is the transform_to_physical cache we prepopulated valid
     logical :: cache_valid
     integer :: num_threads
@@ -1145,10 +1164,10 @@ contains
     end if
     
     ! LES, Diffusivity options
-    have_les=have_option(trim(T%option_path)//'/prognostic/spatial_discretisation/discontinuous_galerkin/les_model')
+    have_les_AF=have_option(trim(T%option_path)//'/prognostic/spatial_discretisation/discontinuous_galerkin/les_model_AF')
     have_richardson=.false.; have_eddy_diffusivity=.false.
-    if (have_les) then
-       les_option_path=(trim(T%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/les_model")
+    if (have_les_AF) then
+       les_option_path=(trim(T%option_path)//"/prognostic/spatial_discretisation/discontinuous_galerkin/les_model_AF")
        
        les_second_order=have_option(trim(les_option_path)//"/second_order")
        les_tke=have_option(trim(les_option_path)//"/tke")
@@ -1173,19 +1192,116 @@ contains
        endif
     endif
     
-    Diffusivity=extract_tensor_field(state, trim(field_name)//"Diffusivity"&
+    Diffusivity_ptr => extract_tensor_field(state, trim(field_name)//"Diffusivity"&
          &, stat=stat)
     if (stat/=0) then
-       call allocate(Diffusivity, T%mesh, trim(field_name)//"Diffusivity",&
+       call allocate(Diffusivity, T%mesh, "Diffusivity",&
             FIELD_TYPE_CONSTANT)
        call zero(Diffusivity)
        include_diffusion=.false.
     else
-       ! Grab an extra reference to cause the deallocate below to be safe.
-       call incref(Diffusivity)
+       call allocate(Diffusivity, T%mesh, "Diffusivity")
+       call set(Diffusivity, Diffusivity_ptr)
+
        include_diffusion=.true.
        ewrite_minmax(Diffusivity)
-    end if    
+
+       if (have_option(trim(T%option_path)//"/prognostic"//&
+         &"/subgridscale_parameterisation::LES")) then
+
+         scalar_eddy_visc => extract_scalar_field(state, "DGLESScalarEddyViscosity", stat=stat)
+         call get_option(trim(T%option_path)//"/prognostic"//&
+              &"/subgridscale_parameterisation::LES/PrandtlNumber", prandtl, default=1.0)
+
+         ! possibly anisotropic eddy viscosity if using Ri dependency
+         call allocate(eddy_visc, mesh_dim(T), scalar_eddy_visc%mesh, &
+              & "EddyViscosity")
+         do i = 1, mesh_dim(T)
+           call set(eddy_visc, i, scalar_eddy_visc)
+         end do
+
+         ! apply Richardson dependence
+         if (have_option(trim(T%option_path)//"/prognostic"//&
+              &"/subgridscale_parameterisation::LES/Ri_c")) then
+
+           ewrite(2,*) 'Calculating Ri dependent eddy viscosity'
+
+           ! obtain required values
+           call get_option(trim(T%option_path)//"/prognostic"//&
+              &"/subgridscale_parameterisation::LES/Ri_c", Ri_c)
+           
+           rho => extract_scalar_field(state, "Density", stat=stat)
+           if (stat /= 0) then
+             FLExit("You must have a density field to have an Ri dependent les model.")
+           end if
+
+           gravity=extract_vector_field(state, "GravityDirection",stat)
+           if (stat/=0) FLAbort('You must have gravity to have an Ri dependent les model.')
+           call get_option("/physical_parameters/gravity/magnitude", gravity_magnitude)
+           
+           ! obtain gradients
+           call allocate(grad_rho, mesh_dim(T), T%mesh, "grad_rho")
+           call grad(rho, X, grad_rho)
+           u_nl_ri => extract_vector_field(state, "NonlinearVelocity", stat)
+           if (stat/=0) then 
+             FLExit("No velocity field? A velocity field is required for Ri dependent LES!")
+           end if
+           call allocate(grad_u, u_nl_ri%mesh, "grad_u")
+           call grad(u_nl_ri, X, grad_u)
+
+           allocate(gravity_val(mesh_dim(T)))
+           allocate(grad_rho_val(mesh_dim(T)))
+           allocate(dU_dz(mesh_dim(T)))
+           allocate(grad_u_val(mesh_dim(T), mesh_dim(T)))
+           
+           do i=1,node_count(eddy_visc)
+             
+             gravity_val = node_val(gravity, i)
+             grad_rho_val = node_val(grad_rho, i)
+             grad_u_val = node_val(grad_u, i)
+             
+             ! assuming boussinesq rho_0 = 1 obtain N_2
+             N_2 = gravity_magnitude*dot_product(grad_rho_val, gravity_val)
+
+             ! obtain U_2 = du/dz**2 + dv/dz**2
+             dU_dz = matmul(transpose(grad_u_val), gravity_val) 
+             dU_dz = dU_dz - dot_product(dU_dz, gravity_val)
+             U_2 = norm2(dU_dz)**2.0
+
+             ! calculate Ri  - avoid floating point errors
+             if ((U_2 > N_2*1e-10) .and. U_2 > tiny(0.0)*1e10) then
+               Ri = N_2/U_2
+             else
+               Ri = Ri_c*1.1
+             end if
+             ! calculate f(Ri)
+             if (Ri >= 0 .and. Ri <= Ri_c) then
+               f_Ri = (1.0 - Ri/Ri_c)**0.5
+             else if (Ri > Ri_c) then
+               f_Ri = 0.0
+             else
+               f_Ri = 1.0
+             end if
+
+             ! calculate modified eddy viscosity
+             call addto(eddy_visc, i, (1-f_Ri)*gravity_val*node_val(scalar_eddy_visc, i))
+
+           end do
+
+           call deallocate(grad_rho)
+           call deallocate(grad_u)
+
+           deallocate(gravity_val, grad_u_val, grad_rho_val, dU_dz)
+         end if
+
+         do i = 1, mesh_dim(X)
+           eddy_visc_component = extract_scalar_field(eddy_visc, i)
+           call addto(Diffusivity, i, i, eddy_visc_component, scale=1./prandtl)
+         end do
+
+         call deallocate(eddy_visc)
+       end if
+    end if
 
     ! Retrieve scalar options from the options dictionary.
     if (.not.semi_discrete) then
@@ -1904,7 +2020,7 @@ contains
     ! Diffusion.
     Diffusivity_mat=0.0
     
-    if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion.or.have_les) then
+    if (include_diffusion.or.have_buoyancy_adjustment_by_vertical_diffusion.or.have_les_AF) then
        
        if (primal) then
           if(.not.remove_element_integral) then
