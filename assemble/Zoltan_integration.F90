@@ -168,10 +168,8 @@ module zoltan_integration
     end if
     
     if(zoltan_global_migrate_extruded_mesh) then
-       full_mesh => extract_mesh(states(1), trim(topology_mesh_name))
        call create_columns_sparsity(zoltan_global_columns_sparsity, full_mesh)
     end if
-    
 
     load_imbalance_tolerance = get_load_imbalance_tolerance(final_adapt_iteration)
     call set_zoltan_parameters(final_adapt_iteration, flredecomp, flredecomp_target_procs, load_imbalance_tolerance, zz)
