@@ -74,9 +74,6 @@ module advection_diffusion_DG
 
   implicit none
 
-  ! Buffer for output messages.
-  character(len=255), private :: message
-
   private
   public solve_advection_diffusion_dg, construct_advection_diffusion_dg, &
        advection_diffusion_dg_check_options
@@ -818,7 +815,7 @@ contains
     character(len=OPTION_PATH_LEN) :: les_option_path, forcing_option_path
     type(tensor_field) :: Diffusivity
     type(vector_field) :: U_les
-    type(tensor_field), pointer :: Diffusivity_ptr
+    type(tensor_field) :: LESDiffusivity
     
     !! Source and absorption
     type(scalar_field) :: Source, Absorption
@@ -889,9 +886,11 @@ contains
 
     type(integer_set), dimension(:), pointer :: colours
     integer :: len, clr, nnid
+#ifdef _OPENMP
     !! Is the transform_to_physical cache we prepopulated valid
     logical :: cache_valid
     integer :: num_threads
+#endif
 
     !! Diffusivity to add due to the buoyancy adjustment by vertical mixing scheme
     type(scalar_field) :: buoyancy_adjustment_diffusivity
@@ -972,7 +971,11 @@ contains
        if (have_option(trim(T%option_path)//"/prognostic"//&
          &"/subgridscale_parameterisation::LES")) then
 
-          call construct_les_dg(state,T, X, Diffusivity)
+          ! this routine takes Diffusivity as its background diffusivity
+          ! and returns the sum of this and the les diffusivity
+          call construct_les_dg(state,T, X, Diffusivity, LESDiffusivity)
+          ! the sum is what we want to apply:
+          Diffusivity = LESDiffusivity
              else
           ! Grab an extra reference to cause the deallocate below to be safe.
           call incref(Diffusivity)
@@ -1376,20 +1379,20 @@ contains
     
   end subroutine construct_advection_diffusion_dg
 
-  subroutine construct_les_dg(state, T, X, Diffusivity)
+  subroutine construct_les_dg(state, T, X, background_diffusivity, LESDiffusivity)
 
     !  Calculate updates to the field diffusivity due to the LES terms.
 
     type(state_type), intent(inout) :: state
     type(scalar_field), intent(in) :: T
     type(vector_field), intent(in) :: X
-    type(tensor_field), intent(inout) :: Diffusivity
+    type(tensor_field), intent(in) :: background_diffusivity
+    type(tensor_field), intent(out) :: LESDiffusivity
     
     !! Turbulent diffusion - LES (sp911)
     type(scalar_field), pointer :: scalar_eddy_visc
     type(scalar_field) :: eddy_visc_component
     type(vector_field) :: eddy_visc
-    type(tensor_field) :: LESDiffusivity
     real :: prandtl
     integer :: i
     !! Ri dependent LES (sp911)
@@ -1407,8 +1410,8 @@ contains
 
     integer :: stat
 
-    call allocate(LESDiffusivity, T%mesh, trim(Diffusivity%name))
-    call set(LESDiffusivity, Diffusivity)
+    call allocate(LESDiffusivity, T%mesh, trim(background_diffusivity%name))
+    call set(LESDiffusivity, background_diffusivity)
 
     scalar_eddy_visc => extract_scalar_field(state, "DGLESScalarEddyViscosity", stat=stat)
     call get_option(trim(T%option_path)//"/prognostic"//&
@@ -1501,11 +1504,6 @@ contains
     end do
     
     call deallocate(eddy_visc)
-
-    !! On leaving we point to the new tensor. 
-    !! This gets deallocated in the parent function. 
-
-    Diffusivity=LESDiffusivity
 
   end subroutine construct_les_dg
 
@@ -3950,7 +3948,6 @@ contains
     character(len = FIELD_NAME_LEN) :: field_name, mesh_0, mesh_1, state_name
     character(len = OPTION_PATH_LEN) :: path
     integer :: i, j, stat
-    real :: beta, l_theta
 
     if(option_count("/material_phase/scalar_field/prognostic/spatial_discretisation/discontinuous_galerkin") == 0) then
        ! Nothing to check
