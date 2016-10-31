@@ -1664,6 +1664,8 @@ suggested value 0.1</a:documentation>
                 <element name="debug">
                   <optional>
                     <element name="scalar_field">
+                      <a:documentation>YPlus - the wall Reynolds number on the Van Driest formulation. Requires an LES model
+to be applied to the velocity field.</a:documentation>
                       <attribute name="rank">
                         <value>0</value>
                       </attribute>
@@ -1679,6 +1681,12 @@ suggested value 0.1</a:documentation>
                   </optional>
                   <optional>
                     <element name="scalar_field">
+                      <a:documentation>DampedFilterWidth - Mixing length following application of the
+Van Driest formula:
+
+L_damped = L_{grid} * (1.0 - exp(-YPlus/25))
+
+Requires an LES model to be applied to the velocity field.</a:documentation>
                       <attribute name="rank">
                         <value>0</value>
                       </attribute>
