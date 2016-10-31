@@ -61,6 +61,8 @@ module hadapt_advancing_front
     integer :: ele, h_ele, snloc
     integer :: i, j, k, l
     
+    logical :: radial_layering
+    
     real :: vol
     
     ! allocate our arrays
@@ -79,8 +81,9 @@ module hadapt_advancing_front
     
     nelist => extract_nelist(h_mesh)
 
+    radial_layering = have_option('/geometry/spherical_earth')
     ! Sort the new nodes by height
-    if (have_option('/geometry/spherical_earth')) then
+    if (radial_layering) then
       ! sort on radius
       height_field = magnitude(mesh)
     else
@@ -100,7 +103,7 @@ module hadapt_advancing_front
       call qsort(heights, sorted)
     end if
 
-    if (have_option('/geometry/spherical_earth')) then
+    if (radial_layering) then
       call deallocate( height_field )
     end if
     

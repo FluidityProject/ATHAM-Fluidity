@@ -340,7 +340,7 @@ module column_module
     last_seen = 0
     do column=1,node_count(h_mesh)
       if (node_owned(h_mesh, column)) then
-        call append_to_structures(column, z_meshes(column), h_mesh, out_mesh, last_seen)
+        call append_to_structures(column, z_meshes(column), out_mesh, last_seen)
       else
         out_mesh%mesh%columns(last_seen+1:last_seen+no_hanging_nodes(column)+1) = column
         last_seen = last_seen + no_hanging_nodes(column)+1
