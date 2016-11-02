@@ -29,17 +29,17 @@
 
 module halos_numbering
 
-  use data_structures
   use fldebug
+  use data_structures
   use futils
-  use halo_data_types
-  use halos_allocates
-  use halos_base
-  use halos_communications
-  use halos_debug
   use mpi_interfaces
+  use halo_data_types
   use parallel_tools
   use quicksort
+  use halos_base
+  use halos_debug
+  use halos_allocates
+  use halos_communications
 
   implicit none
   
@@ -343,7 +343,7 @@ contains
       FLAbort("Cannot create global to universal numbering without MPI support")
     end if
 #endif
-
+    
   end subroutine create_global_to_universal_numbering_order_trailing_receives
 
   function valid_global_to_universal_numbering(halo) result(valid)

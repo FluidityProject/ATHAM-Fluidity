@@ -30,14 +30,14 @@
 module Coordinates
   use FLDebug
   use vector_tools
-  use fields
+  use iso_c_binding
+  use global_parameters
   use spud
-  use halos
   use halos_base
+  use fields
   use sparse_tools_petsc
   use state_module
-  use global_parameters
-  use iso_c_binding
+  use halos
 
   implicit none
   
