@@ -27,28 +27,28 @@
 #include "fdebug.h"
 
 module free_surface_module
+use integer_set_module
 use data_structures
+use spud
+use global_parameters, only: OPTION_PATH_LEN, FIELD_NAME_LEN
+use parallel_tools
+use sparse_tools
+use eventcounter
+use cv_faces
 use fields
 use state_module
-use sparse_tools
 use sparse_matrices_fields
 use boundary_conditions
 use boundary_conditions_from_options
-use spud
 use vertical_extrapolation_module
-use global_parameters, only: OPTION_PATH_LEN, FIELD_NAME_LEN
-use parallel_tools
-use eventcounter
-use integer_set_module
+use halos
 use field_options
 use physics_from_options
 use tidal_module, only: calculate_diagnostic_equilibrium_pressure
-use sparsity_patterns_meshes
 use sparsity_patterns
+use sparsity_patterns_meshes
 use solvers
 use cv_shape_functions
-use cv_faces
-use halos
 use halos_derivation
 implicit none
 

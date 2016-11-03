@@ -28,18 +28,18 @@
 
 module les_module
   !!< This module contains several subroutines and functions used to implement LES models
-  use state_module
-  use fields
-  use field_options
   use spud
   use global_parameters, only: FIELD_NAME_LEN, OPTION_PATH_LEN
-  use smoothing_module
   use vector_tools
   use fetools
   use field_derivatives
-  use state_fields_module
   use equation_of_state
+  use fields
+  use state_module
+  use field_options
   use solvers
+  use smoothing_module
+  use state_fields_module
   implicit none
 
   private

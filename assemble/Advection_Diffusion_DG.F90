@@ -29,48 +29,48 @@
 module advection_diffusion_DG
   !!< This module contains the Discontinuous Galerkin form of the advection
   !!< -diffusion equation for scalars.
+  use fldebug
+  use vector_tools
+  use global_parameters, only: OPTION_PATH_LEN, FIELD_NAME_LEN, COLOURING_DG2, &
+COLOURING_DG0
   use elements
+  use spud
+#ifdef _OPENMP
+  use omp_lib
+#endif
   use sparse_tools
+  use shape_functions
+  use transform_elements
   use fetools
   use dgtools
   use fields
-  use fefields
+  use profiler
   use state_module
-  use shape_functions
-  use transform_elements
   use parallel_tools
-  use vector_tools
-  use field_derivatives
   use fldebug
   use vtk_interfaces
-  use Coordinates
-  use petsc_solve_state_module
-  use boundary_conditions
-  use boundary_conditions_from_options
   use field_options
+  use sparse_matrices_fields
+  use fefields
+  use boundary_conditions
   use field_derivatives
+  use coordinates
+  use sparsity_patterns
+  use sparsity_patterns_meshes
+  use petsc_solve_state_module
+  use boundary_conditions_from_options
   use fields_calculations
-  use spud
   use helmholtz_projection
   use upwind_stabilisation
   use slope_limiters_dg
-  use sparsity_patterns
-  use sparse_matrices_fields
-  use sparsity_patterns_meshes
   use diagnostic_fields, only: calculate_diagnostic_variable, safe_set
-  use global_parameters, only : FIELD_NAME_LEN, OPTION_PATH_LEN, COLOURING_DG2, &
-       COLOURING_DG0
   use porous_media
   use equation_of_state, only : scale_pressure, compressible_eos
   use initialise_fields_module, only : initialise_field
   use colouring
-  use Profiler
   use filter_diagnostics
   use les_module
   use state_fields_module
-#ifdef _OPENMP
-  use omp_lib
-#endif
 
   implicit none
 

@@ -28,12 +28,12 @@
 #include "fdebug.h"
 
 module discrete_properties_module
-  use state_module
-  use solenoidal_interpolation_module
-  use fields
   use spud
   use global_parameters, only : OPTION_PATH_LEN
+  use fields
+  use state_module
   use field_options
+  use solenoidal_interpolation_module
   
   implicit none
   
@@ -84,9 +84,9 @@ contains
         ewrite(2, *) "  Considering algorithm " // trim(algorithms(alg))
         
         do mesh_i = 1, mesh_cnt
-	  mesh => extract_mesh(states(state), mesh_i)
- 	  call insert(alg_state, mesh, name=trim(mesh%name))
-	end do
+          mesh => extract_mesh(states(state), mesh_i)
+          call insert(alg_state, mesh, name=trim(mesh%name))
+        end do
         pos => extract_vector_field(states(state), "Coordinate")
         call insert(alg_state, pos, "Coordinate")
 

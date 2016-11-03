@@ -29,8 +29,8 @@
 module compressible_projection
   use fldebug
   use spud
-  use sparse_tools
   use global_parameters, only: OPTION_PATH_LEN
+  use sparse_tools
   use fields
   use state_module
   use sparse_matrices_fields

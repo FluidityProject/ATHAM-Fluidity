@@ -29,10 +29,10 @@
 
 module surface_id_interleaving
 
-  use fields
   use fldebug
   use mpi_interfaces
   use parallel_tools
+  use fields
 
   implicit none
 
@@ -127,7 +127,7 @@ contains
       ewrite(-1, "(a,i0)") "Max integer = ", huge(max_coplanar_id)
       FLAbort("Too many different coplanar and/or boundary ids")
     end if
-    
+
     interleaved_surface_ids = 0
     if(no_sids > 0) then
       if(associated(mesh%faces%boundary_ids)) then

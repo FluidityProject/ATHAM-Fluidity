@@ -42,10 +42,6 @@ module zoltan_integration
   use populate_state_module
   use surface_id_interleaving
   use adapt_integration
-
-! adding to use the ele_owner function
-  use halos_derivation
-  
   use zoltan_global_variables
   use zoltan_detectors
   use zoltan_callbacks
