@@ -29,14 +29,15 @@
 
 module synthetic_bc
 
-use FLDebug
+use fldebug
 use spud
-use state_module
 use global_parameters, only: dt, option_path_len
-use fields
 use elements
 use parallel_tools
 use boundary_conditions
+use fields
+use state_module
+
 implicit none
 
 private

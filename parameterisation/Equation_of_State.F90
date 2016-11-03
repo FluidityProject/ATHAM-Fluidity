@@ -28,13 +28,14 @@
 
 module equation_of_state
   !!< This module contains functions used to evaluate the equation of state.
+
   use fldebug
-  use fields
-  use state_module
   use global_parameters, only: OPTION_PATH_LEN
   use spud
-  use sediment, only: get_n_sediment_fields, get_sediment_item
+  use fields
+  use state_module
   use diagnostic_fields, only: safe_set
+  use sediment, only: get_n_sediment_fields, get_sediment_item
   
   implicit none
 

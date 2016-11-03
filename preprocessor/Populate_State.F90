@@ -27,30 +27,31 @@
 
 #include "fdebug.h"
 module populate_state_module
-  use FLDebug
-  use global_parameters, only: OPTION_PATH_LEN, is_active_process, pi, &
-    no_active_processes, topology_mesh_name, adaptivity_mesh_name, &
-    periodic_boundary_option_path, domain_bbox, domain_volume, surface_radius
-  use elements
-  use spud
   use fefields
   use fields_base
+  use fldebug
+  use global_parameters, only: OPTION_PATH_LEN, is_active_process, pi, &
+no_active_processes, topology_mesh_name, adaptivity_mesh_name, &
+periodic_boundary_option_path, domain_bbox, domain_volume, surface_radius
+  use elements
+  use spud
   use parallel_tools
   use data_structures
+  use fields_manipulation
   use metric_tools
   use transform_elements
-  use field_options
-  use reserve_state_module
-  use fields_manipulation
+  use profiler
   use state_module
   use mesh_files
   use vtk_cache_module
   use field_options
+  use reserve_state_module
+  use field_options
+  use halos
   use surfacelabels
   use diagnostic_variables, only: convergence_field, steady_state_field
   use climatology
   use coordinates
-  use halos
   use tictoc
   use hadapt_extrude
   use equation_of_state
@@ -136,7 +137,6 @@ contains
 
 
   subroutine populate_state(states)
-    use Profiler
     type(state_type), pointer, dimension(:) :: states
 
     integer :: nstates ! number of states
@@ -3596,7 +3596,6 @@ contains
 
   function mesh_name(field_path)
     !!< given a field path, establish the mesh that the field is on.
-    use global_parameters, only: FIELD_NAME_LEN
     character(len=FIELD_NAME_LEN) :: mesh_name
     character(len=*), intent(in) :: field_path
 
