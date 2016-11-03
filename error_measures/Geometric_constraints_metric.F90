@@ -16,10 +16,12 @@ module geometric_constraints_metric
   use edge_length_module
   use halos
   use surfacelabels, only: FindGeometryConstraints
+  use gradation_tools
   use node_boundary
   use form_metric_field
-  use gradation_tools
   use gradation_metric, only: form_gradation_metric
+
+  implicit none
 
   logical :: use_geometric_constraints_metric = .false.
   logical :: geometric_constraints_initialised = .false.

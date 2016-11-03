@@ -9,9 +9,9 @@ module interpolation_metric
 
   use spud
   use fldebug
+  use fields
   use metric_tools
   use parallel_fields
-  use fields
   use state_module
   use vtk_interfaces
   use merge_tensors
