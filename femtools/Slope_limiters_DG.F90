@@ -27,18 +27,21 @@
 #include "fdebug.h"
 
 module slope_limiters_dg
-use fields
 use fefields
-use state_module
+use fldebug
 use ieee_arithmetic
-use fldebug_parameters
 use spud
+use vector_tools, only: solve
 use elements
 use eventcounter
+use transform_elements
+use sparse_tools
+use fields
+use field_options, only: find_linear_parent_mesh
+use state_module
+use vtk_interfaces
 use state_fields_module
 use bound_field_module
-use vtk_interfaces
-use transform_elements
 use node_boundary
 use global_parameters, only: FIELD_NAME_LEN
 use diagnostic_fields, only : safe_set

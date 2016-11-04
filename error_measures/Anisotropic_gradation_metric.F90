@@ -4,9 +4,11 @@ module anisotropic_gradation
 
   use spud
   use sparse_tools, only: csr_sparsity, csr_matrix, CSR_INTEGER
+  use fldebug
   use vector_tools
   use adjacency_lists
   use linked_lists
+  use unittest_tools, only: operator(.fne.)
   use metric_tools
   use gradation_tools
   use fields
@@ -14,17 +16,17 @@ module anisotropic_gradation
   use initialise_fields_module
   use merge_tensors
   use gradation_metric
-  use form_metric_field
+  use form_metric_field, only: bound_metric
   use unittest_tools
 
   implicit none
 
   private
+
   public :: initialise_anisotropic_gradation
   public :: form_anisotropic_gradation_metric
-  public :: use_anisotropic_gradation
 
-  logical :: use_anisotropic_gradation = .true.
+  logical, public :: use_anisotropic_gradation = .true.
 
   contains
 

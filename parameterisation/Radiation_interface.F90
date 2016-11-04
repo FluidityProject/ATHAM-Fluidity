@@ -43,6 +43,7 @@ use global_parameters, only:FIELD_NAME_LEN,OPTION_PATH_LEN,&
 use diagnostic_fields, only: safe_set
 use boundary_conditions
 use equation_of_state
+use futils, only : int2str, present_and_true
 
 implicit none
 

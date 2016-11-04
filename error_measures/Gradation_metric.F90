@@ -12,8 +12,8 @@ module gradation_metric
   use fldebug
   use spud
   use vector_tools
-  use sparse_tools, only: csr_sparsity, csr_matrix, CSR_INTEGER
   use unittest_tools
+  use sparse_tools, only: csr_sparsity, csr_matrix, CSR_INTEGER
   use adjacency_lists
   use linked_lists
   use metric_tools
@@ -26,11 +26,6 @@ module gradation_metric
   
   implicit none
 
-  private
-  public :: initialise_gradation_metric
-  public :: form_gradation_metric
-  public :: use_gradation_metric, gradation_initialised
-
   ! These are the DEFAULTS ONLY IF YOU DON'T CALL
   ! initialise_gradation_metric.
   ! initialise_gradation_metric changes them for real code.
@@ -38,6 +33,12 @@ module gradation_metric
   ! or the gradation constant, CHANGE THE VALUES in INITIALISE_GRADATION_METRIC
   logical :: use_gradation_metric = .false.
   logical :: gradation_initialised = .false.
+
+  private
+
+  public :: initialise_gradation_metric, form_gradation_metric, use_gradation_metric,&
+       construct_edge_list, tag_edges, wrap_pop, match_up_ellipsoids, match_up_vectors,&
+       rotate_vec, warp_directions, gradation_initialised
 
   contains
 

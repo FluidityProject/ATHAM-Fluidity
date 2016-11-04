@@ -35,6 +35,8 @@ module assemble_microphysics
   use global_parameters, only:FIELD_NAME_LEN,OPTION_PATH_LEN
   use slope_limiters_dg
   use microphysics
+  use futils, only : int2str
+  use fldebug
 
   implicit none
 

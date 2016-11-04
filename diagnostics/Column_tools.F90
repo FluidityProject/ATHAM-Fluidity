@@ -22,6 +22,7 @@ module column_module
   use populate_state_module
   use hadapt_combine_meshes
   use hadapt_advancing_front
+  use parallel_fields, only : node_owned
   implicit none
 
   private

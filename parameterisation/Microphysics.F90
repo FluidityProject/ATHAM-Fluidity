@@ -46,6 +46,7 @@ module microphysics
   use equation_of_state
   use filter_diagnostics
   use slope_limiters_dg
+  use futils, only : int2str
 
   implicit none
   

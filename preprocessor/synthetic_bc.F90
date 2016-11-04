@@ -31,12 +31,15 @@ module synthetic_bc
 
 use fldebug
 use spud
-use global_parameters, only: dt, option_path_len
+use global_parameters, only: dt, option_path_len, FIELD_NAME_LEN
 use elements
 use parallel_tools
 use boundary_conditions
+use transform_elements
+use fetools
 use fields
 use state_module
+use sparse_tools, only : csr_sparsity
 
 implicit none
 

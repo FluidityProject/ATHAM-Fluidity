@@ -37,7 +37,9 @@ module filter_diagnostics
   use state_module
   use diagnostic_fields, only: safe_set
   use smoothing_module
-  
+  use futils, only : int2str
+  implicit none  
+
   private
   public :: calculate_horizontal_filter, calculate_sponge_coefficient_vector, calculate_sponge_coefficient_scalar
   
@@ -64,6 +66,7 @@ contains
     character(len = OPTION_PATH_LEN) :: direction
     real :: a=1.e-6, r=1.e-10, diff_max, rhs_max
     type(scalar_field) :: rhs, out
+    logical :: lexit
     
     assert(element_count(s_field) == element_count(f_field))
     

@@ -34,6 +34,7 @@ module read_gmsh
   use fldebug
   use global_parameters, only : OPTION_PATH_LEN
   use futils
+  use quadrature
   use elements
   use spud
   use parallel_tools

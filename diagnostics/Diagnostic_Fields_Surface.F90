@@ -45,6 +45,7 @@ module diagnostic_fields_surface
   use populate_state_module
   use vtk_interfaces, only: vtk_write_fields
   use write_state_module, only: include_scalar_field_in_vtu
+  use futils, only : int2str
 
   implicit none
   

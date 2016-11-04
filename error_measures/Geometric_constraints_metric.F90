@@ -6,8 +6,8 @@ module geometric_constraints_metric
 
   use spud
   use fldebug
-  use mpi_interfaces, only: mpi_allreduce
   use parallel_tools
+  use mpi_interfaces, only: mpi_allreduce
   use metric_tools
   use fields
   use state_module
@@ -22,6 +22,11 @@ module geometric_constraints_metric
   use gradation_metric, only: form_gradation_metric
 
   implicit none
+
+  private
+  public :: use_geometric_constraints_metric,&
+            initialise_geometric_constraints_metric,&
+	    form_geometric_constraints_metric
 
   logical :: use_geometric_constraints_metric = .false.
   logical :: geometric_constraints_initialised = .false.

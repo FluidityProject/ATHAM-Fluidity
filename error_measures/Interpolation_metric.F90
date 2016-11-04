@@ -9,8 +9,8 @@ module interpolation_metric
 
   use spud
   use fldebug
-  use fields
   use metric_tools
+  use fields
   use parallel_fields
   use state_module
   use vtk_interfaces

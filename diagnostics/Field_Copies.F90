@@ -34,8 +34,10 @@ module field_copies_diagnostics
   use filter_diagnostics
   use spud
   use fldebug
+  use vector_tools, only: solve
   use sparse_tools
   use transform_elements
+  use fetools
   use fields
   use state_module
   use field_options

@@ -34,6 +34,7 @@ module advection_diffusion_DG
   use global_parameters, only: OPTION_PATH_LEN, FIELD_NAME_LEN, COLOURING_DG2, &
 COLOURING_DG0
   use elements
+  use integer_set_module
   use spud
 #ifdef _OPENMP
   use omp_lib
@@ -42,20 +43,20 @@ COLOURING_DG0
   use shape_functions
   use transform_elements
   use fetools
-  use dgtools
+  use parallel_tools
   use fields
+  use parallel_fields
   use profiler
   use state_module
-  use parallel_tools
-  use fldebug
+  use boundary_conditions
+  use sparsity_patterns
+  use dgtools
   use vtk_interfaces
   use field_options
   use sparse_matrices_fields
   use fefields
-  use boundary_conditions
   use field_derivatives
   use coordinates
-  use sparsity_patterns
   use sparsity_patterns_meshes
   use petsc_solve_state_module
   use boundary_conditions_from_options
@@ -67,10 +68,10 @@ COLOURING_DG0
   use porous_media
   use equation_of_state, only : scale_pressure, compressible_eos
   use initialise_fields_module, only : initialise_field
-  use colouring
   use filter_diagnostics
   use les_module
   use state_fields_module
+  use colouring, only: get_mesh_colouring
 
   implicit none
 

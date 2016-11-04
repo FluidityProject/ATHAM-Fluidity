@@ -11,7 +11,7 @@ module gradation_tools
   use fldebug
   use spud
   use vector_tools
-  use sparse_tools, only: csr_sparsity, csr_matrix, CSR_INTEGER
+  use sparse_tools, only: csr_sparsity, csr_matrix, CSR_INTEGER, ival, row_length, row_m_ptr
   use unittest_tools
   use adjacency_lists
   use linked_lists

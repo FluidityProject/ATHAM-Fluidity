@@ -31,6 +31,7 @@ use spud
 use global_parameters, only: OPTION_PATH_LEN, PYTHON_FUNC_LEN, is_active_process
 use futils
 use state_module
+use parallel_tools
 use fields
 use coordinates
 use tictoc
