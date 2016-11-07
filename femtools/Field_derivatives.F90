@@ -1637,8 +1637,8 @@ module field_derivatives
       logical, dimension(:), intent(in) :: derivatives
       type(scalar_field), dimension(:), intent(inout) :: pardiff
 
-      type(scalar_field), intent(in) :: bc_value
-      integer, dimension(:), intent(in) :: bc_type
+      type(scalar_field), intent(in), optional :: bc_value
+      integer, dimension(:), intent(in), optional :: bc_type
       
       integer :: ele, i
 
@@ -1669,8 +1669,8 @@ module field_derivatives
       logical, dimension(:), intent(in) :: derivatives
       type(scalar_field), dimension(:), intent(inout) :: pardiff  
       integer, intent(in) :: ele
-      type(scalar_field), intent(in) :: bc_value
-      integer, dimension(:), intent(in) :: bc_type    
+      type(scalar_field), intent(in), optional :: bc_value
+      integer, dimension(:), intent(in), optional :: bc_type    
       
       ! variables for interior integral
       type(element_type), pointer :: shape
