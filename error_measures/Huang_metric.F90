@@ -5,7 +5,6 @@ module huang_metric_module
 
   use fldebug
   use vector_tools
-  use unittest_tools, only: is_nan
   use global_parameters, only: domain_volume, OPTION_PATH_LEN
   use spud
   use unittest_tools, only: is_nan
