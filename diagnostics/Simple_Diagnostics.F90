@@ -40,7 +40,6 @@ module simple_diagnostics
   use field_options
   use diagnostic_source_fields
   use vtk_cache_module
-  use parallel_tools
   use initialise_fields_module
   use state_fields_module
 

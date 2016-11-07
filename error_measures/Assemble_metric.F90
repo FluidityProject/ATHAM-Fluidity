@@ -20,7 +20,6 @@ module metric_assemble
   use surfacelabels
   use node_boundary, only: initialise_boundcount
   use field_derivatives
-  use sparse_tools
   use form_metric_field
   use edge_length_module
   use aspect_ratios_module
@@ -29,9 +28,6 @@ module metric_assemble
   use project_metric_to_surface_module, only: project_metric_to_surface
   use interpolation_metric
   use goals
-  use hadapt_advancing_front, only: create_columns_sparsity
-  use initialise_fields_module, only: initialise_field
-  use project_metric_to_surface_module
   use gradation_metric
   use goal_metric
   use bounding_box_metric
