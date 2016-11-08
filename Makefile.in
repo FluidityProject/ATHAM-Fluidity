@@ -77,6 +77,8 @@ ARFLAGS	= -cr
 
 EVAL = tools/silenteval.sh
 
+SED = @SED@
+
 ifeq (@MBA2D@,yes)
 LIBMBA2D = lib/libmba2d.a
 endif
@@ -115,7 +117,7 @@ sub_system: $(LIBMBA2D) $(LIBMBA3D) @LIB_FEMDEM@ \
 	lib/libadaptivity.a lib/libvtkfortran.a @LIBSPATIALINDEX@ \
 	@SPUDLIB@ @FLIBJUDY@ include/version.h
 
-lib/libjudy.a:
+@FLIBJUDY@:
 	@echo '    MKDIR lib'; mkdir -p lib
 	echo '    MAKE libjudy'; $(MAKE) -C libjudy > make.log && $(MAKE) -C libjudy install >> make.log
 
@@ -135,11 +137,11 @@ lib/libvtkfortran.a:
 	@echo '    MKDIR lib'; mkdir -p lib
 	echo '    MAKE libvtkfortran'; $(MAKE) -C libvtkfortran 2>make.log 2>&1 && cp libvtkfortran/libvtkfortran.a lib/ && cp libvtkfortran/*.mod include/
 
-lib/libspatialindex.a:
+@LIBSPATIALINDEX@:
 	@echo '    MKDIR lib'; mkdir -p lib
 	echo '    MAKE libspatialindex'; $(MAKE) -C @SPATIALINDEXDIR@ && $(MAKE) -C @SPATIALINDEXDIR@ install >> make.log 2>&1
 
-lib/libspud.a:
+@SPUDLIB@:
 	@echo '    MKDIR lib'; mkdir -p lib
 ifeq (@SPUD_ONLY@,yes)
 	echo '    MAKE libspud'; $(MAKE) -C libspud && $(MAKE) -C libspud install-libspud
@@ -160,7 +162,7 @@ ifeq (@FEMDEM@,yes)
 	@$(MAKE) -C @FLFEMDEM_PATH@
 endif
 
-include/spud.h: lib/libspud.a
+@SPUDHEADER@: @SPUDLIB@
 
 main.o: include/version.h @SPUDHEADER@
 
@@ -370,7 +372,7 @@ clean: clean-light clean-test python_clean clean-debian
 	@cd libvtkfortran; $(MAKE) clean
 	@echo "    CLEAN libjudy"
 	@cd libjudy; $(MAKE) clean >> make.log 2>&1
-ifeq (@SPUDLIB@,./lib/libspud.a)
+ifeq (@SPUDLIB@,$(abspath lib/libspud.a))
 	@echo "    CLEAN libspud"
 	@cd libspud; $(MAKE) clean
 endif
@@ -455,7 +457,7 @@ mediumtest: fltools bin/$(FLUIDITY) manual spudtools
 .PHONY: spudtools
 
 spudtools:
-	@cd libspud ; $(MAKE) install-tools
+	@cd libspud ; $(MAKE) install-spudtools
 	@echo "    INSTALL spudtools"
 
 setuputs: 
@@ -553,13 +555,13 @@ install: default fltools
 	rm -f $(DESTDIR)$(bindir)/spud-* $(DESTDIR)$(bindir)/diamond $(DESTDIR)$(bindir)/silenteval $(DESTDIR)$(bindir)/runut
 	[ -f manual/fluidity_manual.pdf ] && cp manual/fluidity_manual.pdf $(DESTDIR)$(docdir)/fluidity || true
 	mkdir -p $(DESTDIR)$(datadir)/fluidity
-	cp -r schemas/ $(DESTDIR)$(datadir)/fluidity/
+	cp -R schemas $(DESTDIR)$(datadir)/fluidity/
 	mkdir -p $(DESTDIR)$(datadir)/diamond/schemata
-	sed 's/$${datadir}/$(subst /,\/,$(datadir))/g' schemas/flml.in > $(DESTDIR)$(datadir)/diamond/schemata/flml
+	$(SED) 's/$${datadir}/$(subst /,\/,$(datadir))/g' schemas/flml.in > $(DESTDIR)$(datadir)/diamond/schemata/flml
 	cd python ; python setup.py install --root=$(shell echo ${DESTDIR} | sed 's/^$$/\//') --prefix="$(prefix)" $$FLUIDITY_PYTHON_INSTALL_ARGS
-	cp -r examples/ $(DESTDIR)$(docdir)/fluidity
-	find $(DESTDIR)$(docdir)/fluidity/examples -type f -exec sed -i "s/\.\.\/\.\.\/\.\.\/bin\///" '{}' \;
-	find $(DESTDIR)$(docdir)/fluidity/examples -type f -exec sed -i "s/\.\.\/\.\.\/bin\///" '{}' \;
+	cp -R examples $(DESTDIR)$(docdir)/fluidity
+	find $(DESTDIR)$(docdir)/fluidity/examples -type f -exec $(SED) -i "s/\.\.\/\.\.\/\.\.\/bin\///" '{}' \;
+	find $(DESTDIR)$(docdir)/fluidity/examples -type f -exec $(SED) -i "s/\.\.\/\.\.\/bin\///" '{}' \;
 	cd $(DESTDIR)$(docdir)/fluidity ; tar -czvf $(DESTDIR)$(docdir)/fluidity/examples.tar.gz examples/
 	rm -rf $(DESTDIR)$(docdir)/fluidity/examples/
 
