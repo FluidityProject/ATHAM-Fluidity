@@ -3806,8 +3806,8 @@ if test "$fcompiler" = "ifort" ; then
       { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Early versions of intel 11.1 are bugged and cannot be used to compile Fluidity. Make sure you have at least version 11.1.073." >&5
 $as_echo "$as_me: WARNING: Early versions of intel 11.1 are bugged and cannot be used to compile Fluidity. Make sure you have at least version 11.1.073." >&2;}
     fi
-#    FFLAGS="$FFLAGS -vec-report=0"
-#    FCFLAGS="$FCFLAGS -vec-report=0"
+    FFLAGS="$FFLAGS -vec-report=0"
+    FCFLAGS="$FCFLAGS -vec-report=0"
 fi
 
 ac_ext=c
@@ -7204,66 +7204,6 @@ if eval test \"x\$"$as_ac_Lib"\" = x"yes"; then :
 fi
 
 fi
-if test $acx_blas_ok = no; then
-        as_ac_Lib=`$as_echo "ac_cv_lib_mkl_intel_ilp64_$sgemm" | $as_tr_sh`
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $sgemm in -lmkl_intel_ilp64" >&5
-$as_echo_n "checking for $sgemm in -lmkl_intel_ilp64... " >&6; }
-if eval "test \"\${$as_ac_Lib+set}\"" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lmkl_intel_ilp64 -lmkl_core -lmkl_intel_thread -liomp5 -lm $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char $sgemm ();
-#ifdef F77_DUMMY_MAIN
-
-#  ifdef __cplusplus
-     extern "C"
-#  endif
-   int F77_DUMMY_MAIN() { return 1; }
-
-#endif
-#ifdef FC_DUMMY_MAIN
-#ifndef FC_DUMMY_MAIN_EQ_F77
-#  ifdef __cplusplus
-     extern "C"
-#  endif
-   int FC_DUMMY_MAIN() { return 1; }
-#endif
-#endif
-int
-main ()
-{
-return $sgemm ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  eval "$as_ac_Lib=yes"
-else
-  eval "$as_ac_Lib=no"
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-eval ac_res=\$$as_ac_Lib
-	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-if eval test \"x\$"$as_ac_Lib"\" = x"yes"; then :
-  acx_blas_ok=yes; acx_blas_libs="-lmkl_intel_ilp64 -lmkl_core -lmkl_intel_thread -liomp5 -lm"
-fi
-
-fi
 # check for older mkl
 if test $acx_blas_ok = no; then
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: trying Intel MKL < 7:" >&5
@@ -7749,6 +7689,7 @@ fi
 
 fi
 
+
 fi
 
     { $as_echo "$as_me:${as_lineno-$LINENO}: PhiPACK... $acx_blas_ok" >&5
@@ -8120,67 +8061,6 @@ eval ac_res=\$$as_ac_Lib
 $as_echo "$ac_res" >&6; }
 if eval test \"x\$"$as_ac_Lib"\" = x"yes"; then :
   acx_blas_ok=yes; acx_blas_libs="-lcomplib.sgimath"
-fi
-
-fi
-
-if test $acx_blas_ok = no; then
-	as_ac_Lib=`$as_echo "ac_cv_lib_mkl_intel_ilp64_$sgemm$sgemm" | $as_tr_sh`
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $sgemm in -lmkl_intel_ilp64" >&5
-$as_echo_n "checking for $sgemm in -lmkl_intel_ilp64... " >&6; }
-if eval \${$as_ac_Lib+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lcomplib.sgimath  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char $sgemm ();
-#ifdef F77_DUMMY_MAIN
-
-#  ifdef __cplusplus
-     extern "C"
-#  endif
-   int F77_DUMMY_MAIN() { return 1; }
-
-#endif
-#ifdef FC_DUMMY_MAIN
-#ifndef FC_DUMMY_MAIN_EQ_F77
-#  ifdef __cplusplus
-     extern "C"
-#  endif
-   int FC_DUMMY_MAIN() { return 1; }
-#endif
-#endif
-int
-main ()
-{
-return $sgemm ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  eval "$as_ac_Lib=yes"
-else
-  eval "$as_ac_Lib=no"
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-eval ac_res=\$$as_ac_Lib
-	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-if eval test \"x\$"$as_ac_Lib"\" = x"yes"; then :
-  acx_blas_ok=yes; acx_blas_libs="-lmkl_intel_ilp64 -lmkl_core -lmkl_intel_thread -liomp5 -lm"
 fi
 
 fi
@@ -8869,37 +8749,6 @@ if eval test \"x\$"$as_ac_Lib"\" = x"yes"; then :
 fi
 
 fi
-if test $acx_blas_ok = no; then
-        as_ac_Lib=`$as_echo "ac_cv_lib_mkl_ilp64_$sgemm" | $as_tr_sh`
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $sgemm in -lmkl_intel_ilp64" >&5
-$as_echo_n "checking for $sgemm in -lmkl_intel_ilp64... " >&6; }
-if eval \${$as_ac_Lib+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lmkl_intel_ilp64 -lmkl_core -lmkl_intel_thread -liomp5 -lm $LIBS"
-cat > conftest.$ac_ext <<_ACEOF
-      program main
-      call $sgemm
-      end
-_ACEOF
-if ac_fn_f77_try_link "$LINENO"; then :
-  eval "$as_ac_Lib=yes"
-else
-  eval "$as_ac_Lib=no"
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-eval ac_res=\$$as_ac_Lib
-	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-if eval test \"x\$"$as_ac_Lib"\" = x"yes"; then :
-  acx_blas_ok=yes; acx_blas_libs="-lmkl_intel_ilp64 -lmkl_core -lmkl_intel_thread -liomp5 -lm"
-fi
-
-fi
 # check for older mkl
 if test $acx_blas_ok = no; then
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: trying Intel MKL < 7:" >&5
@@ -9490,38 +9339,6 @@ fi
 
 fi
 
-if test $acx_blas_ok = no; then
-	as_ac_Lib=`$as_echo "ac_cv_lib_mkl_intel_ilp64_$sgemm" | $as_tr_sh`
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $sgemm in -lmkl_intel_ilp64" >&5
-$as_echo_n "checking for $sgemm in -lmkl_intel_ilp64... " >&6; }
-if eval "test \"\${$as_ac_Lib+set}\"" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lmkl_intel_ilp64 -lmkl_core -lmkl_intel_thread -liomp5 -lm $LIBS"
-cat > conftest.$ac_ext <<_ACEOF
-      program main
-      call $sgemm
-      end
-_ACEOF
-if ac_fn_f77_try_link "$LINENO"; then :
-  eval "$as_ac_Lib=yes"
-else
-  eval "$as_ac_Lib=no"
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-eval ac_res=\$$as_ac_Lib
-	     { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-if eval test \"x\$"$as_ac_Lib"\" = x"yes"; then :
-  acx_blas_ok=yes; acx_blas_libs="-lmkl_intel_ilp64 -lmkl_core -lmkl_intel_thread -liomp5 -lm"
-fi
-
-fi
-
 # Check for vecLib framework (Darwin)
 if test $acx_blas_ok = no; then
 	save_LIBS="$LIBS"; LIBS="-framework vecLib $LIBS"
@@ -9603,9 +9420,6 @@ esac
 if test "x$acx_blas_ok" != xyes; then
 	acx_lapack_ok=noblas
 fi
-
-# add BLAS to libs
-LIBS="$BLAS_LIBS $LIBS"
 
 # Are we linking from C?
 case "$ac_ext" in
@@ -10854,7 +10668,7 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
     CFLAGS="-fbounds-check -Wall ${CFLAGS}"
     CXXFLAGS="-fbounds-check -Wall ${CXXFLAGS}"
     if test "$DARWIN" = "no" ; then
-    LDFLAGS="-rdynamic ${LDFLAGS}"
+        LDFLAGS="-rdynamic ${LDFLAGS}"
     fi
   elif test "$fcompiler" = "g95" ; then
     FFLAGS="-fbounds-check -ftrace=full ${FFLAGS}"
@@ -13621,17 +13435,6 @@ $as_echo "$ac_cv_lib_zoltan_Zoltan_Create" >&6; }
 if test "x$ac_cv_lib_zoltan_Zoltan_Create" = xyes; then :
 
        LIBS="-lzoltan $LIBS"
-
-ZOLTAN_INCLUDE=""
-echo "Looking for ZOLTAN include path"  
-for i in `echo $INCLUDE | sed -e 's/:/ /g'`; do
-  if test \( -f $i/zoltan.mod \); then
-    ZOLTAN_INCLUDE=$i
-  fi
-done
-FCFLAGS="$FCFLAGS -I$ZOLTAN_INCLUDE"
-FFLAGS="$FFLAGS -I$ZOLTAN_INCLUDE"
-
 else
 
       { $as_echo "$as_me:${as_lineno-$LINENO}: Fluidity can be built without zoltan by configuring with the --enable-sam flag. This gives limited functionality when using parallel adaptivity. See the manual for more details." >&5
@@ -13865,70 +13668,6 @@ fi
 if test -z "$FORTRAN_REAL_8" ; then
    as_fn_error $? "none found" "$LINENO" 5
 fi
-
-ac_ext=c
-ac_cpp='$CPP $CPPFLAGS'
-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_c_compiler_gnu
-
-ac_ext=${ac_fc_srcext-f}
-ac_compile='$FC -c $FCFLAGS $ac_fcflags_srcext conftest.$ac_ext >&5'
-ac_link='$FC -o conftest$ac_exeext $FCFLAGS $LDFLAGS $ac_fcflags_srcext conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_fc_compiler_gnu
-
-c_ext=F90
-
-if test "$cross_compiling" = yes; then :
-  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "cannot run test program while cross compiling
-See \`config.log' for more details" "$LINENO" 5; }
-else
-  cat > conftest.$ac_ext <<_ACEOF
-      program main
-
-       implicit none
-
-       integer :: unit = 10
-       integer :: i, data(3)
-
-       open(access='stream', action='write', form='formatted', file='conftest.data', unit=unit)
-       do i = 1, 3
-	  write(fmt='(i0)', unit=unit) i
-       end do
-       close(unit=unit)
-
-       open(access='stream', action='read', form='formatted', file='conftest.data', unit=unit)
-       read(fmt='(i1)', advance='no', unit=unit)
-       read(fmt=*, unit=unit) data(1)
-       read(fmt=*, unit=unit) data(2)
-       read(fmt=*, unit=unit) data(3)
-       close(unit=unit)
-
-       if (all(data == (/1,2,3/))) then
-	  call exit(0)
-       else
-	  call exit(-1)
-       end if
-
-      end
-_ACEOF
-if ac_fn_fc_try_run "$LINENO"; then :
-    IO_ADVANCE_BUG="no"
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: fortran compiler has bugged advance io" >&5
-$as_echo "$as_me: fortran compiler has bugged advance io" >&6;}
-  $as_echo "#define IO_ADVANCE_BUG 1" >>confdefs.h
-
-  IO_ADVANCE_BUG="yes"
-
-fi
-rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
-  conftest.$ac_objext conftest.beam conftest.$ac_ext
-fi
-
-
 
 ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
@@ -14875,20 +14614,6 @@ rm -f core conftest.err conftest.$ac_objext \
         if test "x$VTK_INSTALL_PREFIX" == "x"; then
             VTK_INSTALL_PREFIX=/usr/include
         fi
-for i in `echo $LD_LIBRARY_PATH | sed -e 's/:/ /g'`; do
-  echo "looking in $i"
-  if test \( -f $i/libvtkCommon.a \) -o \( -f $i/libvtkCommon.so \)
-  then
-      { echo "$as_me:$LINENO: VTK library is in $i." >&5
-  echo "$as_me: VTK library is in $i." >&6;}
-  LIBS="$LIBS -L$i"
-  fi
-done
-for i in `echo $INCLUDE | sed -e 's/:/ /g'`; do
-  if test \( -f $i/vtkCellData.h \); then
-  VTK_INCLUDE=$i
-  fi
-done
 
         # Loop through potential vtk installations and get the highest version number
         vtk_version=0
