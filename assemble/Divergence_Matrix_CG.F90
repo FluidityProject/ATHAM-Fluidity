@@ -357,7 +357,6 @@ module divergence_matrix_cg
               end if
             end do
           end if
-	  
         end do
         
         call deallocate(field_bc)
@@ -668,7 +667,7 @@ module divergence_matrix_cg
 
             else
                ele_mat = shape_dshape(test_shape, dfield_t, detwei*(theta*density_at_quad + (1-theta)*olddensity_at_quad)) + &
-                        shape_shape_vector(test_shape, field_shape, detwei, density_grad_at_quad)
+                      shape_shape_vector(test_shape, field_shape, detwei, density_grad_at_quad)
             end if
 
         end if

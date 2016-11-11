@@ -99,7 +99,6 @@ default: $(LIB)
 # cancel implicit rule that tries to make .o from .mod with m2c:
 %.o: %.mod
 
-
 clean:
 	rm -f *.o *.d *.mod
 

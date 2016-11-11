@@ -113,7 +113,7 @@ contains
                        iterations_taken = iterations_taken)
       
     end if
-  
+
   end subroutine petsc_solve_scalar_state
   
   subroutine petsc_solve_scalar_state_petsc_csr(x, matrix, rhs, state, &
@@ -164,7 +164,7 @@ contains
       call petsc_solve(x, matrix, rhs, option_path=option_path)
       
     end if
-   
+
   end subroutine petsc_solve_scalar_state_petsc_csr
   
   subroutine petsc_solve_vector_state_petsc_csr(x, matrix, rhs, state, &
@@ -178,8 +178,8 @@ contains
     type(state_type), intent(in):: state
     !! override x%option_path if provided:
     character(len=*), optional, intent(in):: option_path
-    type(vector_field), pointer :: mesh_positions
     
+    type(vector_field), pointer :: mesh_positions
     integer, dimension(:), pointer:: surface_nodes
     type(petsc_csr_matrix), dimension(:), pointer:: prolongators
     character(len=OPTION_PATH_LEN):: solver_option_path
@@ -195,16 +195,16 @@ contains
     if (rotation_stat==0 .and. associated(prolongators)) then
       FLExit("Rotated boundary conditions do not work with mg prolongators in the velocity solve")
     end if
-
+    
     if (associated(prolongators) .and. associated(mesh_positions)) then
       call petsc_solve(x, matrix, rhs, &
-	   prolongators=prolongators, option_path=option_path, positions=mesh_positions)
+           prolongators=prolongators, option_path=option_path, positions=mesh_positions)
     else if (associated(prolongators)) then
       call petsc_solve(x, matrix, rhs, &
            prolongators=prolongators, option_path=option_path)
     else if (associated(mesh_positions) .and. rotation_stat==0) then
       call petsc_solve(x, matrix, rhs, option_path=option_path, positions=mesh_positions, &
-	rotation_matrix=rotation_matrix%M)
+        rotation_matrix=rotation_matrix%M)
     else if (associated(mesh_positions)) then
       call petsc_solve(x, matrix, rhs, option_path=option_path, positions=mesh_positions)
     else if (rotation_stat==0) then
@@ -219,7 +219,6 @@ contains
     end if
 
     if (associated(prolongators)) then
-      
       do i=1, size(prolongators)
         call deallocate(prolongators(i))
       end do
@@ -313,9 +312,9 @@ contains
 
     if (petsc_solve_needs_positions(solver_option_path)) then
       if (.not. present(mesh_positions)) then
-	! currently this option only exists for vector solves, if it occurs in other places
-	! mesh_positions should be passed down
-	FLAbort("mesh_positions should have been present")
+        ! currently this option only exists for vector solves, if it occurs in other places
+        ! mesh_positions should be passed down
+        FLAbort("mesh_positions should have been present")
       end if
       allocate(mesh_positions)
       ! get the positions of the nodes - for periodic this gives the aliased positions, is that right? who knows...
@@ -343,7 +342,7 @@ contains
       .or. have_option( &
         trim(solver_option_path)//'/diagnostics/monitors/true_error') &
       .or. have_option( &
-	trim(solver_option_path)//'/diagnostics/monitors/iteration_vtus') &
+        trim(solver_option_path)//'/diagnostics/monitors/iteration_vtus') &
       .or. petsc_solve_needs_positions(solver_option_path)
   
   end function petsc_solve_needs_state

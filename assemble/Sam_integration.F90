@@ -1679,7 +1679,7 @@ module sam_integration
     end if
   
   end subroutine ewrite_load_imbalance
-  
+
   subroutine check_sam_linear_remap_validity(stat,name)
     integer, intent(in) :: stat
     character(len = * ) :: name
@@ -1712,15 +1712,15 @@ module sam_integration
     character (len=OPTION_PATH_LEN) :: continuity_var
 
     !!< Check libsam integration related options
-    
+   
     if(.not. isparallel()) then
       ! Nothing to check
       return
-    end if
+    end if       
     
 #ifndef HAVE_ZOLTAN
     ewrite(2, *) "Checking libsam integration related options"
-    
+
     if( have_option("/flredecomp") ) then
        FLExit("Specification of flredecomp parameters in the options tree is not supported with libsam. Please remove or reconfigure with Zoltan")
     end if
@@ -1748,7 +1748,7 @@ module sam_integration
       ewrite(0,*) "For this to work you need to reconfigure with Zoltan."
       FLExit("Non supported discretisation for sam with parallel adaptivity.")
     end if
-    
+
     ewrite(2, *) "Finished checking libsam integration related options"
 #endif
 

@@ -46,12 +46,12 @@ module diagnostic_fields_wrapper
   use multiphase_module
   use diagnostic_fields_matrices
   use multimaterial_module, only: calculate_material_mass, &
-                                  calculate_bulk_material_pressure, &
-                                  calculate_sum_material_volume_fractions, &
-                                  calculate_material_volume
+       calculate_bulk_material_pressure, &
+       calculate_sum_material_volume_fractions, &
+       calculate_material_volume
   use tidal_module, only: calculate_diagnostic_equilibrium_pressure
   use free_surface_module, only: calculate_diagnostic_free_surface, &
-                                 calculate_diagnostic_wettingdrying_alpha
+       calculate_diagnostic_wettingdrying_alpha
   use vorticity_diagnostics
   use momentum_diagnostic_fields
   use spontaneous_potentials, only: calculate_formation_conductivity
@@ -290,7 +290,7 @@ contains
              & s_field)
          end if
        end if
-
+       
        s_field => extract_scalar_field(state(i), "RichardsonNumber", stat)
        if(stat == 0) then
          if(recalculate(trim(s_field%option_path))) then
@@ -572,10 +572,10 @@ contains
 
        ! Start of sediment diagnostics.
        if (have_option("/material_phase[0]/sediment")) then
-	  call calculate_sediment_sinking_velocity(state(i))
-	  call calculate_sediment_active_layer_d50(state(i))
-	  call calculate_sediment_active_layer_sigma(state(i))
-	  call calculate_sediment_active_layer_volume_fractions(state(i))
+          call calculate_sediment_sinking_velocity(state(i))
+          call calculate_sediment_active_layer_d50(state(i))
+          call calculate_sediment_active_layer_sigma(state(i))
+          call calculate_sediment_active_layer_volume_fractions(state(i))
        end if
        ! End of sediment diagnostics.
 
@@ -607,17 +607,17 @@ contains
        
        s_field => extract_scalar_field(state(i), "CompressibleContinuityResidual", stat)
        if(stat == 0) then
-	 ! Check that we are running a compressible multiphase simulation
-	 if(option_count("/material_phase/vector_field::Velocity/prognostic") > 1 .and. option_count("/material_phase/equation_of_state/compressible") > 0) then 
-	    diagnostic = have_option(trim(s_field%option_path)//"/diagnostic")
-	    if(diagnostic .and. .not.(aliased(s_field))) then
-	       if(recalculate(trim(s_field%option_path))) then
-		  call calculate_compressible_continuity_residual(state, s_field)
-	       end if
-	    end if
-	 else
-	    FLExit("The CompressibleContinuityResidual field is only used in compressible multiphase simulations.")
-	 end if
+         ! Check that we are running a compressible multiphase simulation
+         if(option_count("/material_phase/vector_field::Velocity/prognostic") > 1 .and. option_count("/material_phase/equation_of_state/compressible") > 0) then 
+            diagnostic = have_option(trim(s_field%option_path)//"/diagnostic")
+            if(diagnostic .and. .not.(aliased(s_field))) then
+               if(recalculate(trim(s_field%option_path))) then
+                  call calculate_compressible_continuity_residual(state, s_field)
+               end if
+            end if
+         else
+            FLExit("The CompressibleContinuityResidual field is only used in compressible multiphase simulations.")
+         end if
        end if
 
        ! end of fields that cannot be called through the generic

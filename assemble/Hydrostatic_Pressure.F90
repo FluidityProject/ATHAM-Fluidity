@@ -322,7 +322,7 @@ module hydrostatic_pressure
     call profiler_toc(hp, "assembly")
     
     call petsc_solve(hp, matrix, rhs)
-
+    
     call deallocate(rhs)
 
   end subroutine calculate_hydrostatic_pressure_cg
@@ -624,7 +624,7 @@ module hydrostatic_pressure
         ewrite(2,*) 'integrating gradient by parts, dg = ', dg
         do i = 1, ele_count(mom_rhs)
           if((.not.dg).or.(element_owned(mom_rhs, i))) then
-            call subtract_given_hydrostatic_pressure_gradient_element_ibp(i, positions, hp, mom_rhs, dg)
+            call subtract_given_hydrostatic_pressure_gradient_element_ibp(i, positions,hp, mom_rhs, dg)
           end if
         end do
       

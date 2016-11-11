@@ -203,7 +203,7 @@ contains
 
     ! Filter width
     if(have_filter_width) then
-       tfield=>extract_tensor_field(state, "FilterWidth")
+      tfield => extract_tensor_field(state, "FilterWidth")
        shape=>ele_shape(tfield,ele)
        call transform_to_physical(X, ele, detwei=detwei)
        call set(tfield, ele_nodes(tfield, ele), shape_tensor_rhs(shape, mesh_size_gi, detwei))
@@ -211,14 +211,14 @@ contains
 
     ! Smagorinsky Coefficient
     if(have_coeff) then
-       sfield=>extract_scalar_field(state, "SmagorinskyCoefficient")
+      sfield => extract_scalar_field(state, "SmagorinskyCoefficient")
        shape=>ele_shape(sfield,ele)
        call transform_to_physical(X, ele, detwei=detwei)
        call set(sfield, ele_nodes(sfield, ele), shape_rhs(shape, les_coef_gi*detwei))
     end if
 
   end subroutine les_assemble_diagnostic_fields
-  
+
   subroutine les_solve_diagnostic_fields(state, have_filter_width, have_coeff)
 
     ! Arguments
@@ -371,7 +371,7 @@ contains
 
     ! Zero tensor field for reuse in strain product assembly
     call zero(ui_uj)
-    
+
     ! Calculate velocity gradient
     call grad(u, positions, nu_grad)
 
@@ -408,25 +408,25 @@ contains
     !! Computes the strain rate
     real, dimension(:,:) :: nu_ele
     real, dimension(:,:,:) :: nu_grad_ele
-    
+
     real, dimension( size(nu_ele,1),size(nu_ele,1),size(nu_ele,2) ):: les_strain_rate
     real, dimension( size(nu_ele,1),size(nu_ele,1) ):: s
     integer dim, ngi, gi, di
 
     ngi=size(nu_ele,2)
     dim=size(nu_ele,1)
-       
+
     do gi=1, ngi
-    
+
       s=0.5*nu_grad_ele(:,:,gi)
-      les_strain_rate(:,:,gi)=s+transpose(s)
-      
-    enddo
-    
+       les_strain_rate(:,:,gi)=s+transpose(s)
+
+    end do
+
   end function les_strain_rate
 
   function les_viscosity_strength(ele, nu_ele, nu_grad_ele, correction, ri, pr)
-    !! Computes the strain rate modulus for the LES model
+    !! Computes the strain rate modulus for the LES model 
     integer, intent(in) :: ele
     real, dimension(:,:) :: nu_ele
     real, dimension(:,:,:) :: nu_grad_ele
@@ -446,8 +446,8 @@ contains
     ngi=size(nu_ele,2)
     dim=size(nu_ele,1)
     les_viscosity_strength=0.0
-    
-    do gi=1,ngi
+
+    do gi=1, ngi
 
        s=0.5*nu_grad_ele(:,:,gi)
        s=s+transpose(s)
@@ -496,7 +496,7 @@ contains
     end do
 
   end function les_viscosity_strength
-  
+
   function wale_viscosity_strength(nu_ele, nu_grad_ele)
     !! Computes the traceless symmetric part of the square of
     !! the resolved velocity gradient tensor for the LES model

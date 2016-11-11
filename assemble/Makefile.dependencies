@@ -588,7 +588,6 @@ Momentum_CG.o ../include/momentum_cg.mod: Momentum_CG.F90 \
    ../include/state_module.mod ../include/transform_elements.mod \
    ../include/upwind_stabilisation.mod ../include/vector_tools.mod
 
-
 ../include/momentum_dg.mod: Momentum_DG.o
 	@true
 

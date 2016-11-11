@@ -31,7 +31,7 @@ module diagnostic_fields_matrices
   !!< A module to link to diagnostic variable calculations.
 
   use fldebug
-  use global_parameters, only:FIELD_NAME_LEN 
+  use global_parameters, only:FIELD_NAME_LEN
   use futils
   use spud
   use parallel_tools
@@ -60,7 +60,7 @@ module diagnostic_fields_matrices
   public :: calculate_divergence_cv, calculate_divergence_fe, &
             calculate_div_t_cv, calculate_div_t_fe, &
             calculate_grad_fe, calculate_sum_velocity_divergence, &
-	    calculate_compressible_continuity_residual
+            calculate_compressible_continuity_residual
 
 contains
 
@@ -360,7 +360,7 @@ contains
       call allocate(ctfield, sum_velocity_divergence%mesh, name="CTField")
       call zero(ctfield)
       call allocate(temp, sum_velocity_divergence%mesh, name="Temp")
-      
+
       ! Require a mass matrix type if not CV tested equation.
       if (.not. test_with_cv_dual) then
          mass_sparsity=make_sparsity(sum_velocity_divergence%mesh, sum_velocity_divergence%mesh, "MassSparsity")
@@ -388,24 +388,25 @@ contains
          allocate(ct_m)
          call allocate(ct_m, divergence_sparsity, (/1, u%dim/), name="DivergenceMatrix" )
          call allocate(ct_rhs, sum_velocity_divergence%mesh, name="CTRHS")
-         
+
          ! Reassemble C^T matrix here
          if (test_with_cv_dual) then
             call assemble_divergence_matrix_cv(ct_m, state(i), ct_rhs=ct_rhs, &
                               test_mesh=sum_velocity_divergence%mesh, field=u)
          else
-            if(i==1) then ! Construct the mass matrix (just do this once)                      
+            if(i==1) then ! Construct the mass matrix (just do this once)
                call assemble_divergence_matrix_cg(ct_m, state(i), ct_rhs=ct_rhs, &
-                                 test_mesh=sum_velocity_divergence%mesh, field=u, &
-                                 option_path=sum_velocity_divergence%option_path, div_mass=mass)
+                              test_mesh=sum_velocity_divergence%mesh, field=u, &
+                              option_path=sum_velocity_divergence%option_path, div_mass=mass)
             else
                call assemble_divergence_matrix_cg(ct_m, state(i), ct_rhs=ct_rhs, &
-                                 test_mesh=sum_velocity_divergence%mesh, field=u, &
-                                 option_path=sum_velocity_divergence%option_path)
-            end if            
+                              test_mesh=sum_velocity_divergence%mesh, field=u, &
+                              option_path=sum_velocity_divergence%option_path)
+            end if   
+
          end if
 
-         ! Construct the linear system of equations 
+         ! Construct the linear system of equations
          call zero(temp)
          call mult(temp, ct_m, u)
          call addto(temp, ct_rhs, -1.0)
@@ -445,6 +446,7 @@ contains
       ewrite(1,*) 'Exiting calculate_sum_velocity_divergence'
          
   end subroutine calculate_sum_velocity_divergence
+
   
   subroutine calculate_compressible_continuity_residual(state, compressible_continuity_residual)
       !!< Calculates the residual of the continity equation used in compressible multiphase flow simulations:
@@ -480,7 +482,7 @@ contains
       call allocate(ctfield, compressible_continuity_residual%mesh, name="CTField")
       call zero(ctfield)
       call allocate(temp, compressible_continuity_residual%mesh, name="Temp")
-	    
+            
       mass_sparsity=make_sparsity(compressible_continuity_residual%mesh, compressible_continuity_residual%mesh, "MassSparsity")
       call allocate(mass, mass_sparsity, name="MassMatrix")
       call zero(mass)
@@ -489,95 +491,95 @@ contains
       
       ! Sum up over the div's
       do i = 1, size(state)
-	 u => extract_vector_field(state(i), "Velocity", stat)
+         u => extract_vector_field(state(i), "Velocity", stat)
 
-	 ! If there's no velocity then cycle
-	 if(stat/=0) cycle
-	 ! If this is an aliased velocity then cycle
-	 if(aliased(u)) cycle
-	 ! If the velocity isn't prognostic then cycle
-	 if(.not.have_option(trim(u%option_path)//"/prognostic")) cycle
+         ! If there's no velocity then cycle
+         if(stat/=0) cycle
+         ! If this is an aliased velocity then cycle
+         if(aliased(u)) cycle
+         ! If the velocity isn't prognostic then cycle
+         if(.not.have_option(trim(u%option_path)//"/prognostic")) cycle
 
-	 ! If velocity field is prognostic, begin calculations below
-	 x => extract_vector_field(state(i), "Coordinate")
+         ! If velocity field is prognostic, begin calculations below
+         x => extract_vector_field(state(i), "Coordinate")
 
-	 ! Allocate sparsity patterns, C^T matrix and C^T RHS for current state
-	 divergence_sparsity=make_sparsity(compressible_continuity_residual%mesh, u%mesh, "DivergenceSparsity")
-	 allocate(ct_m)
-	 call allocate(ct_m, divergence_sparsity, (/1, u%dim/), name="DivergenceMatrix")
-	 call allocate(ct_rhs, compressible_continuity_residual%mesh, name="CTRHS")
+         ! Allocate sparsity patterns, C^T matrix and C^T RHS for current state
+         divergence_sparsity=make_sparsity(compressible_continuity_residual%mesh, u%mesh, "DivergenceSparsity")
+         allocate(ct_m)
+         call allocate(ct_m, divergence_sparsity, (/1, u%dim/), name="DivergenceMatrix")
+         call allocate(ct_rhs, compressible_continuity_residual%mesh, name="CTRHS")
 
-	 ! Reassemble C^T matrix here
-	 if(i==1) then ! Construct the mass matrix (just do this once)
-	    call assemble_compressible_divergence_matrix_cg(ct_m, state, i, ct_rhs, div_mass=mass)
-	 else
-	    call assemble_compressible_divergence_matrix_cg(ct_m, state, i, ct_rhs)
-	 end if   
+         ! Reassemble C^T matrix here
+         if(i==1) then ! Construct the mass matrix (just do this once)
+            call assemble_compressible_divergence_matrix_cg(ct_m, state, i, ct_rhs, div_mass=mass)
+         else
+            call assemble_compressible_divergence_matrix_cg(ct_m, state, i, ct_rhs)
+         end if   
 
-	 if(have_option("/material_phase::"//trim(state(i)%name)//"/equation_of_state/compressible")) then
-	    ! Get the time derivative term for the compressible phase's density, vfrac_c * d(rho_c)/dt
+         if(have_option("/material_phase::"//trim(state(i)%name)//"/equation_of_state/compressible")) then
+            ! Get the time derivative term for the compressible phase's density, vfrac_c * d(rho_c)/dt
 
-	    call allocate(drhodt, compressible_continuity_residual%mesh, name="drhodt")
-		  
-	    density => extract_scalar_field(state(i), "Density", stat)
-	    olddensity => extract_scalar_field(state(i), "OldDensity", stat)
-	    vfrac => extract_scalar_field(state(i), "PhaseVolumeFraction")
-	    
-	    ! Assumes Density and OldDensity are on the same mesh as Pressure,
-	    ! as it should be according to the manual.
-	    call zero(drhodt)
-	    
-	    dg = continuity(compressible_continuity_residual) < 0
-	    
-	    element_loop: do ele = 1, element_count(compressible_continuity_residual)
+            call allocate(drhodt, compressible_continuity_residual%mesh, name="drhodt")
+                  
+            density => extract_scalar_field(state(i), "Density", stat)
+            olddensity => extract_scalar_field(state(i), "OldDensity", stat)
+            vfrac => extract_scalar_field(state(i), "PhaseVolumeFraction")
+            
+            ! Assumes Density and OldDensity are on the same mesh as Pressure,
+            ! as it should be according to the manual.
+            call zero(drhodt)
+            
+            dg = continuity(compressible_continuity_residual) < 0
+            
+            element_loop: do ele = 1, element_count(compressible_continuity_residual)
 
-	       if(.not.dg .or. (dg .and. element_owned(compressible_continuity_residual,ele))) then
-	       
-		  allocate(detwei(ele_ngi(compressible_continuity_residual, ele)))
-		  allocate(drhodt_addto(ele_loc(compressible_continuity_residual, ele)))
-	       
-		  compressible_continuity_residual_nodes => ele_nodes(compressible_continuity_residual, ele)
-		  compressible_continuity_residual_shape => ele_shape(compressible_continuity_residual, ele)
-		  test_function = compressible_continuity_residual_shape
-		  
-		  call transform_to_physical(x, ele, detwei=detwei)
-		  
-		  drhodt_addto = shape_rhs(test_function, detwei*(ele_val_at_quad(vfrac,ele)*(ele_val_at_quad(density,ele) - ele_val_at_quad(olddensity,ele))/dt))
-		  
-		  call addto(drhodt, compressible_continuity_residual_nodes, drhodt_addto)
-		  
-		  deallocate(detwei)
-		  deallocate(drhodt_addto)
-	       end if
+               if(.not.dg .or. (dg .and. element_owned(compressible_continuity_residual,ele))) then
+               
+                  allocate(detwei(ele_ngi(compressible_continuity_residual, ele)))
+                  allocate(drhodt_addto(ele_loc(compressible_continuity_residual, ele)))
+               
+                  compressible_continuity_residual_nodes => ele_nodes(compressible_continuity_residual, ele)
+                  compressible_continuity_residual_shape => ele_shape(compressible_continuity_residual, ele)
+                  test_function = compressible_continuity_residual_shape
+                  
+                  call transform_to_physical(x, ele, detwei=detwei)
+                  
+                  drhodt_addto = shape_rhs(test_function, detwei*(ele_val_at_quad(vfrac,ele)*(ele_val_at_quad(density,ele) - ele_val_at_quad(olddensity,ele))/dt))
+                  
+                  call addto(drhodt, compressible_continuity_residual_nodes, drhodt_addto)
+                  
+                  deallocate(detwei)
+                  deallocate(drhodt_addto)
+               end if
 
-	    end do element_loop
-	    
-	    call addto(ctfield, drhodt)    
-	    
-	    call deallocate(drhodt)
-	    
-	 end if
+            end do element_loop
+            
+            call addto(ctfield, drhodt)    
+            
+            call deallocate(drhodt)
+            
+         end if
 
-	 ! Construct the linear system of equations
-	 call zero(temp)
-	 call mult(temp, ct_m, u)
-	 call addto(temp, ct_rhs, -1.0)
+         ! Construct the linear system of equations
+         call zero(temp)
+         call mult(temp, ct_m, u)
+         call addto(temp, ct_rhs, -1.0)
 
-	 ! Now add it to the sum
-	 call addto(ctfield, temp)
+         ! Now add it to the sum
+         call addto(ctfield, temp)
 
-	 call deallocate(ct_m)
-	 deallocate(ct_m)
-	 call deallocate(ct_rhs)
-	 call deallocate(divergence_sparsity)
+         call deallocate(ct_m)
+         deallocate(ct_m)
+         call deallocate(ct_rhs)
+         call deallocate(divergence_sparsity)
 
       end do
 
-      ! Solve for compressible_continuity_residual	
+      ! Solve for compressible_continuity_residual      
       call zero(compressible_continuity_residual)
       call petsc_solve(compressible_continuity_residual, mass, ctfield)
       ewrite_minmax(compressible_continuity_residual)
-	 
+         
       ! Deallocate memory
       call deallocate(ctfield)
       call deallocate(temp)
@@ -585,7 +587,7 @@ contains
       call deallocate(mass)
 
       ewrite(1,*) 'Exiting calculate_compressible_continuity_residual'
-	 
+         
   end subroutine calculate_compressible_continuity_residual
   
   

@@ -147,7 +147,7 @@ contains
         end if
       end if
     end if
-    
+
     tfield => extract_tensor_field(submaterials(submaterials_istate),'Viscosity',stat)
     if (stat==0) then
       diagnostic = have_option(trim(tfield%option_path)//'/diagnostic')
@@ -190,7 +190,7 @@ contains
 
     ! k-epsilon momentum diagnostics (reynolds stress tensor)
     if(have_option(trim(state(istate)%option_path)//&
-	 "/subgridscale_parameterisations/k-epsilon")) then
+         "/subgridscale_parameterisations/k-epsilon")) then
        call keps_momentum_diagnostics(state(istate))
     end if
 
@@ -241,7 +241,7 @@ contains
 
   subroutine calculate_densities_single_state(state, buoyancy, bulk_density, &
                                               momentum_diagnostic)
-  
+
     type(state_type), intent(inout) :: state
     type(scalar_field), intent(inout), optional, target :: buoyancy
     type(scalar_field), intent(inout), optional, target :: bulk_density
@@ -297,11 +297,10 @@ contains
     else
       mesh => buoyancy%mesh
     end if
-  
+    
     multimaterial = .false.
     materialvolumefraction_count = 0
     subtract_count = 0
-
     if(size(state)>1) then
       do i = 1, size(state)
         if(has_scalar_field(state(i), "MaterialVolumeFraction")) then
@@ -313,8 +312,8 @@ contains
         subtract_count = subtract_count + &
             option_count(trim(option_path)//'/fluids/linear/subtract_out_hydrostatic_level') + &
             option_count(trim(option_path)//'/fluids/ocean_pade_approximation')
+        
       end do
-      
       if(size(state)/=materialvolumefraction_count) then
          option_path='/material_phase::'//trim(state(1)%name)//'/equation_of_state'
          if (have_option(trim(option_path)//'/compressible/ATHAM')) then
@@ -332,8 +331,8 @@ contains
             call deallocate(eosdensity)
             return
          else
-            FLExit("Multiple material_phases but not all of them have MaterialVolumeFractions.")
-         end if
+        FLExit("Multiple material_phases but not all of them have MaterialVolumeFractions.")
+      end if
       end if
       if(subtract_count>1) then
         FLExit("You can only select one material_phase to use the reference_density from to subtract out the hydrostatic level.")
@@ -469,7 +468,7 @@ contains
           else
             if(have_option(trim(option_path)//'/compressible')) then
               call allocate(eosdensity, mesh, "LocalCompressibleEOSDensity")
-              
+            
               if (have_option(trim(option_path)//'/compressible/ATHAM')) then
                 call compressible_eos(state,density=eosdensity)
               else if (have_option(trim(option_path)//'/compressible/giraldo')) then
@@ -484,9 +483,9 @@ contains
                   call compressible_eos(state(state_order(i)),density=eosdensity)
                 endif
               else
-                 call compressible_eos(state(state_order(i)), density=eosdensity)
+              call compressible_eos(state(state_order(i)), density=eosdensity)
               end if
-	                    
+              
               if(present(bulk_density)) then
                 call set(bulk_density, eosdensity)
               end if
@@ -517,21 +516,21 @@ contains
         end if
 
       end if
-      
+        
       ewrite_minmax(buoyancy)
         
     end do state_loop
     
     if (present(buoyancy)) then
       if(multimaterial) call addto(buoyancy, -hydrostatic_rho0)
-
-      ! the buoyancy density is being used in a Boussinesq eqn
-      ! therefore it needs to be scaled by rho0:
+      
+        ! the buoyancy density is being used in a Boussinesq eqn
+        ! therefore it needs to be scaled by rho0:
       if(boussinesq) then
         if(boussinesq_rho0/=0.0) then
           call scale(buoyancy, 1./boussinesq_rho0)
         endif
-      endif
+      end if
     end if
 
     if(multimaterial) then
@@ -542,9 +541,9 @@ contains
         call deallocate(bulksumvolumefractionsbound)
       end if
     end if
-    
+  
   end subroutine calculate_densities_multiple_states
-    
+
   subroutine calculate_diagnostic_pressure(state, pressure)
     ! diagnostic Pressure (only for compressible) calculated from
     ! Density and InternalEnergie via compressible eos
@@ -581,6 +580,6 @@ contains
        end if
     end do
 
-  end subroutine momentum_diagnostics_fields_check_options   
+  end subroutine momentum_diagnostics_fields_check_options
 
 end module momentum_diagnostic_fields

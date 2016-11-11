@@ -27,7 +27,7 @@ module meshmovement
 
   implicit none
   integer,save :: MeshCount=0
-  
+
   interface
 
      subroutine set_debug_level(level)
@@ -1200,7 +1200,7 @@ contains
     found_velocity = .false.
     do i = 1, size(states)
       velocity => extract_vector_field(states(i), "Velocity", stat)
-      if(stat==0 .and. .not.velocity%aliased) then
+      if(stat==0 .and. .not. velocity%aliased) then
         call get_option(trim(velocity%option_path)//"/prognostic/temporal_discretisation/relaxation", itheta, stat)
         if(found_velocity.and.(stat==0)) then
           FLExit("Only one prognostic velocity allowed with imposed mesh movement.")

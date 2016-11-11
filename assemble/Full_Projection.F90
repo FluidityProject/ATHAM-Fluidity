@@ -216,7 +216,7 @@
       inner_option_path= trim(option_path)//&
               "/prognostic/scheme/use_projection_method&
               &/full_schur_complement/inner_matrix[0]"
-      
+
       if (have_option(trim(option_path)//'/name')) then
          call get_option(trim(option_path)//'/name', name)
          ewrite(1,*) 'Inside petsc_solve_(block_)csr, solving for: ', trim(name)
@@ -336,8 +336,8 @@
       ! Set ksp for M block solver inside the Schur Complement (the inner, inner solve!). 
       call MatSchurComplementGetKSP(A,ksp_schur,ierr)
       call petsc_solve_state_setup(inner_solver_option_path, prolongators, surface_nodes, &
-	state, inner_mesh, blocks(div_matrix_comp,2), inner_option_path, matrix_has_solver_cache=.false., &
-	mesh_positions=mesh_positions)
+        state, inner_mesh, blocks(div_matrix_comp,2), inner_option_path, matrix_has_solver_cache=.false., &
+        mesh_positions=mesh_positions)
       rotation_matrix => extract_petsc_csr_matrix(state, "RotationMatrix", stat=rotation_stat)
 
       if (associated(mesh_positions)) then
@@ -358,16 +358,16 @@
       end if
 
       if (associated(prolongators)) then
-	if (rotation_stat==0) then
-	  FLExit("Rotated boundary conditions do not work with mg prolongators")
-	end if
-	
+        if (rotation_stat==0) then
+          FLExit("Rotated boundary conditions do not work with mg prolongators")
+        end if
+
         if (associated(surface_nodes)) then
           FLExit("Internal smoothing not available for inner solve")
         end if
-	  call setup_ksp_from_options(ksp_schur, inner_M%M, inner_M%M, &
-	    inner_solver_option_path, petsc_numbering=petsc_numbering_u, startfromzero_in=.true., &
-	    prolongators=prolongators)
+        call setup_ksp_from_options(ksp_schur, inner_M%M, inner_M%M, &
+          inner_solver_option_path, petsc_numbering=petsc_numbering_u, startfromzero_in=.true., &
+          prolongators=prolongators)
         do i=1, size(prolongators)
           call deallocate(prolongators(i))
         end do
@@ -378,18 +378,19 @@
       end if
       
       if (associated(mesh_positions)) then
-	call deallocate(mesh_positions)
-	deallocate(mesh_positions)
+        call deallocate(mesh_positions)
+        deallocate(mesh_positions)
       end if
-
+       
       ! leaving out petsc_numbering and mesh, so "iteration_vtus" monitor won't work!
+
       ! Assemble preconditioner matrix in petsc format (if required):
       have_preconditioner_matrix=.not.(have_option(trim(option_path)//&
-	      "/prognostic/scheme/use_projection_method&
-	      &/full_schur_complement/preconditioner_matrix::NoPreconditionerMatrix"))
+              "/prognostic/scheme/use_projection_method&
+              &/full_schur_complement/preconditioner_matrix::NoPreconditionerMatrix"))
 
       if(have_preconditioner_matrix) then
-	 pmat=csr2petsc(preconditioner_matrix, petsc_numbering_p, petsc_numbering_p)
+         pmat=csr2petsc(preconditioner_matrix, petsc_numbering_p, petsc_numbering_p)
       else
          pmat=A
       end if
@@ -404,7 +405,7 @@
       parallel=IsParallel()
 
       call attach_null_space_from_options(A, solver_option_path, pmat=pmat, petsc_numbering=petsc_numbering_p)
-	 call SetupKSP(ksp,A,pmat,solver_option_path,parallel,petsc_numbering_p, lstartfromzero)
+      call SetupKSP(ksp,A,pmat,solver_option_path,parallel,petsc_numbering_p, lstartfromzero)
       
       ! Destroy the matrices setup for the schur complement computation. While
       ! these matrices are destroyed here, they are still required for the inner solve,
