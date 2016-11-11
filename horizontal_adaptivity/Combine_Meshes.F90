@@ -136,15 +136,15 @@ module hadapt_combine_meshes
       do column=1,node_count(h_mesh)
         if (node_owned(h_mesh, column)) then
           call append_to_structures(column, z_meshes(column), h_mesh, out_mesh, last_seen)
-      end if
-    end do
+        end if
+      end do
       call halo_update(out_mesh)
     end if
 
     call deallocate(out_columns)
     
   end subroutine combine_z_meshes
-
+  
   subroutine append_to_structures(column, z_mesh, h_mesh, out_mesh, last_seen)
     integer, intent(in) :: column
     type(vector_field), intent(in) :: z_mesh, h_mesh
@@ -158,7 +158,7 @@ module hadapt_combine_meshes
     real, dimension(mesh_dim(out_mesh)) :: pos, origin, direction
 
     radial_extrusion = have_option("/geometry/spherical_earth")
-
+    
     v_dim = mesh_dim(out_mesh)
 
     origin = 0.0

@@ -219,7 +219,7 @@ module hadapt_extrude
 
     logical, intent(out) :: sigma_layers
     integer, intent(out) :: number_sigma_layers
-    
+
     logical, intent(out) :: radial_extrusion
     
     integer, dimension(2) :: shape_option
@@ -352,9 +352,9 @@ module hadapt_extrude
 
       allocate(tmp_pos_vector(mesh_dim(h_mesh), size(depth_vector)))
 
-    do column=1, node_count(h_mesh)
-      tmp_pos_vector(:,column) = node_val(h_mesh, column)
-    end do
+      do column=1, node_count(h_mesh)
+        tmp_pos_vector(:,column) = node_val(h_mesh, column)
+      end do
 
       call set_from_map_beta(trim(file_name)//char(0), tmp_pos_vector(1,:), tmp_pos_vector(2,:), &
                                                   depth_vector, size(depth_vector), surface_height)
@@ -527,8 +527,8 @@ module hadapt_extrude
         delta_h = get_delta_h( xyz, is_constant, constant_value, py_func)
       end if
       if (trim(direction)=='top_to_bottom') then
-        d=d + sign(delta_h, depth)
-        if (abs(d)>abs(depth)-min_bottom_layer_frac*delta_h) exit
+      d=d + sign(delta_h, depth)
+      if (abs(d)>abs(depth)-min_bottom_layer_frac*delta_h) exit
       else if (trim(direction)=='bottom_up') then
         d=d - delta_h
         if (d < -depth-min_bottom_layer_frac*delta_h) then

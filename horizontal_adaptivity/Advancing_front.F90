@@ -66,7 +66,7 @@ module hadapt_advancing_front
     integer :: n_regions, r
     integer :: ele, h_ele, snloc
     integer :: i, j, k, l
-    
+
     logical :: radial_layering
     
     real :: vol
@@ -99,7 +99,7 @@ module hadapt_advancing_front
     ! we want it ordered top to bottom
     if (present(direction)) then
       if (trim(direction)=='bottom_up') then
-        heights = -height_field%val
+    heights = -height_field%val
       endif
     endif
     
@@ -412,9 +412,9 @@ module hadapt_advancing_front
         ! horizontal has element ownership information allowing internal facet pairs
         ! to have seperate surface ids (used in periodic meshes) - this means
         ! the same holds for the extruded mesh
-      call add_faces(mesh%mesh, sndgln=sndgln(1:faces_seen*snloc), &
-        element_owner=element_owners(1:faces_seen), &
-        boundary_ids=boundary_ids(1:faces_seen))
+        call add_faces(mesh%mesh, sndgln=sndgln(1:faces_seen*snloc), &
+          element_owner=element_owners(1:faces_seen), &
+          boundary_ids=boundary_ids(1:faces_seen))
       else
         ! no element ownership is necessary, but in this case only one of each
         ! pair of internal facets should be provided in sndgln unless we tell

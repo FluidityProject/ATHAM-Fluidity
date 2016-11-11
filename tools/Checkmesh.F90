@@ -43,10 +43,10 @@ subroutine checkmesh(filename_, filename_len) bind(c)
   end do
 
 
-  rformat = real_format()    
+  rformat = real_format()
 
   print "(a)", "Reading in mesh mesh with base name " // trim(filename)
-  positions = read_mesh_files(filename, quad_degree = 4, format="gmsh")    
+  positions = read_mesh_files(filename, quad_degree = 4, format="gmsh")
   if(isparallel()) call read_halos(filename, positions)
   print "(a)", "Read successful"
 

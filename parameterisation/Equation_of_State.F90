@@ -37,9 +37,9 @@ module equation_of_state
   use state_module
   use diagnostic_fields, only: safe_set
   use sediment, only: get_n_sediment_fields, get_sediment_item
-  
-  implicit none
 
+  implicit none
+  
   real :: c_p,c_v,c_v_v,c_p_v,c_v_l,c_p_l,c_v_i,c_p_i
   
   interface compressible_eos
@@ -73,7 +73,7 @@ contains
     logical, dimension(:), allocatable:: done
     logical include_depth_below
     real T0, S0, gamma, rho_0, salt, temp, dist, dens, theta
-    integer, dimension(:), pointer :: density_nodes
+    integer, dimension(:), pointer:: density_nodes
     integer ele, i, node, n_sediment_fields, f
     
     ewrite(1,*) 'In calculate_perturbation_density'
@@ -140,29 +140,29 @@ contains
        end if
 
        if (have_option(trim(option_path)//'/generic_scalar_field_dependency')) then
-	  do f = 1, option_count(trim(option_path)//'/generic_scalar_field_dependency')
-	     dep_option_path=trim(option_path)//'/generic_scalar_field_dependency['//int2str(f-1)//']'
-	     call get_option(trim(dep_option_path)//'/name', sfield_name)
-	     call get_option(trim(dep_option_path)//'/reference_value', T0)
-	     call get_option(trim(dep_option_path)//'/expansion_coefficient', gamma)
-	     T => extract_scalar_field(state, trim(sfield_name))
-	     oldT => extract_scalar_field(state, "Old"//trim(sfield_name))
-	     call allocate(deltaT, density%mesh, "DeltaT")
-	     call allocate(remapT, density%mesh, "RemapT")
+          do f = 1, option_count(trim(option_path)//'/generic_scalar_field_dependency')
+             dep_option_path=trim(option_path)//'/generic_scalar_field_dependency['//int2str(f-1)//']'
+             call get_option(trim(dep_option_path)//'/name', sfield_name)
+             call get_option(trim(dep_option_path)//'/reference_value', T0)
+             call get_option(trim(dep_option_path)//'/expansion_coefficient', gamma)
+             T => extract_scalar_field(state, trim(sfield_name))
+             oldT => extract_scalar_field(state, "Old"//trim(sfield_name))
+             call allocate(deltaT, density%mesh, "DeltaT")
+             call allocate(remapT, density%mesh, "RemapT")
 
-	     ! deltaT=theta*T+(1-theta)*oldT-T0
-	     call remap_field(T, remapT)
-	     call set(deltaT, remapT)
-	     call scale(deltaT, theta)
+             ! deltaT=theta*T+(1-theta)*oldT-T0
+             call remap_field(T, remapT)
+             call set(deltaT, remapT)
+             call scale(deltaT, theta)
 
-	     call remap_field(oldT, remapT)
-	     call addto(deltaT, remapT, 1.0-theta)
-	     call addto(deltaT, -T0)
-	     ! density=density-gamma*deltaT
-	     call addto(density, deltaT, scale=-gamma)
-	     call deallocate(deltaT)
-	     call deallocate(remapT)
-	  end do
+             call remap_field(oldT, remapT)
+             call addto(deltaT, remapT, 1.0-theta)
+             call addto(deltaT, -T0)
+             ! density=density-gamma*deltaT
+             call addto(density, deltaT, scale=-gamma)
+             call deallocate(deltaT)
+             call deallocate(remapT)
+          end do
        end if
        
        call get_option(trim(option_path)//'/reference_density', rho_0)
@@ -225,9 +225,11 @@ contains
 
        do i=1,n_sediment_fields
        
-	  call get_sediment_item(state, i, S)
-	  call get_sediment_item(state, i, 'submerged_specific_gravity', gamma)
-	  gamma = gamma * rho_0
+          call get_sediment_item(state, i, S)
+
+          call get_sediment_item(state, i, 'submerged_specific_gravity', gamma)
+          
+          gamma = gamma * rho_0
 
           oldS => extract_scalar_field(state, &
                "Old"//trim(S%name))
@@ -241,6 +243,7 @@ contains
           call addto(deltaS, remapS, 1.0-theta)
           ! density=density+gamma*deltaS
           call addto(sedimentdensity, deltaS, scale=gamma)
+
        end do
        
        call addto(density,sedimentdensity)
@@ -300,7 +303,7 @@ contains
     
     density = (density-1000.0)/1000.0
     
-  end subroutine mcD_J_W_F2002  
+  end subroutine mcD_J_W_F2002
   
   subroutine compressible_eos_1mat(state,full_pressure,full_density,energy,density,pressure,	&
   				   drhodp,saturation,supersaturation,dqsaturation,temperature,	&
@@ -315,7 +318,7 @@ contains
     type(scalar_field), pointer :: output, local_density, local_pressure, thermal, lp
     type(scalar_field), pointer :: q_v,q_c,q_r,q_i,q_g,q_s
     type(scalar_field), target  :: dummyscalar
-    
+
     character(len=OPTION_PATH_LEN) :: eos_path
     type(state_type), dimension(1) :: states
     type(scalar_field) :: drhodp_local
@@ -327,16 +330,16 @@ contains
     else
        getoldlocal=.false.
     end if
-    
+
     ewrite(1,*) 'Entering compressible_eos'
-    
+
     if (present(drhodp)) then
       drhodp_local=drhodp
       if (present(density)) then
-         assert(drhodp%mesh==density%mesh)
+        assert(drhodp%mesh==density%mesh)
       end if
       if (present(pressure)) then
-         assert(drhodp%mesh==pressure%mesh)
+        assert(drhodp%mesh==pressure%mesh)
       end if
       if (present(full_pressure)) then
          assert(drhodp%mesh==full_pressure%mesh)
@@ -358,21 +361,21 @@ contains
     else
       FLAbort("No point in being in here if you don't want anything out.")
     end if
-    
+
    call get_cp_cv (c_p,c_v,c_p_v=c_p_v,c_v_v=c_v_v,c_p_l=c_p_l,c_v_l=c_v_l,c_p_i=c_p_i,c_v_i=c_v_i)
    
    eos_path = '/material_phase::'//trim(state%name)//'/equation_of_state'
-   
-   if(have_option(trim(eos_path)//'/compressible')) then
-	 
+
+    if(have_option(trim(eos_path)//'/compressible')) then
+      
       ! each of the following compressible_eos_XXX() routines should always calculate drhodp
       ! (zero if density does not depend on pressure) and calculate density and
       ! pressure if present
       
       if(have_option(trim(eos_path)//'/compressible/stiffened_gas')) then
-         
-         ! standard stiffened gas eos
-         
+        
+        ! standard stiffened gas eos
+        
          if (present(pressure))then
             call compressible_eos_stiffened_gas(state, eos_path,&
                  drhodp_local, density=density, pressure=pressure)
@@ -386,10 +389,10 @@ contains
         ! eos used in foam modelling
         
          call compressible_eos_foam(state, eos_path, drhodp_local, &
-              density=density, pressure=pressure)
-         
+            density=density, pressure=pressure)
+      
       else if(have_option(trim(eos_path)//'/compressible/giraldo')) then
-         
+        
         ! Eq. of state commonly used in atmospheric applications. See
         ! Giraldo et. al., J. Comp. Phys., vol. 227 (2008), 3849-3877. 
         ! density= P_0/(R*T)*(P/P_0)^((R+c_v)/c_p)
@@ -399,13 +402,13 @@ contains
 	 else
            local_pressure => extract_scalar_field(state,"Pressure",stat=stat)
          endif
-        
+
 	 if (present(full_density)) then
 	   local_density => full_density
 	 else
            local_density => extract_scalar_field(state,"Density",stat=stat)
          endif
-        
+
 	 if (present(energy)) then
 	   thermal => energy
 	   if (trim(energy%name)=='PotentialTemperature' .or. &
@@ -420,10 +423,10 @@ contains
 	 else
            call get_thermo_variable(state,thermal,index=thermal_variable)
          endif
-	 
+        
          call allocate (dummyscalar,thermal%mesh,"DummyScalar")
 	 call zero(dummyscalar)
-    
+        
          if (has_scalar_field(state,"TotalWaterQ")) then
             q_v=>extract_scalar_field(state,"TotalWaterQ")
          else if (has_scalar_field(state,"VapourWaterQ")) then
@@ -462,14 +465,14 @@ contains
 	    have_ice=.false.
             q_s=>dummyscalar
          end if  
-	 
+
          if (present(pressure))then
            ewrite(1,*) 'compressible_eos_giraldo: compute pressure'
            call compressible_eos_giraldo_1mat(state,eos_path,q_v,q_c,q_r,q_i,q_g,q_s,   &
                 local_pressure,local_density,thermal,thermal_variable,drhodp_local,	&
 		have_vapour, have_liquid, have_ice, pressure=pressure)
-         endif
-
+      end if
+      
          if (present(density))then
            ewrite(1,*) 'compressible_eos_giraldo: compute density'
            call compressible_eos_giraldo_1mat(state,eos_path,q_v,q_c,q_r,q_i,q_g,q_s,   &
@@ -529,7 +532,7 @@ contains
       else if(have_option(trim(eos_path)//'/compressible/ATHAM')) then
  
          call get_thermo_variable(state,thermal,index=thermal_variable)
-
+    
          if (present(pressure))then
            output=>extract_scalar_field(state,"Pressure")
 	 else if (present(density)) then
@@ -566,8 +569,8 @@ contains
       else
       FLAbort('Gone into compressible_eos without having equation_of_state/compressible')
    end if
-   
-   end if
+
+    end if
 
     if(present(density)) then
       ewrite_minmax(density)
@@ -750,7 +753,7 @@ contains
     real :: bulk_sound_speed_squared, atmospheric_pressure
     type(scalar_field) :: energy_remap, pressure_remap, density_remap
     logical :: incompressible
-
+    
     character(len = *), parameter:: hp_name = "HydrostaticReferencePressure"
     character(len = *), parameter:: hpg_name= "HydrostaticPressureGradient"
     
@@ -873,7 +876,7 @@ contains
     type(scalar_field), intent(inout) :: pressure_local,density_local,thermal_local
     type(scalar_field), intent(inout), optional :: density, pressure, temperature, potentialtem, density_pottem
     type(scalar_field), intent(inout), optional :: saturation, dqsaturation, qc_p, qc_v, sound_speed
-    
+      
     ! locals
     type(scalar_field) :: energy_remap, pressure_remap, density_remap, &
     	 drhodp_remap, qg, temperature_remap, potentialtem_remap, &
@@ -886,7 +889,7 @@ contains
     real :: exn, epsilon, rho_w=1000., rho_i=920.
     integer :: node
     logical :: constant_cp_cv
-        
+    
     call get_option(trim(eos_path)//'/compressible/giraldo/reference_pressure',p_0, default=1.0e5)
     constant_cp_cv = have_option(trim(eos_path)//'/compressible/giraldo/constant_cp_cv')
     
@@ -936,16 +939,16 @@ contains
       if (have_ice) call addto (qv_remap,qi_remap,scale=-1.)
       if (have_ice) call addto (qv_remap,qg_remap,scale=-1.)
       if (have_ice) call addto (qv_remap,qs_remap,scale=-1.)
-    endif
- 
+    end if
+    
     if (constant_cp_cv) then
       call make_giraldo_quantities_1mat_cst (state,qc_p_remap,qc_v_remap)
     else
       call make_giraldo_quantities_1mat (state,have_vapour,have_liquid,have_ice, &
                    qv_remap,qc_remap,qr_remap,qi_remap,qg_remap,qs_remap, &
 		   qc_p_remap,qc_v_remap)
-    endif
-    
+    end if
+
     do node=1,node_count(drhodp)
       r=node_val(qc_p_remap,node)-node_val(qc_v_remap,node)
       r_cp=r / node_val(qc_p_remap,node)
@@ -981,7 +984,7 @@ contains
       i2_node=1.
       if (have_liquid) i2_node=i2_node-(node_val(qc_remap,node)+node_val(qr_remap,node))*node_val(density_remap,node)/rho_w
       if (have_ice) i2_node=i2_node-(node_val(qi_remap,node)+node_val(qg_remap,node)+node_val(qs_remap,node))*node_val(density_remap,node)/rho_i
-      
+    
       call set(drhodp, node, drhodp_node)
       call set(incompfix, node, i_node)
       call set(incompfix2, node, i2_node)
@@ -989,7 +992,7 @@ contains
       call set(temperature_remap, node, temperature_node)
       call set(potentialtem_remap, node, pottem_node)
     end do
-
+    
     call scale(drhodp,incompfix)
     call scale(drhodp,incompfix)
     call invert(drhodp)
@@ -1001,8 +1004,8 @@ contains
     
     if (present(density_pottem)) then
       call allocate(density_pottem_remap, drhodp%mesh, "RemappedDensityPotentialTemperature")
-    
-      do node=1,node_count(drhodp)
+
+        do node=1,node_count(drhodp)
         pottem_node=node_val(potentialtem_remap,node)
 	qt_node=node_val(qv_remap,node)
 	if (have_liquid) qt_node=qt_node+node_val(qc_remap,node)+node_val(qr_remap,node)
@@ -1011,11 +1014,11 @@ contains
         dpt_node=pottem_node*(1. + node_val(qv_remap,node)*(c_p_v-c_v_v)/(c_p-c_v))/(1. + qt_node)
 
         call set(density_pottem_remap, node, dpt_node)	      
-      end do
-
+        end do
+        
       call safe_set(state,density_pottem,density_pottem_remap)        
       call deallocate(density_pottem_remap)
-    end if  
+      endif
     
     if (present(saturation)) then
       call allocate(saturation_remap, drhodp%mesh, "RemappedSaturation")
@@ -1036,11 +1039,11 @@ contains
       if (present(dqsaturation)) call safe_set(state,dqsaturation,dqsaturation_remap)
       call deallocate(saturation_remap)
       call deallocate(dqsaturation_remap)		      
-    end if  
+    end if
 
-    if (present(density)) then
-      assert(density%mesh==drhodp%mesh)
-
+    if(present(density)) then
+        assert(density%mesh==drhodp%mesh)
+          
       do node=1,node_count(drhodp)
         pressure_node=node_val(pressure_remap,node)
 	temperature_node=node_val(temperature_remap,node)
@@ -1050,11 +1053,11 @@ contains
         density_node=rhog_node/i_node  
         call set(density, node, density_node)	    
       end do
-    endif
-    
-    if (present(pressure)) then
-      assert(pressure%mesh==drhodp%mesh)
+    end if
 
+    if(present(pressure)) then
+          assert(pressure%mesh==drhodp%mesh)
+          
       do node=1,node_count(drhodp)
         density_node=node_val(density_remap,node)
         temperature_node=node_val(temperature_remap,node)
@@ -1065,16 +1068,16 @@ contains
         call set(pressure, node, pressure_node)       
       end do
     endif
-      
+          
     if(present(qc_p)) call safe_set(state,qc_p,qc_p_remap)
     if(present(qc_v)) call safe_set(state,qc_v,qc_v_remap)
     if(present(sound_speed)) call safe_set(state,sound_speed,sound_speed_remap)
-    
+          
     call deallocate(temperature_remap)
     call deallocate(potentialtem_remap)
     call deallocate(energy_remap)
     call deallocate(pressure_remap)
-    call deallocate(density_remap)
+          call deallocate(density_remap)
     
     call deallocate(incompfix)
     call deallocate(incompfix2)
@@ -1084,24 +1087,24 @@ contains
     
     if (have_vapour) then
       call deallocate(qv_remap)
-    endif
+        end if
     if (have_liquid) then
       call deallocate(qc_remap)
       call deallocate(qr_remap)
-    endif
+      end if
     if (have_ice) then
       call deallocate(qi_remap)
       call deallocate(qg_remap)
       call deallocate(qs_remap)
-    endif
-      
+    end if
+
   end subroutine compressible_eos_giraldo_1mat
   
   subroutine make_giraldo_quantities_1mat_cst (state,qc_p,qc_v)
 
     type(state_type), intent(inout) :: state
     type(scalar_field), intent(inout) :: qc_p,qc_v
-        
+
     call set (qc_p,c_p)
     call set (qc_v,c_v)
           
@@ -2042,7 +2045,6 @@ contains
       end if
     end if
         
-
   end subroutine compressible_eos_foam
         
   subroutine compressible_material_eos(state,materialdensity,materialpressure,materialdrhodp)
@@ -2153,7 +2155,7 @@ contains
     call deallocate(drhodp)
 
   end subroutine compressible_material_eos
-
+  
   subroutine set_EOS_pressure_and_temperature(state,mesh,have_temperature,have_pottemperature,&
       have_EOSPressure,have_EOSDensity,extras)
     
