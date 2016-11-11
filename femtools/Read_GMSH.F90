@@ -95,6 +95,7 @@ contains
     type(GMSHnode), pointer :: nodes(:)
     type(GMSHelement), pointer :: elements(:), faces(:)
 
+
     ! If running in parallel, add the process number
     if(isparallel()) then
        lfilename = trim(parallel_filename(filename)) // ".msh"
@@ -124,6 +125,7 @@ contains
     ! According to fluidity/bin/gmsh2triangle, Fluidity doesn't need
     ! anything past $EndElements, so we close the file.
     close( fd )
+
 
     numNodes = size(nodes)
     numFaces = size(faces)
@@ -208,6 +210,7 @@ contains
     call deallocate(mesh)
     call deallocate(shape)
     call deallocate(quad)
+
 
     if (haveRegionIDs) then
       allocate( field%mesh%region_ids(numElements) )

@@ -4194,15 +4194,15 @@ module fields_manipulation
       boundary_ids = mesh%faces%boundary_ids(1:size(boundary_ids))
 
       if (has_discontinuous_internal_boundaries(mesh)) then
-	allocate(element_owners((surface_element_count(mesh))))
-	element_owners = mesh%faces%face_element_list(1:surface_element_count(mesh))
+        allocate(element_owners((surface_element_count(mesh))))
+        element_owners = mesh%faces%face_element_list(1:surface_element_count(mesh))
 
-	call deallocate_faces(mesh)
+        call deallocate_faces(mesh)
         call add_faces(mesh, sndgln = sndgln, boundary_ids=boundary_ids, &
           element_owner=element_owners)
-	deallocate(element_owners)
+        deallocate(element_owners)
       else
-	call deallocate_faces(mesh)
+        call deallocate_faces(mesh)
         call add_faces(mesh, sndgln = sndgln, boundary_ids=boundary_ids)
       end if
 

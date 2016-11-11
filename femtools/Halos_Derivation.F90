@@ -27,24 +27,24 @@
 
 module halos_derivation
 
-  use fldebug
+   use fldebug
    use futils, only: present_and_false
    use data_structures
    use elements, only: boundary_numbering
    use mpi_interfaces
-  use halo_data_types
+   use halo_data_types
    use parallel_tools
-  use halos_base
-  use halos_debug
+   use halos_base
+   use halos_debug
    use halos_allocates
    use sparse_tools
    use fields_data_types
    use fields_base
    use linked_lists
    use halos_communications
-  use halos_numbering
-  use halos_ownership
-  use halos_repair
+   use halos_numbering
+   use halos_ownership
+   use halos_repair
    use fields_allocates
    use fields_manipulation
 #ifdef HAVE_ZOLTAN
@@ -1299,7 +1299,7 @@ contains
     deallocate(sub_nsends)
 
   end function derive_sub_halo
-  
+
   function combine_halos(halos, node_maps, name) result (halo_out)
     !!< Combine two or more halos of a number of subproblems into a single
     !!< halo, where the numbering of the dofs (nodes) of each subproblem is
@@ -1358,17 +1358,17 @@ contains
 
       do jproc=1, nprocs
 
-	do k=1, halo_send_count(halos(ihalo), jproc)
-	  new_node_no = node_maps(ihalo)%ptr(halo_send(halos(ihalo), jproc, k))
-	  call set_halo_send(halo_out, jproc, send_count(jproc)+k, new_node_no)
-	end do
-	send_count(jproc) = send_count(jproc) + halo_send_count(halos(ihalo), jproc)
+        do k=1, halo_send_count(halos(ihalo), jproc)
+          new_node_no = node_maps(ihalo)%ptr(halo_send(halos(ihalo), jproc, k))
+          call set_halo_send(halo_out, jproc, send_count(jproc)+k, new_node_no)
+        end do
+        send_count(jproc) = send_count(jproc) + halo_send_count(halos(ihalo), jproc)
 
-	do k=1, halo_receive_count(halos(ihalo), jproc)
-	  new_node_no = node_maps(ihalo)%ptr(halo_receive(halos(ihalo), jproc, k))
-	  call set_halo_receive(halo_out, jproc, receive_count(jproc)+k, new_node_no)
-	end do
-	receive_count(jproc) = receive_count(jproc) + halo_receive_count(halos(ihalo), jproc)
+        do k=1, halo_receive_count(halos(ihalo), jproc)
+          new_node_no = node_maps(ihalo)%ptr(halo_receive(halos(ihalo), jproc, k))
+          call set_halo_receive(halo_out, jproc, receive_count(jproc)+k, new_node_no)
+        end do
+        receive_count(jproc) = receive_count(jproc) + halo_receive_count(halos(ihalo), jproc)
       end do
 
     end do
@@ -1417,8 +1417,8 @@ contains
     ! owned nodes
     do i=1, size(halos1)
       do j=1, halo_nowned_nodes(halos1(i))
-	node_maps(i)%ptr(j) = new_node
-	new_node = new_node + 1
+        node_maps(i)%ptr(j) = new_node
+        new_node = new_node + 1
       end do
     end do
 
@@ -1427,8 +1427,8 @@ contains
       allocate(all_recvs(1:halo_all_receives_count(halos1(i))))
       call extract_all_halo_receives(halos1(i), all_recvs)
       do j=1, size(all_recvs)
-	node_maps(i)%ptr(all_recvs(j)) = new_node
-	new_node = new_node + 1
+        node_maps(i)%ptr(all_recvs(j)) = new_node
+        new_node = new_node + 1
       end do
       deallocate(all_recvs)
     end do
@@ -1438,11 +1438,11 @@ contains
       allocate(all_recvs(1:halo_all_receives_count(halos2(i))))
       call extract_all_halo_receives(halos2(i), all_recvs)
       do j=1, size(all_recvs)
-	if (node_maps(i)%ptr(all_recvs(j))==0) then
-	  ! only include those that weren't recv nodes of halos1 already
-	  node_maps(i)%ptr(all_recvs(j)) = new_node
-	  new_node = new_node + 1
-	end if
+        if (node_maps(i)%ptr(all_recvs(j))==0) then
+          ! only include those that weren't recv nodes of halos1 already
+          node_maps(i)%ptr(all_recvs(j)) = new_node
+          new_node = new_node + 1
+        end if
       end do
       deallocate(all_recvs)
     end do

@@ -52,7 +52,7 @@ use global_numbering, only: make_global_numbering, make_global_numbering_dg,&
 implicit none
 
   private
-  
+
   public :: allocate, deallocate, incref, decref, has_references, add_faces, &
     & deallocate_faces, zero
   public :: make_element_shape, make_mesh, make_mesh_periodic, make_submesh, &
@@ -1210,8 +1210,8 @@ contains
        ! and mesh%faces%face_element_list  storing the element adjacent to
        !     each face
        call add_faces_face_list(mesh, &
-	 allow_duplicate_internal_facets=present_and_true(allow_duplicate_internal_facets), &
-	 sndgln=sndgln, &
+         allow_duplicate_internal_facets=present_and_true(allow_duplicate_internal_facets), &
+         sndgln=sndgln, &
          boundary_ids=boundary_ids, &
          element_owner=element_owner, &
          incomplete_surface_mesh=incomplete_surface_mesh)
@@ -1434,7 +1434,7 @@ contains
     type(element_type) :: face_shape
     logical:: surface_elements_added, registered_already
     ! listen very carefully, I shall say this only once:
-    logical, save :: warning_given=.false. 
+    logical, save :: warning_given=.false.
     integer, dimension(:), pointer :: faces, neigh, snodes
     integer, dimension(2) :: common_elements
     integer :: snloc, stotel
@@ -1485,74 +1485,75 @@ contains
           ! we have found the adjacent element
           ele=common_elements(1)
           if (present(element_owner)) then
-	    if (element_owner(sele)/=ele) then
-	      ewrite(0,*) "Surface element: ", sele
-	      ewrite(0,*) "Provided element owner: ", element_owner(sele)
-	      ewrite(0,*) "Found adjacent element: ", ele
-	      FLExit("Provided element ownership information is incorrect")
-	    end if
+            if (element_owner(sele)/=ele) then
+              ewrite(0,*) "Surface element: ", sele
+              ewrite(0,*) "Provided element owner: ", element_owner(sele)
+              ewrite(0,*) "Found adjacent element: ", ele
+              FLExit("Provided element ownership information is incorrect")
+            end if
           end if
           call register_external_surface_element(mesh, sele, ele, snodes)
         else if (no_found==2 .and. present(element_owner)) then
-	  ! internal facet with element ownership infomation provided
-	  ! so we assume both of the coinciding internal facets are
-	  ! present in the provided surface mesh and register only
-	  ! one of them here
-	  ele = element_owner(sele)
-	  if (ele==common_elements(1)) then
-	    neighbour_ele = common_elements(2)
-	  else if (ele==common_elements(2)) then
-	    neighbour_ele = common_elements(1)
-	  else
-	    ewrite(0,*) "Surface element: ", sele
-	    ewrite(0,*) "Provided element owner: ", ele
-	    ewrite(0,*) "Found adjacent elements: ", common_elements
-	    FLExit("Provided element owner ship information is incorrect")
-	  end if
-	  call register_internal_surface_element(mesh, sele, ele, neighbour_ele, snodes)
-	else if (no_found==2) then
-	  ! internal facet but not element ownership information:
-	  ! we assume this facet only occurs once and we register both
-	  ! copies at once
+          ! internal facet with element ownership infomation provided
+          ! so we assume both of the coinciding internal facets are
+          ! present in the provided surface mesh and register only
+          ! one of them here
+          ele = element_owner(sele)
+          if (ele==common_elements(1)) then
+            neighbour_ele = common_elements(2)
+          else if (ele==common_elements(2)) then
+            neighbour_ele = common_elements(1)
+          else
+            ewrite(0,*) "Surface element: ", sele
+            ewrite(0,*) "Provided element owner: ", ele
+            ewrite(0,*) "Found adjacent elements: ", common_elements
+            FLExit("Provided element owner ship information is incorrect")
+          end if
+          call register_internal_surface_element(mesh, sele, ele, neighbour_ele, snodes)
+        else if (no_found==2) then
+          ! internal facet but not element ownership information:
+          ! we assume this facet only occurs once and we register both
+          ! copies at once
 
-	  ! first one using the current surface element number:
-	  if (allow_duplicate_internal_facets) then
-	    ! don't error for duplicate facets
-	    call register_internal_surface_element(mesh, sele, common_elements(1), common_elements(2), &
-	      snodes, duplicate_facets=duplicate_facets)
-	    registered_already = has_key(duplicate_facets, sele)
-	  else
-	    ! do error for duplicate facets
-	    call register_internal_surface_element(mesh, sele, common_elements(1), common_elements(2), &
-	      snodes)
-	    registered_already = .false.
-	  end if
+          ! first one using the current surface element number:
+          if (allow_duplicate_internal_facets) then
+            ! don't error for duplicate facets
+            call register_internal_surface_element(mesh, sele, common_elements(1), common_elements(2), &
+              snodes, duplicate_facets=duplicate_facets)
+            registered_already = has_key(duplicate_facets, sele)
+          else
+            ! do error for duplicate facets
+            call register_internal_surface_element(mesh, sele, common_elements(1), common_elements(2), &
+              snodes)
+            registered_already = .false.
+          end if
 
-	  if (.not. registered_already) then
-	    ! for the second one we create a new facet number at the end of the provided number surface
-	    ! elements:
-	    bdry_count = bdry_count+1
-	    ! note that we don't allow duplicate ones here, since we should have picked this up
-	    ! in the first call - so if only one side is registered already something is definitely wrong
-	    call register_internal_surface_element(mesh, bdry_count, common_elements(2), common_elements(1), snodes)
-	    ! store this pair so we can later copy the boundary id of the first (sele) to the second one (bdry_count)
+          if (.not. registered_already) then
+            ! for the second one we create a new facet number at the end of the provided number surface
+            ! elements:
+            bdry_count = bdry_count+1
+            ! note that we don't allow duplicate ones here, since we should have picked this up
+            ! in the first call - so if only one side is registered already something is definitely wrong
+            call register_internal_surface_element(mesh, bdry_count, common_elements(2), common_elements(1), snodes)
+            ! store this pair so we can later copy the boundary id of the first (sele) to the second one (bdry_count)
             call insert(internal_facet_map, sele, bdry_count)
           end if
-	  
-	else if (no_found==0) then
-	  ewrite(0,*) "Current surface element: ", sele
-	  ewrite(0,*) "With nodes: ", snodes
-	  FLExit("Surface element does not exist in the mesh")
+
+        else if (no_found==0) then
+          ewrite(0,*) "Current surface element: ", sele
+          ewrite(0,*) "With nodes: ", snodes
+          FLExit("Surface element does not exist in the mesh")
         else
-	  ! no_found>2 apparently
-	  ! this might happen when calling add_faces on meshes with non-trivial toplogy such
-	  ! as calling add_faces on the surface_mesh - we can't really deal with that
-	  ewrite(0,*) "Current surface element: ", sele
-	  ewrite(0,*) "With nodes: ", snodes
-	  FLExit("Surface element (facet) adjacent to more than two elements!")
+          ! no_found>2 apparently
+          ! this might happen when calling add_faces on meshes with non-trivial toplogy such
+          ! as calling add_faces on the surface_mesh - we can't really deal with that
+          ewrite(0,*) "Current surface element: ", sele
+          ewrite(0,*) "With nodes: ", snodes
+          FLExit("Surface element (facet) adjacent to more than two elements!")
         end if
         
       end do
+        
       
     else
     
@@ -1588,9 +1589,9 @@ contains
       end do
 
       if (surface_elements_added .and. key_count(internal_facet_map)>0) then
-	ewrite(0,*) "It appears this mesh has internal boundaries."
-	ewrite(0,*) "In this case all external boundaries need to be marked with a surface id."
-	FLExit("Incomplete surface mesh")
+        ewrite(0,*) "It appears this mesh has internal boundaries."
+        ewrite(0,*) "In this case all external boundaries need to be marked with a surface id."
+        FLExit("Incomplete surface mesh")
       else if (surface_elements_added .and. .not. warning_given) then
         ewrite(0,*) "WARNING: an incomplete surface mesh has been provided."
         ewrite(0,*) "This will not work in parallel."
@@ -1599,11 +1600,11 @@ contains
       end if
 
       if (surface_elements_added) then
-	stotel = bdry_count
+        stotel = bdry_count
       end if
 
     end if
-      
+
       
     ! the size of this array will be the way to store the n/o
     ! exterior boundaries (returned by surface_element_count())
@@ -1628,8 +1629,8 @@ contains
       mesh%faces%boundary_ids(1:size(boundary_ids))=boundary_ids
 
       do j=1, key_count(internal_facet_map)
-	call fetch_pair(internal_facet_map, j, sele, sele2)
-	mesh%faces%boundary_ids(sele2) = boundary_ids(sele)
+        call fetch_pair(internal_facet_map, j, sele, sele2)
+        mesh%faces%boundary_ids(sele2) = boundary_ids(sele)
       end do
     end if
 
@@ -1667,7 +1668,7 @@ contains
     assert(bdry_count==size(mesh%faces%face_list%sparsity%colm))
     assert(.not.any(mesh%faces%face_list%sparsity%colm==0))
     assert(.not.any(mesh%faces%face_list%ival==0))
- 
+
     call deallocate(internal_facet_map)
     call deallocate(duplicate_facets)
     
@@ -1700,16 +1701,16 @@ contains
 
     if (faces(j)/=0) then
       if (present(duplicate_facets)) then
-	call insert(duplicate_facets, sele, faces(j))
-	return
+        call insert(duplicate_facets, sele, faces(j))
+        return
       else
-	! if you hit this at the start of your simulation you have
-	! marked the same part of the boundary more than once in gmsh
-	! if this occurs later on in the run (e.g. during an adapt)
-	! there may be a bug / unimplemented feature related to internal boundary facets
-	ewrite(0,*) 'Surface element:', faces(j),' and ',sele
-	ewrite(0,*) 'Both define the surface element:', snodes
-	FLExit("Provided surface mesh has duplicate surface elements")
+        ! if you hit this at the start of your simulation you have
+        ! marked the same part of the boundary more than once in gmsh
+        ! if this occurs later on in the run (e.g. during an adapt)
+        ! there may be a bug / unimplemented feature related to internal boundary facets
+        ewrite(0,*) 'Surface element:', faces(j),' and ',sele
+        ewrite(0,*) 'Both define the surface element:', snodes
+        FLExit("Provided surface mesh has duplicate surface elements")
       end if
     end if
 
@@ -1727,7 +1728,7 @@ contains
     integer, dimension(:), pointer:: neigh, faces, nodes
     integer:: j, nloc
 
-    nloc = ele_loc(mesh, ele)  
+    nloc = ele_loc(mesh, ele)
     
     mesh%faces%face_element_list(sele)=ele
 
@@ -1742,7 +1743,7 @@ contains
     do j=1, mesh%shape%numbering%boundaries
       ! also check negative entries to check for duplicate registrations
       if (neigh(j)<=0) then
-	if (SetContains(snodes, nodes(boundary_numbering(mesh%shape%numbering, j)))) exit
+        if (SetContains(snodes, nodes(boundary_numbering(mesh%shape%numbering, j)))) exit
       end if
     end do
 
@@ -1784,21 +1785,21 @@ contains
     facets_to_keep = 0
     do i=1, size(old_boundary_ids)
       if (has_key(duplicate_facets, i)) then
-	! check that the boundary ids match
-	if (old_boundary_ids(i)/=old_boundary_ids(fetch(duplicate_facets,i))) then
-	  ewrite(0,*) 'Surface element:', i,' and ', fetch(duplicate_facets, i)
-	  ewrite(0,*) 'Both define the surface element:', sndgln((i-1)*snloc+1:i*snloc)
-	  ewrite(0,*) 'but define different surface ids:', old_boundary_ids(i), old_boundary_ids(fetch(duplicate_facets, i))
-	  ! if we hit this here, it's probably a bug as we've explicitly told add_faces() that we expect duplicate
-	  ! interior facets but with boundary ids that agreee.
-	  FLAbort("Provided surface mesh has duplicate surface elements")
-	end if
+        ! check that the boundary ids match
+        if (old_boundary_ids(i)/=old_boundary_ids(fetch(duplicate_facets,i))) then
+          ewrite(0,*) 'Surface element:', i,' and ', fetch(duplicate_facets, i)
+          ewrite(0,*) 'Both define the surface element:', sndgln((i-1)*snloc+1:i*snloc)
+          ewrite(0,*) 'but define different surface ids:', old_boundary_ids(i), old_boundary_ids(fetch(duplicate_facets, i))
+          ! if we hit this here, it's probably a bug as we've explicitly told add_faces() that we expect duplicate
+          ! interior facets but with boundary ids that agreee.
+          FLAbort("Provided surface mesh has duplicate surface elements")
+        end if
       else
-	facets_to_keep = facets_to_keep+1
-	mesh%faces%boundary_ids(facets_to_keep) = old_boundary_ids(i)
-	! note that we don't need to reallocate this one: we're merely shifting it forward
-	mesh%faces%face_element_list(facets_to_keep) = mesh%faces%face_element_list(i)
-	old_to_new_facet_number(i) = facets_to_keep
+        facets_to_keep = facets_to_keep+1
+        mesh%faces%boundary_ids(facets_to_keep) = old_boundary_ids(i)
+        ! note that we don't need to reallocate this one: we're merely shifting it forward
+        mesh%faces%face_element_list(facets_to_keep) = mesh%faces%face_element_list(i)
+        old_to_new_facet_number(i) = facets_to_keep
       end if
     end do
 
@@ -1810,18 +1811,18 @@ contains
     deallocate(old_boundary_ids)
 #ifdef HAVE_MEMORY_STATS
     call register_deallocation("mesh_type", "integer", size(old_boundary_ids), &
-	 trim(mesh%name)//" boundary_ids")
+         trim(mesh%name)//" boundary_ids")
     call register_allocation("mesh_type", "integer", new_surface_element_count, &
-	 trim(mesh%name)//" boundary_ids")
+         trim(mesh%name)//" boundary_ids")
 #endif
 
     ! now renumber the facet numbers we've already stored in face_list
     do i=1, size(mesh%faces%face_list,1)
       faces=>row_ival_ptr(mesh%faces%face_list, i)
       do j=1, size(faces)
-	if (faces(j)/=0) then
-	  faces(j) = old_to_new_facet_number(faces(j))
-	end if
+        if (faces(j)/=0) then
+          faces(j) = old_to_new_facet_number(faces(j))
+        end if
       end do
     end do
 
@@ -1832,7 +1833,7 @@ contains
     ewrite(2,*) "Number of unique surface elements: ", mesh%faces%unique_surface_element_count
 
   end subroutine remove_duplicate_facets
-    
+
   subroutine add_faces_face_list_periodic_from_non_periodic_model( &
      mesh, model, periodic_face_map)
      ! computes the face_list of a periodic mesh by copying it from
@@ -2738,7 +2739,6 @@ contains
     if(present(nelist))  print*, 'present nelist'
     if(present(eelist))  print*, 'present eelist'
     call add_lists(mesh, nnlist = present(nnlist), nelist = present(nelist), eelist = present(eelist))
-
     assert(associated(mesh%adj_lists))
     if(present(nnlist)) then
       assert(associated(mesh%adj_lists%nnlist))
@@ -3309,7 +3309,6 @@ contains
     
   end subroutine zero_tensor_field_nodes
 
-    
 #include "Reference_count_mesh_type.F90"
 #include "Reference_count_scalar_field.F90"
 #include "Reference_count_vector_field.F90"

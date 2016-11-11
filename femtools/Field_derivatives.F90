@@ -132,8 +132,8 @@ module field_derivatives
           face_2=face
         end if
 
-          call dg_ele_grad_scalar_interface(ele, face, face_2, ni, &
-               & loc_grad, X, field, bc_value, bc_type)
+        call dg_ele_grad_scalar_interface(ele, face, face_2, ni, &
+             & loc_grad, X, field, bc_value, bc_type)
       end do
 
       ! multiply by inverse of mass matrix
@@ -268,7 +268,7 @@ module field_derivatives
       type(scalar_field) :: field_component
       integer :: j
 
-        loc_grad = dg_ele_grad(field, ele_number, X, bc_value, bc_type)
+      loc_grad = dg_ele_grad(field, ele_number, X, bc_value, bc_type)
 
       ! transform to physical
       quad_grad = matmul(loc_grad, shape%n)
@@ -484,7 +484,7 @@ module field_derivatives
       type(scalar_field) :: bc_value
       !! Integer array of all surface elements indicating bc type::
       integer, dimension(:), allocatable :: bc_type
-      
+
       ewrite(1,*) 'in grad_scalar'
 
       dim = gradient%dim
@@ -499,7 +499,9 @@ module field_derivatives
         !! required for dg gradient calculation
         allocate(bc_type(1:surface_element_count(infield)))
         call get_entire_boundary_condition(infield, (/"weakdirichlet"/), bc_value, bc_type)
+        
         call differentiate_field(infield, positions, derivatives, pardiff, bc_value, bc_type)
+        
         call deallocate(bc_value)
         deallocate(bc_type)
       else
@@ -1530,8 +1532,8 @@ module field_derivatives
         ! Compute detwei.
         call transform_to_physical(positions, ele, &
            ele_shape(infields(1), ele), dshape=dt_t, detwei=detwei)
-	
-	r = shape_dshape(ele_shape(mesh, ele), dt_t, detwei)
+
+        r = shape_dshape(ele_shape(mesh, ele), dt_t, detwei)
         do i=1, size(infields)
           
           if (compute(i)) then
@@ -2024,10 +2026,10 @@ module field_derivatives
       type(vector_field) :: gradient
       type(scalar_field) :: s_field
       integer :: i
-      
+
       call allocate(gradient, infield%dim, divergence%mesh, "Gradient")
       call allocate(s_field, divergence%mesh, "Component")
-      
+
       do i=1,mesh_dim(infield)
         call zero(s_field)
 	call addto(s_field, infield, i)

@@ -343,7 +343,7 @@ module fields_base
   interface write_minmax
     module procedure write_minmax_scalar, write_minmax_vector, write_minmax_tensor
   end interface
-    
+
   private
 
   public :: mesh_dim, mesh_periodic, halo_count, node_val, ele_loc, &

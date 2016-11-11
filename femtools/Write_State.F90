@@ -147,7 +147,7 @@ contains
       
       logical :: dump_count_greater
       
-        dump_count_greater = (floor(later_time / dump_period) > floor(earlier_time / dump_period))
+      dump_count_greater = (floor(later_time / dump_period) > floor(earlier_time / dump_period))
     
     end function dump_count_greater
     
@@ -363,7 +363,7 @@ contains
     ewrite(1, *) "Exiting vtk_write_state_new_options"
     
   end subroutine vtk_write_state_new_options
-     
+    
   logical function include_scalar_field_in_vtu(state, istate, field_name)
     !!< function that uses optionpath and state number to work out
     !!< if a field should be written out (skipping aliased fields)

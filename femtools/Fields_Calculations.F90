@@ -99,7 +99,7 @@ implicit none
   interface norm2_difference
     module procedure norm2_difference_single, norm2_difference_multiple
   end interface
-    
+
   private
 
   public :: mean, maxval, minval, sum, norm2, field_stats, field_cv_stats,&

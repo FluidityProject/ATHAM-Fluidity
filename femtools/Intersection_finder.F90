@@ -97,7 +97,7 @@ contains
 
     real, dimension(2) :: p1, q1, r1, p2, q2, r2
     integer :: f
-    
+
     p1 = posA(:, 1); q1 = posA(:, 2); r1 = posA(:, 3)
     p2 = posB(:, 1); q2 = posB(:, 2); r2 = posB(:, 3)
     f = tri_tri_overlap_test_2d(p1, q1, r1, p2, q2, r2)
@@ -118,7 +118,7 @@ contains
     end interface
 
     integer :: f
-    
+
     f = tet_a_tet(posA, posB)
     intersects = (f == 1)
     
@@ -158,7 +158,7 @@ contains
     intersects = .true.
 
   end function bbox_predicate
-  
+
   function intersection_finder(positionsA, positionsB) result(map_AB)
     !!< A simple wrapper to select an intersection finder
     
@@ -572,7 +572,7 @@ contains
     ewrite(1, *) "Exiting brute_force_intersection_finder"
     
   end function brute_force_intersection_finder
-  
+
 #ifndef HAVE_LIBSUPERMESH
   subroutine rtree_intersection_finder_reset()
     integer :: ntests
@@ -605,7 +605,7 @@ contains
                                       & ele_loc(old_positions, 1), node_count(old_positions), &
                                       & ele_count(old_positions))
 #endif
-                                      
+      
   end subroutine rtree_intersection_finder_set_input
 
   subroutine rtree_intersection_finder_find(new_positions, ele_B)

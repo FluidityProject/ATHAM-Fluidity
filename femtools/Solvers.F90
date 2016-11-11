@@ -859,16 +859,16 @@ type(vector_field), intent(in), optional :: positions
   else
     pmat=A
   end if
-    
-    ewrite(2, *) 'Using solver options defined at: ', trim(solver_option_path)
+
+  ewrite(2, *) 'Using solver options defined at: ', trim(solver_option_path)
   call attach_null_space_from_options(A, solver_option_path, pmat=pmat, &
     positions=positions, petsc_numbering=petsc_numbering)
     
-    call SetupKSP(ksp, A, pmat, solver_option_path, parallel, &
-      petsc_numbering, &
-      startfromzero_in=startfromzero_in, &
-      prolongators=prolongators, surface_node_list=surface_node_list, &
-      matrix_csr=matrix, &
+  call SetupKSP(ksp, A, pmat, solver_option_path, parallel, &
+    petsc_numbering, &
+    startfromzero_in=startfromzero_in, &
+    prolongators=prolongators, surface_node_list=surface_node_list, &
+    matrix_csr=matrix, &
     internal_smoothing_option=internal_smoothing_option)
   
   if (.not. have_cache .and. have_option(trim(solver_option_path)// &
@@ -998,7 +998,7 @@ Mat, intent(in), optional:: rotation_matrix
   end if
   
   call assemble(matrix)
-  
+
   call attach_null_space_from_options(matrix%M, solver_option_path, &
     positions=positions, rotation_matrix=rotation_matrix, petsc_numbering=matrix%column_numbering)
   
@@ -1726,7 +1726,7 @@ subroutine SetupKSP(ksp, mat, pmat, solver_option_path, parallel, &
 #endif
 
   end subroutine setup_ksp_from_options
-    
+
   recursive subroutine attach_null_space_from_options(mat, solver_option_path, pmat, &
       positions, rotation_matrix, petsc_numbering)
     !!< attach nullspace and multigrid near-nullspace 

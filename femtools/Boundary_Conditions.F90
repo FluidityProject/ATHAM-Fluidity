@@ -180,7 +180,7 @@ contains
       end if
     end do
       
-    if (.not. IsParallel() .and. .not. all(boundary_id_used) .and. .not. present_and_true(suppress_warnings)) then
+    if (.not. IsParallel() .and. .not. all(boundary_id_used)  .and. .not. present_and_true(suppress_warnings)) then
       ewrite(0,*) "WARNING: for boundary condition: ", trim(name)
       ewrite(0,*) "added to field: ", trim(field%name)
       ewrite(0,*) "The following boundary ids were specified, but they don't appear in the surface mesh:"
@@ -605,7 +605,7 @@ contains
     assert(n>=1 .and. n<=size(field%bc%boundary_condition))
     bc => field%bc%boundary_condition(n)
 
-    if (present(stat)) then
+    if(present(stat)) then
       stat = 0
     end if
     
@@ -617,7 +617,7 @@ contains
         end if
       end do
     end if
-    
+
     if (present(stat)) then
       stat = 1
     else    
@@ -640,8 +640,8 @@ contains
 
     assert(n>=1 .and. n<=size(field%bc%boundary_condition))
     bc => field%bc%boundary_condition(n)
-
-    if (present(stat)) then
+    
+    if(present(stat)) then
       stat = 0
     end if
     
@@ -705,12 +705,13 @@ contains
   type(scalar_field), intent(in):: field
   character(len=*), intent(in):: bc_name, name
   integer, intent(out), optional:: stat
-  integer i
+  
+    integer i
 
     if (present(stat)) then
-      stat=0
+      stat = 0
     end if
-   
+
     do i=1, size(field%bc%boundary_condition)
       if (field%bc%boundary_condition(i)%name==bc_name) then
         surface_field => extract_scalar_surface_field_by_number(field, i, name, stat)
@@ -733,12 +734,13 @@ contains
   type(vector_field), intent(in):: field
   character(len=*), intent(in):: bc_name, name
   integer, intent(out), optional:: stat
-  integer i
+  
+    integer i
 
     if (present(stat)) then
       stat=0
     end if
-  
+
     do i=1, size(field%bc%boundary_condition)
       if (field%bc%boundary_condition(i)%name==bc_name) then
         surface_field => extract_vector_surface_field_by_number(field, i, name, stat)
@@ -759,9 +761,10 @@ contains
   !!< Extracts one of the surface_fields of the b.c. 'bc_name' by name of field
   type(scalar_field), pointer:: surface_field
   type(vector_field), intent(in):: field
-  character(len=*), intent(in):: bc_name, name  
+  character(len=*), intent(in):: bc_name, name
   integer, intent(out), optional:: stat
-  integer i
+  
+    integer i
 
     if (present(stat)) then
       stat = 0
@@ -773,6 +776,7 @@ contains
         return
       end if
     end do
+
     if (present(stat)) then
       stat = 1
     else
@@ -789,8 +793,8 @@ contains
   integer, intent(in):: n
   character(len=*), intent(in):: name
   
-  type(scalar_boundary_condition), pointer:: bc
-  integer i
+    type(scalar_boundary_condition), pointer:: bc
+    integer i
 
     assert(n>=1 .and. n<=size(field%bc%boundary_condition))
     bc => field%bc%boundary_condition(n)
@@ -815,8 +819,8 @@ contains
   integer, intent(in):: n
   character(len=*), intent(in):: name
   
-  type(vector_boundary_condition), pointer:: bc
-  integer i
+    type(vector_boundary_condition), pointer:: bc
+    integer i
 
     assert(n>=1 .and. n<=size(field%bc%boundary_condition))
     bc => field%bc%boundary_condition(n)
@@ -841,8 +845,8 @@ contains
   integer, intent(in):: n
   character(len=*), intent(in):: name
   
-  type(vector_boundary_condition), pointer:: bc
-  integer i
+    type(vector_boundary_condition), pointer:: bc
+    integer i
 
     assert(n>=1 .and. n<=size(field%bc%boundary_condition))
     bc => field%bc%boundary_condition(n)
@@ -908,7 +912,7 @@ contains
 
     assert(n>=1 .and. n<=size(field%bc%boundary_condition))
     bc => field%bc%boundary_condition(n)
-
+    
     if (present(name)) then
       name=bc%name
     end if
@@ -1121,8 +1125,8 @@ contains
     !! A second field over the entire surface containing another associated 
     !! boundary values for the robin type BC.
     !! This field should be deallocated after use.
-    type(scalar_field), intent(out), optional :: boundary_second_value 
-       
+    type(scalar_field), intent(out), optional :: boundary_second_value    
+    
     integer, dimension(:), pointer:: surface_element_list
     
     type(scalar_field), pointer:: surface_field
@@ -1149,7 +1153,7 @@ contains
     
     do i=1, get_boundary_condition_count(field)
        call get_boundary_condition(field, i, type=bctype, &
-              surface_element_list=surface_element_list,name=name)
+          surface_element_list=surface_element_list,name=name)
           
        ! see if we're interested in this one, if not skip it
        do j=1, size(types)
@@ -1605,7 +1609,7 @@ contains
     do k = 1, blocks(matrix, 1)
       if(mask(k)) then
         call addto_diag(matrix, k, k, node, INFINITY)
-      endif
+      end if
     end do
     
     if ((present(rhs)).and.(present(reference_value))) then
@@ -1796,6 +1800,8 @@ contains
        call get_boundary_condition(field, b, &
           type=bc_type, option_path=bc_option_path, &
           surface_node_list=surface_node_list)
+       
+
        if ((bc_type/="dirichlet").and.(bc_type/="weakdirichlet")) cycle
        
        ! Weak dirichlet bcs do not have consistent bcs by default.

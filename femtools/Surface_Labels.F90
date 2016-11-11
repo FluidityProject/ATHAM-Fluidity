@@ -388,7 +388,7 @@ contains
     ewrite(2,*) "Before merge_surface_ids, n/o local coplanes:", current_id-1
 
     call merge_surface_ids(mesh, coplanar_ids, max_id = current_id - 1)
-    
+
     ewrite(2,*) "After merge_surface_ids"
 
   end subroutine get_coplanar_ids
@@ -581,7 +581,6 @@ contains
       ! We have to check for indirect merges (merges with processes that are not
       ! adjacent to this one). Let's go around again ...
     end do comm_loop
-
     call deallocate(sele_halo)
     do i = 1, nprocs
       deallocate(send_buffer(i)%ptr)

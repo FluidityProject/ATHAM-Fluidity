@@ -60,9 +60,9 @@ module interpolation_module
         end do
       else
         if (.not. all(map > 0)) then
-        FLAbort("Failed to find element mapping")
+          FLAbort("Failed to find element mapping")
+        end if
       end if
-    end if
     end if
     
   end function get_element_mapping
@@ -256,7 +256,7 @@ module interpolation_module
             cycle
           end if
         end if
-
+        
         ! In what element of the old mesh does the new node lie?
         ele = map(new_node)
         fit = get_quadratic_fit_eqf(old_fields(field), old_position, ele, transpose(ele_val(gradient, ele)))
@@ -655,7 +655,7 @@ module interpolation_module
           cycle
         end if
       end if
-
+      
       ! In what element of the old mesh does the new node lie?
       ! Find the local coordinates of the point in that element,
       ! and evaluate all the shape functions at that point
@@ -760,7 +760,7 @@ module interpolation_module
           cycle
         end if
       end if
-      
+
       ! In what element of the old mesh does the new node lie?
       ele = map(new_node)
       node_list => ele_nodes(old_mesh, ele)

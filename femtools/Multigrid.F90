@@ -152,7 +152,7 @@ subroutine SetUpInternalSmoother(surface_node_list_in,matrix,pc, &
        Internal_Smoother_Mat, ierr, no_top_smoothing=lno_top_smoothing)
 
   ! PCSetOperators needs to be in small caps due to macro hack in include/petsc_legacy.h
-  call pcsetoperators(internal_smoother_pc,Internal_Smoother_Mat,Internal_Smoother_Mat, ierr)
+  call pcsetoperators(internal_smoother_pc,Internal_Smoother_Mat, Internal_Smoother_Mat, ierr)
 
   !set up pc to output
   myPETSC_NULL_OBJECT=PETSC_NULL_OBJECT
@@ -633,7 +633,6 @@ Mat, intent(in):: matrix
   
   call KSPSetType(ksp, KSPRICHARDSON, ierr)
   call KSPSetOperators(ksp, matrix, matrix, ierr)
-
   call KSPSetTolerances(ksp, PETSC_DEFAULT_REAL, &
     PETSC_DEFAULT_REAL, PETSC_DEFAULT_REAL, &
     0, ierr)
@@ -653,14 +652,12 @@ integer, intent(in):: iterations
   
   PC:: pc
   PetscErrorCode:: ierr
-
+  
   call KSPSetType(ksp, KSPCHEBYSHEV, ierr)
   call KSPSetOperators(ksp, matrix, matrix, ierr)
-
   call KSPSetTolerances(ksp, PETSC_DEFAULT_REAL, &
     PETSC_DEFAULT_REAL, PETSC_DEFAULT_REAL, &
     iterations, ierr)
-
   call KSPChebyshevSetEigenvalues(ksp, emax, emin, ierr)
   call KSPSetNormType(ksp, KSP_NORM_NONE, ierr)
 

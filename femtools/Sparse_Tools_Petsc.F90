@@ -46,7 +46,6 @@ module sparse_tools_petsc
   use petsc_tools
   implicit none
 #include "petsc_legacy.h"
-
   private
   
   type petsc_csr_matrix
@@ -391,7 +390,7 @@ contains
       
       assert( size(dnnz)==nprows*blocks(1) )
       assert( size(onnz)==nprows*blocks(1) )
-
+      
       call MatCreateAIJ(MPI_COMM_FEMTOOLS, nprows*blocks(1), npcols*blocks(2), &
          urows, ucols, &
          PETSC_NULL_INTEGER, dnnz, PETSC_NULL_INTEGER, onnz, matrix%M, ierr)
@@ -585,6 +584,7 @@ contains
     logical :: ret
     type(petsc_csr_matrix), intent(in) :: matrix
     integer, dimension(:), intent(in) :: i
+
     ret = .false.
   end function petsc_must_assemble_by_column_array
 
@@ -718,6 +718,7 @@ contains
     
     call MatSetValues(matrix%M, size(i), idxm, size(j), idxn, real(val, kind=PetscScalar_kind), &
         ADD_VALUES, ierr)
+
     matrix%is_assembled=.false.
 
   end subroutine petsc_csr_vaddto
@@ -739,6 +740,7 @@ contains
     
     call MatSetValues(matrix%M, size(idxm), idxm, size(idxn), idxn, &
                   real(val, kind=PetscScalar_kind), ADD_VALUES, ierr)
+
     matrix%is_assembled=.false.
 
   end subroutine petsc_csr_block_addto
@@ -768,6 +770,7 @@ contains
               value, ADD_VALUES, ierr)
       end do
     end do
+
     matrix%is_assembled=.false.
 
   end subroutine petsc_csr_blocks_addto

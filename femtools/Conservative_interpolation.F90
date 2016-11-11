@@ -395,7 +395,6 @@ module conservative_interpolation_module
         do field = 1, field_counts(mesh)
           old_fields(mesh, field) = extract_scalar_field(old_fields_state(mesh), field)
           new_fields(mesh, field) = extract_scalar_field(new_fields_state(mesh), field)
-
           call zero(new_fields(mesh, field))
           bounded(mesh, field) = l_force_bounded.or.&
                           have_option(trim(complete_field_path(new_fields(mesh,field)%option_path, stat=statp)) // &
@@ -534,11 +533,11 @@ module conservative_interpolation_module
 
       if (not_halo_2_element) then
 
-       call galerkin_projection_inner_loop(ele_B, little_mass_matrix, detJ, local_rhs, conservation_tolerance, stat, &
-                                           field_counts, old_fields, old_position, new_fields, new_position, &
-                                           lmap_BA, inversion_matrices_A, supermesh_shape)
+        call galerkin_projection_inner_loop(ele_B, little_mass_matrix, detJ, local_rhs, conservation_tolerance, stat, &
+             field_counts, old_fields, old_position, new_fields, new_position, &
+             lmap_BA, inversion_matrices_A, supermesh_shape)
 
-       if (stat /= 0) then
+        if (stat /= 0) then
           ! Uhoh! We haven't found all the mass for ele_B :-/
           ! The intersector has missed something (almost certainly due to
           ! finite precision arithmetic). Geometry is hard!
@@ -558,9 +557,9 @@ module conservative_interpolation_module
           ewrite(0,*) "Warning: it appears a supermesh intersection wasn't found resulting in a conservation error."
           ewrite(0,*) "Recompile with CGAL if you want to try to fix it."
 #endif
-       end if
+        end if
 
-       do mesh = 1, mesh_count
+        do mesh = 1, mesh_count
           if(field_counts(mesh)>0) then
             nloc = ele_loc(new_fields(mesh,1),1)
             ele_nodes_B => ele_nodes(new_fields(mesh,1), ele_B)
@@ -629,17 +628,17 @@ module conservative_interpolation_module
 
         end do
       end if
+      
+    end do
 
+    ewrite(1, *) "Supermeshing complete"
+
+    if (.not. present(map_BA)) then
+      do ele_B=1,ele_count(new_position)
+        call deallocate(lmap_BA(ele_B))
       end do
-
-      ewrite(1, *) "Supermeshing complete"
-
-      if (.not. present(map_BA)) then
-        do ele_B=1,ele_count(new_position)
-          call deallocate(lmap_BA(ele_B))
-        end do
-        deallocate(lmap_BA)
-      end if
+      deallocate(lmap_BA)
+    end if
 
     do mesh = 1, mesh_count
       if(field_counts(mesh)>0) then
