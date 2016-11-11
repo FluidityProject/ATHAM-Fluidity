@@ -45,7 +45,7 @@ periodic_boundary_option_path, domain_bbox, domain_volume
   use boundary_conditions, only: set_dirichlet_consistent
   use mesh_files
   use vtk_cache_module
-  use vtk_interfaces       
+  use vtk_interfaces
   use field_options
   use reserve_state_module
   use field_options
@@ -221,7 +221,7 @@ contains
     allocate(subdomain_mesh%subdomain_mesh)
     subdomain_mesh%subdomain_mesh%element_list => subele_list
     subdomain_mesh%subdomain_mesh%node_list => node_list
-       
+
     ! Insert mesh and position fields for subdomain_mesh into sub_states:
     if(mesh_name=="CoordinateMesh") then
       external_mesh_position => extract_vector_field(states(1), "Coordinate")

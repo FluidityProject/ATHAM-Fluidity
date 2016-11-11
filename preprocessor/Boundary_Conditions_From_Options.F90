@@ -138,13 +138,13 @@ contains
        nfields = scalar_field_count(states(p+1))
        do f = 1, nfields
           sfield => extract_scalar_field(states(p+1),f)
-
           field_path=sfield%option_path
 
           call populate_scalar_boundary_conditions(states(p+1),sfield, &
                trim(field_path)//'/prognostic/boundary_conditions', position, suppress_warnings=suppress_warnings)
           call populate_scalar_boundary_conditions(states(p+1),sfield, &
                trim(field_path)//'/diagnostic/algorithm/boundary_conditions', position, suppress_warnings=suppress_warnings)
+
        end do
 
        ! Vector fields:
@@ -152,7 +152,6 @@ contains
        nfields = vector_field_count(states(p+1))
        do f = 1, nfields
           vfield => extract_vector_field(states(p+1), f)
-
           field_path=vfield%option_path
           
           if (.not. have_option(trim(field_path)//'/prognostic')) cycle
@@ -205,7 +204,7 @@ contains
     if (have_option('/ocean_forcing/iceshelf_meltrate/Holland08/calculate_boundaries')) then
         call populate_iceshelf_boundary_conditions(states(1))
     end if
-
+    
     ! Populate diagnostic surface fields
     do p = 0, nphases-1
       call populate_diagnostic_boundary_conditions(states(p+1))
@@ -217,7 +216,7 @@ contains
     ! Populate the boundary conditions of one scalar field
     ! needs to be a pointer:
     type(state_type), intent(in) :: state 
-    type(scalar_field), pointer :: field
+    type(scalar_field), pointer:: field
     character(len=*), intent(in):: bc_path
     type(vector_field), intent(in):: position
     ! suppress warnings about non-existant surface ids
@@ -296,7 +295,6 @@ contains
        ! mesh of only the part of the surface where this b.c. applies
        call get_boundary_condition(field, i+1, surface_mesh=surface_mesh, &
           surface_element_list=surface_element_list)
-	  
        bc_position = get_coordinates_remapped_to_surface(position, surface_mesh, surface_element_list) 
 
        ! Dirichlet and Neumann boundary conditions require one input
@@ -430,18 +428,17 @@ contains
           deallocate(surface_ids)
           
           call get_boundary_condition(field, i+1, surface_mesh=surface_mesh)
-
           call allocate(surface_field, field%dim, surface_mesh, name="value")
           call insert_surface_field(field, i+1, surface_field)
           call deallocate(surface_field)
-	  
+          
 	  if (trim(bc_type)=="surface_ocean_COARE3") then
              ! Allocate boundary variables associated with momentum
              call allocate(surface_field, field%dim, surface_mesh, name="momentum_stress")
-             call insert_surface_field(field, i+1, surface_field)
-             call deallocate(surface_field)
+          call insert_surface_field(field, i+1, surface_field)
+          call deallocate(surface_field)
           endif
-	  
+          
           if (have_sem_bc) then
              call allocate(surface_field, field%dim, surface_mesh, name="TurbulenceLengthscale")
              call insert_surface_field(field, i+1, surface_field)
@@ -455,7 +452,7 @@ contains
              call insert_surface_field(field, i+1, surface_field)
              call deallocate(surface_field)
           end if
-	  
+
 	  if (have_option(trim(bc_path_i)//"/type::"//trim(bc_type)//"/digital_filter_turbulence")) then
 	     ! We need to create a new (continuous) mesh which will be used for this boundary by the DFM model
              allocate(surface_ids(1:shape_option(1)))
@@ -737,6 +734,7 @@ contains
 
     ewrite(1,*) "In set_boundary_conditions"
 
+    
     if (have_option('/ocean_forcing/bulk_formulae')) then
         call set_ocean_forcings_boundary_conditions(states(1))
     end if
@@ -751,8 +749,9 @@ contains
        phase_path = '/material_phase['//int2str(p)//']'
 
        position => extract_vector_field(states(p+1), "Coordinate")
-   
+
        ! Scalar fields:
+
        nfields = scalar_field_count(states(p+1))
        do f = 1, nfields
           sfield => extract_scalar_field(states(p+1),f)
@@ -768,6 +767,7 @@ contains
        end do
 
        ! Vector fields:
+
        nfields = vector_field_count(states(p+1))
        do f = 1, nfields
           vfield => extract_vector_field(states(p+1), f)
@@ -1037,7 +1037,7 @@ contains
     boundary_conditions: do i=0, nbcs-1
        bc_path_i=trim(bc_path)//"["//int2str(i)//"]"
        call get_option(trim(bc_path_i)//"/name", bc_name)
-	       
+
        bc_path_i=trim(bc_path_i)//'/type[0]'
        call get_option(trim(bc_path_i)//"/name", bc_type)
 
@@ -1092,7 +1092,6 @@ contains
        
           call get_boundary_condition(field, i+1, surface_mesh=surface_mesh, &
                surface_element_list=surface_element_list)
-	       
           surface_field => extract_surface_field(field, bc_name, name="value")
           
           if((surface_mesh%shape%degree==0).and.(bc_type=="dirichlet")) then
