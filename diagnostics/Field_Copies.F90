@@ -621,7 +621,7 @@ contains
 
     ewrite(1, *) "Exiting calculate_lumped_mass_smoothed_tensor"
 
-  end subroutine calculate_lumped_mass_smoothed_tensor 
+  end subroutine calculate_lumped_mass_smoothed_tensor
   
   subroutine calculate_horizontal_filter_scalar(state, s_field)
   

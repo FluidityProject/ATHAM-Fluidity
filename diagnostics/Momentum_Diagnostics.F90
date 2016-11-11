@@ -56,13 +56,13 @@ module momentum_diagnostics
   private
   
   public :: calculate_strain_rate, calculate_bulk_viscosity, calculate_strain_rate_second_invariant, &
-	    calculate_sediment_concentration_dependent_viscosity, &
-	    calculate_buoyancy, calculate_coriolis, calculate_tensor_second_invariant, &
-	    calculate_imposed_material_velocity_source, &
+            calculate_sediment_concentration_dependent_viscosity, &
+            calculate_buoyancy, calculate_coriolis, calculate_tensor_second_invariant, &
+            calculate_imposed_material_velocity_source, &
             calculate_imposed_material_velocity_absorption, &
             calculate_scalar_potential, calculate_projection_scalar_potential, &
             calculate_geostrophic_velocity, calculate_atmosphere_forcing_vector, calculate_viscous_dissipation
-           
+  
 contains
 
   subroutine calculate_strain_rate(state, t_field)
@@ -127,39 +127,39 @@ contains
     sediment_classes = get_n_sediment_fields()
 
     if (sediment_classes > 0) then
-	allocate(sediment_concs(sediment_classes))
-	
-	call get_sediment_item(state, 1, sediment_concs(1)%ptr)
-	
-	call allocate(rhs, sediment_concs(1)%ptr%mesh, name="Rhs")
-	call set(rhs, 1.0)
-	
-	! get sediment concentrations and remove c/0.65 from rhs
-	do i=1, sediment_classes
-	   call get_sediment_item(state, i, sediment_concs(i)%ptr)
-	   call addto(rhs, sediment_concs(i)%ptr, scale=-(1.0/0.65))
-	end do
-	
-	! raise rhs to power of -1.625
-	do i = 1, node_count(rhs)
-	   call set(rhs, i, node_val(rhs, i)**(-1.625))
-	end do
-	
-	! check for presence of ZeroSedimentConcentrationViscosity field
-	if (.not. has_tensor_field(state, "ZeroSedimentConcentrationViscosity")) then
-	   FLExit("You must specify an zero sediment concentration viscosity to be able &
-		&to calculate sediment concentration dependent viscosity field values")
-	endif
-	zero_conc_viscosity => extract_tensor_field(state, 'ZeroSedimentConcentrationViscosity')
-	
-	call set(t_field, zero_conc_viscosity)
-	call scale(t_field, rhs)
-	ewrite_minmax(t_field) 
+        allocate(sediment_concs(sediment_classes))
+        
+        call get_sediment_item(state, 1, sediment_concs(1)%ptr)
+        
+        call allocate(rhs, sediment_concs(1)%ptr%mesh, name="Rhs")
+        call set(rhs, 1.0)
+        
+        ! get sediment concentrations and remove c/0.65 from rhs
+        do i=1, sediment_classes
+           call get_sediment_item(state, i, sediment_concs(i)%ptr)
+           call addto(rhs, sediment_concs(i)%ptr, scale=-(1.0/0.65))
+        end do
+        
+        ! raise rhs to power of -1.625
+        do i = 1, node_count(rhs)
+           call set(rhs, i, node_val(rhs, i)**(-1.625))
+        end do
+        
+        ! check for presence of ZeroSedimentConcentrationViscosity field
+        if (.not. has_tensor_field(state, "ZeroSedimentConcentrationViscosity")) then
+           FLExit("You must specify an zero sediment concentration viscosity to be able &
+                &to calculate sediment concentration dependent viscosity field values")
+        endif
+        zero_conc_viscosity => extract_tensor_field(state, 'ZeroSedimentConcentrationViscosity')
+        
+        call set(t_field, zero_conc_viscosity)
+        call scale(t_field, rhs)
+        ewrite_minmax(t_field) 
 
-	deallocate(sediment_concs)
-	call deallocate(rhs)
+        deallocate(sediment_concs)
+        call deallocate(rhs)
     else
-	ewrite(1,*) 'No sediment in problem definition'
+        ewrite(1,*) 'No sediment in problem definition'
     end if  
   end subroutine calculate_sediment_concentration_dependent_viscosity
   
@@ -228,17 +228,17 @@ contains
     do node=1,node_count(s_field)
        val = 0.
        do dim1 = 1, velocity%dim
-	  do dim2 = 1, velocity%dim
-	     if(dim1==dim2) then
-		! Add divergence of velocity term to diagonal only: 
-		val = val + 2.*node_val(viscosity_component_remap, node) * & 
-		     & (node_val(strain_rate_tensor,dim1,dim2,node)	 - &
-		     & 1./3. * node_val(velocity_divergence, node))**2
-	     else
-		val = val + 2.*node_val(viscosity_component_remap, node) * & 
-		     & node_val(strain_rate_tensor,dim1,dim2,node)**2	
-	     end if
-	  end do
+          do dim2 = 1, velocity%dim
+             if(dim1==dim2) then
+                ! Add divergence of velocity term to diagonal only: 
+                val = val + 2.*node_val(viscosity_component_remap, node) * & 
+                     & (node_val(strain_rate_tensor,dim1,dim2,node)      - &
+                     & 1./3. * node_val(velocity_divergence, node))**2
+             else
+                val = val + 2.*node_val(viscosity_component_remap, node) * & 
+                     & node_val(strain_rate_tensor,dim1,dim2,node)**2   
+             end if
+          end do
        end do
        call set(s_field, node, val)
     end do
@@ -255,16 +255,17 @@ contains
   subroutine calculate_bulk_viscosity(states, t_field)
     type(state_type), dimension(:), intent(inout) :: states
     type(tensor_field), intent(inout) :: t_field
+
     character(len = OPTION_PATH_LEN) :: mean_type
     
     call get_option(trim(complete_field_path(trim(t_field%option_path))) // &
-		    "/algorithm[0]/mean/name", mean_type, default="arithmetic")
+                    "/algorithm[0]/mean/name", mean_type, default="arithmetic")
 
     call calculate_bulk_property(states, t_field, "MaterialViscosity", &
       & mean_type = mean_type, momentum_diagnostic = .true.)
-
+  
   end subroutine calculate_bulk_viscosity
-    
+  
   subroutine calculate_atmosphere_forcing_vector(state, v_field, dt)
     type(state_type), intent(inout) :: state
     type(vector_field), intent(inout) :: v_field
