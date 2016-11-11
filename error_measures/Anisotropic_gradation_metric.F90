@@ -37,7 +37,7 @@ module anisotropic_gradation
   subroutine form_anisotropic_gradation_metric(metric, positions, state, noits, gamma_field)
     type(tensor_field), intent(inout), target :: metric
     type(vector_field), intent(in)            :: positions
-    type(state_type), intent(in)	      :: state
+    type(state_type), intent(in) :: state
     integer, optional, intent(out)            :: noits
     type(tensor_field), optional, intent(in)  :: gamma_field
 

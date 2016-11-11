@@ -42,7 +42,7 @@ module metric_assemble
   use hadapt_metric_based_extrude, only: get_1d_mesh, recombine_metric, get_1d_tensor
   
   implicit none
-  
+
   private
   public :: assemble_metric, apply_horizontal_gradation, apply_vertical_gradation
   
