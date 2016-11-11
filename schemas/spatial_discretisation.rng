@@ -490,14 +490,14 @@ Minimum value 0.0</a:documentation>
               <ref name="real"/>
             </element>
             <element name="TVB_factor_relative">
-              <a:documentation>TVB tolerance parameter, below this value (scaled by
+            <a:documentation>TVB tolerance parameter, below this value (scaled by
 dx**2) no limiting is done.
 Reduce to do more limiting, increase to do less
 Minimum value 0.0</a:documentation>
-              <ref name="real"/>
-            </element>
+            <ref name="real"/>
+          </element>
           </choice>
-	  <optional>
+          <optional>
             <element name="tolerate_negative_weights">
               <a:documentation>Tolerate negative weights in the reconstruction
 Algorithm finds the "least bad" coordinates to use.

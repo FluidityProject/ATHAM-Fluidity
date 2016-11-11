@@ -475,10 +475,10 @@ Dirichlet boundary conditions from the source field are applied to the filtered 
       </attribute>
       <ref name="component_source_field"/>
       <element name="smoothing_scale_factor">
-	<a:documentation>The characteristic scale factor alpha used by the smoother.
+        <a:documentation>The characteristic scale factor alpha used by the smoother.
 The length scale is alpha*local element width (a scalar)
 2 is recommended.</a:documentation>
-	<ref name="real"/>
+        <ref name="real"/>
       </element>
       <element name="solver">
         <a:documentation>Solver options.</a:documentation>
@@ -498,14 +498,14 @@ Dirichlet boundary conditions from the source field are applied to the filtered 
       </attribute>
       <ref name="vector_source_field"/>
       <element name="smoothing_scale_factor">
-	<a:documentation>The characteristic scale factor alpha used by the smoother.
+        <a:documentation>The characteristic scale factor alpha used by the smoother.
 The length scale is alpha*local element width (a scalar)
 2 is recommended.</a:documentation>
-	<ref name="real"/>
+        <ref name="real"/>
       </element>
       <element name="solver">
-	<a:documentation>Solver options.</a:documentation>
-	<ref name="linear_solver_options_sym"/>
+        <a:documentation>Solver options.</a:documentation>
+        <ref name="linear_solver_options_sym"/>
       </element>
     </element>
   </define>
@@ -514,17 +514,17 @@ The length scale is alpha*local element width (a scalar)
       <a:documentation>Smooth a tensor field by inverting a Helmholtz operator based on a scalar lengthscale.
 Dirichlet boundary conditions are not applied to the filtered field.</a:documentation>
       <attribute name="name">
-	<value>helmholtz_smoothed_tensor</value>
+        <value>helmholtz_smoothed_tensor</value>
       </attribute>
       <attribute name="material_phase_support">
-	<value>single</value>
+        <value>single</value>
       </attribute>
       <ref name="tensor_source_field"/>
       <element name="smoothing_scale_factor">
-	<a:documentation>The characteristic scale factor alpha used by the smoother.
+        <a:documentation>The characteristic scale factor alpha used by the smoother.
 The length scale is alpha*local element width (a scalar)
 2 is recommended.</a:documentation>
-	<ref name="real"/>
+        <ref name="real"/>
       </element>
       <element name="solver">
         <a:documentation>Solver options.</a:documentation>
@@ -544,7 +544,7 @@ Dirichlet boundary conditions from the source field are applied to the filtered 
       </attribute>
       <ref name="scalar_source_field"/>
       <element name="smoothing_scale_factor">
-	<a:documentation>The characteristic scale factor alpha used by the smoother.
+        <a:documentation>The characteristic scale factor alpha used by the smoother.
 The length scale is alpha*local element size (a tensor).
 2 is recommended.</a:documentation>
         <ref name="real"/>
@@ -567,7 +567,7 @@ Dirichlet boundary conditions from the source field are applied to the filtered 
       </attribute>
       <ref name="vector_source_field"/>
       <element name="smoothing_scale_factor">
-	<a:documentation>The characteristic scale factor alpha used by the smoother.
+        <a:documentation>The characteristic scale factor alpha used by the smoother.
 The length scale is alpha*local element size (a tensor).
 2 is recommended.</a:documentation>
         <ref name="real"/>
@@ -590,7 +590,7 @@ Dirichlet boundary conditions are not applied to the filtered field.</a:document
       </attribute>
       <ref name="tensor_source_field"/>
       <element name="smoothing_scale_factor">
-	<a:documentation>The characteristic scale factor alpha used by the smoother.
+        <a:documentation>The characteristic scale factor alpha used by the smoother.
 The length scale is alpha*local element size (a tensor).
 2 is recommended.</a:documentation>
         <ref name="real"/>
@@ -739,18 +739,18 @@ This repeatedly applies a Helmholtz filter to the field</a:documentation>
     <element name="algorithm">
       <a:documentation>Difference between two tensor fields, field 1 - field 2</a:documentation>
       <attribute name="name">
-	<value>tensor_difference</value>
+        <value>tensor_difference</value>
       </attribute>
       <attribute name="material_phase_support">
-	<value>single</value>
+        <value>single</value>
       </attribute>
       <ref name="tensor_source_field_1"/>
       <ref name="tensor_source_field_2"/>
       <optional>
-	<element name="absolute_difference">
-	  <a:documentation>If enabled, the absolute value of the difference is taken</a:documentation>
-	  <ref name="comment"/>
-	</element>
+        <element name="absolute_difference">
+          <a:documentation>If enabled, the absolute value of the difference is taken</a:documentation>
+          <ref name="comment"/>
+        </element>
       </optional>
     </element>
   </define>
@@ -790,29 +790,29 @@ This repeatedly applies a Helmholtz filter to the field</a:documentation>
     <element name="algorithm">
       <a:documentation>temporalmax (vector source field). Calculates the nodewise maximum over time. Note: Does not work with adaptive meshes!</a:documentation>
       <attribute name="name">
-	<value>temporalmax_vector</value>
+        <value>temporalmax_vector</value>
       </attribute>
       <attribute name="material_phase_support">
-	<value>single</value>
+        <value>single</value>
       </attribute>
       <attribute name="persistent">
-	<value>true</value>
+        <value>true</value>
       </attribute>
       <ref name="vector_source_field"/>
       <optional>
-	<element name="spin_up_time">
-	  <a:documentation>This sets a spinning up time.</a:documentation>
-	  <ref name="real"/>
-	</element>
+        <element name="spin_up_time">
+          <a:documentation>This sets a spinning up time.</a:documentation>
+          <ref name="real"/>
+        </element>
       </optional>
       <optional>
-	<element name="initial_condition">
-	  <a:documentation>Do not set an initial condition until you know what you are doing. Initial condition is mainly needed for checkpointing. </a:documentation>
-	  <attribute name="name">
-	    <value>WholeMesh</value>
-	  </attribute>
-	  <ref name="input_choice_initial_condition_real"/>
-	</element>
+        <element name="initial_condition">
+          <a:documentation>Do not set an initial condition until you know what you are doing. Initial condition is mainly needed for checkpointing. </a:documentation>
+          <attribute name="name">
+            <value>WholeMesh</value>
+          </attribute>
+          <ref name="input_choice_initial_condition_real"/>
+        </element>
       </optional>
     </element>
   </define>
@@ -1110,10 +1110,10 @@ boundaries.</a:documentation>
 Note that the strain rate tensor is calculated automatically as a part
 of this algorithm and, hence, a separate tensor field is not required.</a:documentation>
       <attribute name="name">
-	<value>strain_rate_second_invariant</value>
+        <value>strain_rate_second_invariant</value>
       </attribute>
       <attribute name="material_phase_support">
-	<value>single </value>
+        <value>single </value>
       </attribute>
     </element>
   </define>
@@ -1331,51 +1331,51 @@ take the value g.</a:documentation>
 each material_phase, weighted according to the MaterialVolumeFraction
 from each material_phase.</a:documentation>
       <attribute name="name">
-	<value>bulk_viscosity</value>
+        <value>bulk_viscosity</value>
       </attribute>
       <attribute name="material_phase_support">
-	<value>multiple</value>
+        <value>multiple</value>
       </attribute>
       <attribute name="depends">
-	<value>MaterialViscosity</value>
+        <value>MaterialViscosity</value>
       </attribute>
       <choice>
-	<element name="mean">
-	  <a:documentation>Use an arithmetic mean (default):
+        <element name="mean">
+          <a:documentation>Use an arithmetic mean (default):
 
   \bar\nu = \alpha^i\nu^i
  
 where \bar\nu is the bulk viscosity, \alpha^i is the volume fraction
 for material i and \nu^i is the viscosity of material i.</a:documentation>
-	  <attribute name="name">
-	    <value>arithmetic</value>
-	  </attribute>
-	  <empty/>
-	</element>
-	<element name="mean">
-	  <a:documentation>Use a harmonic mean:
+          <attribute name="name">
+            <value>arithmetic</value>
+          </attribute>
+          <empty/>
+        </element>
+        <element name="mean">
+          <a:documentation>Use a harmonic mean:
 
   1./\bar\nu = \alpha^i/\nu^i
  
 where \bar\nu is the bulk viscosity, \alpha^i is the volume fraction
 for material i and \nu^i is the viscosity of material i.</a:documentation>
-	  <attribute name="name">
-	    <value>harmonic</value>
-	  </attribute>
-	  <empty/>
-	</element>
-	<element name="mean">
-	  <a:documentation>Use a geometric mean:
+          <attribute name="name">
+            <value>harmonic</value>
+          </attribute>
+          <empty/>
+        </element>
+        <element name="mean">
+          <a:documentation>Use a geometric mean:
 
   \bar\nu = (\nu^i)^(\alpha^i)
  
 where \bar\nu is the bulk viscosity, \alpha^i is the volume fraction
 for material i and \nu^i is the viscosity of material i.</a:documentation>
-	  <attribute name="name">
-	    <value>geometric</value>
-	  </attribute>
-	  <empty/>
-	</element>
+          <attribute name="name">
+            <value>geometric</value>
+          </attribute>
+          <empty/>
+        </element>
       </choice>
     </element>
   </define>
@@ -1662,13 +1662,13 @@ Implemented as a queue data structure.</a:documentation>
         </element>
       </optional>
       <optional>
-	<element name="calculation_period">
-	  <a:documentation>How often to calculate the harmonics. Default is just before output dumps. You can set this
+        <element name="calculation_period">
+          <a:documentation>How often to calculate the harmonics. Default is just before output dumps. You can set this
 variable to calculate the diagnostics more often if required. 0 would calculate every timestep
 Note: harmonic calaulations are quite expensive. The value below applies to all tidal harmonics
 in the simulation</a:documentation>
-	  <ref name="integer"/>
-	</element>
+          <ref name="integer"/>
+        </element>
       </optional>
       <optional>
         <element name="saved_snapshots_times">
@@ -1963,8 +1963,8 @@ and also the Density, PhaseVolumeFraction and Viscosity fields of the continuous
       <choice>
         <a:documentation>The particle diameter</a:documentation>
         <element name="particle_diameter">
-        <ref name="real"/>
-      </element>
+          <ref name="real"/>
+        </element>
         <element name="particle_diameter_use_scalar_field">
           <ref name="anystring"/>
         </element>
@@ -2033,10 +2033,10 @@ The mesh must be directly extruded.</a:documentation>
     <element name="algorithm">
       <a:documentation>algorithm for calculating the viscous dissipation.</a:documentation>
       <attribute name="name">
-	<value>viscous_dissipation</value>
+        <value>viscous_dissipation</value>
       </attribute>
       <attribute name="material_phase_support">
-	<value>single </value>
+        <value>single </value>
       </attribute>
     </element>
   </define>
@@ -2267,7 +2267,7 @@ a horizontal vector living on the specified surface.</a:documentation>
   </define>
   <define name="scalar_diagnostic_algorithms" combine="choice">
     <ref name="l2norm_algorithm"/>
-  </define>  
+  </define>
   <define name="scalar_diagnostic_algorithms" combine="choice">
     <ref name="horizontal_filter_scalar_algorithm"/>
   </define>

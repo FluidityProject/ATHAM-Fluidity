@@ -15,7 +15,7 @@ fields.</a:documentation>
 The length scale is alpha*local element width (a scalar)
 2 is recommended.</a:documentation>
               <ref name="real"/>
-          </element>
+            </element>
           </optional>
           <element name="solver">
             <ref name="linear_solver_options_sym"/>

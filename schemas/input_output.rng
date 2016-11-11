@@ -161,7 +161,7 @@ between two specified times. </a:documentation>
 	  </element>
         </optional>
         <choice>
-          <ref name="vtu_input_format"/>
+        <ref name="vtu_input_format"/>
 	  <ref name="sounding_input_format_boundary"/>
 	</choice>
         <ref name="comment"/>
@@ -500,7 +500,7 @@ between two specified times. </a:documentation>
 	  </element>
         </optional>
         <choice>
-	  <ref name="vtu_input_format"/>
+        <ref name="vtu_input_format"/>
 	  <ref name="sounding_input_format_boundary"/>
 	</choice>
         <ref name="comment"/>
@@ -606,7 +606,7 @@ where X and the return value are tuples of length geometry dimension.</a:documen
           <data type="string"/>
         </attribute>
         <choice>
-	  <ref name="vtu_input_format"/>
+        <ref name="vtu_input_format"/>
 	  <ref name="sounding_input_format_initial"/>
 	</choice>
         <ref name="comment"/>

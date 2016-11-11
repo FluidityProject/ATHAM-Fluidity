@@ -462,7 +462,7 @@ time steps are not considered.</a:documentation>
                   <ref name="scalar_nudging_algorithm"/>
 		</optional>      
               </element>
-	    </choice>
+            </choice>
             <optional>
               <element name="add_with_source">
         	<a:documentation>Add (or rather subtract as sources and absorptions
@@ -478,7 +478,7 @@ time steps are not considered.</a:documentation>
     </optional>
     <optional>
       <element name="scalar_field">
-	<a:documentation>Velocity at which this substance sinks through the water column.
+        <a:documentation>Velocity at which this substance sinks through the water column.
 
 This velocity is in the direction of gravity so if the substance
 floats or swims upwards, this field should be negative.</a:documentation>
@@ -762,38 +762,38 @@ where N_a and N_b are shape functions of the ath and bth node respectively and m
           <optional>
             <element name="les_model">
               <a:documentation>Large-eddy simulation (LES) models. Currently restricted to use in incompressible flow cases, where the discrete velocity is divergence-free and the eddy viscosity tensor is traceless.</a:documentation>
-              <element name="tensor_field">
-                <a:documentation>Eddy viscosity diagnostic field (turbulent diffusion of velocity).
+                    <element name="tensor_field">
+                      <a:documentation>Eddy viscosity diagnostic field (turbulent diffusion of velocity).
 This is a symmetric viscosity, added to normal viscosity field, that
 carries the influence of turbulence onto the velocity field. It will
 be anisotropic if the 'tensor' length scale is chosen. Otherwise, it
 will be isotropic.</a:documentation>
-                <attribute name="rank">
-                  <value>2</value>
-                </attribute>
-                <attribute name="name">
-                  <value>EddyViscosity</value>
-                </attribute>
-                <element name="diagnostic">
-                  <ref name="internal_algorithm"/>
-                  <ref name="velocity_mesh_choice"/>
-                  <ref name="diagnostic_tensor_field"/>
-                  <element name="mass_matrix">
-                    <choice>
-                      <element name="use_lumped_mass_matrix">
-                	<optional>
-                	  <element name="use_submesh">
-                	    <empty/>
-                	  </element>
-                	</optional>
+                      <attribute name="rank">
+                        <value>2</value>
+                      </attribute>
+                      <attribute name="name">
+                        <value>EddyViscosity</value>
+                      </attribute>
+                      <element name="diagnostic">
+                        <ref name="internal_algorithm"/>
+                        <ref name="velocity_mesh_choice"/>
+                        <ref name="diagnostic_tensor_field"/>
+                        <element name="mass_matrix">
+                          <choice>
+                            <element name="use_lumped_mass_matrix">
+                              <optional>
+                                <element name="use_submesh">
+                                  <empty/>
+                                </element>
+                              </optional>
+                            </element>
+                            <element name="use_consistent_mass_matrix">
+                              <empty/>
+                            </element>
+                          </choice>
+                        </element>
                       </element>
-                      <element name="use_consistent_mass_matrix">
-                	<empty/>
-                      </element>
-                    </choice>
-                  </element>
-                </element>
-              </element>
+                    </element>
 	      <optional>
                 <element name="tensor_field">
                   <a:documentation>Subs-filter Leonard tensor for non-linear LES modelling.</a:documentation>
@@ -876,8 +876,8 @@ Suggested values: 0.15-0.23</a:documentation>
                 	    <a:documentation>Use hydrostatic potential temperature to compute Richardson number.</a:documentation>
                 	    <ref name="empty"/>
                 	  </element>
-                	</optional>
-	              </element>
+                  </optional>
+                </element>
 	            </choice>
 	          </optional>
                   <element name="length_scale_type">
@@ -1707,7 +1707,7 @@ Requires an LES model to be applied to the velocity field.</a:documentation>
           </optional>
           <element name="buoyancy">
             <a:documentation>Options dealing with buoyancy</a:documentation>
-	    <optional>
+            <optional>
               <element name="no_buoyancy">
                 <a:documentation>Removes buoyancy term from momentum equation.</a:documentation>
                 <empty/>
@@ -2058,7 +2058,7 @@ respectively.</a:documentation>
                   <ref name="velocity_nudging_algorithm"/>  	      
 		</optional>      
               </element>
-	    </choice>
+            </choice>
             <ref name="diagnostic_vector_field"/>
           </element>
         </choice>
