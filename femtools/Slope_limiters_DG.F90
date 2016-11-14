@@ -34,11 +34,11 @@ use spud
 use vector_tools, only: solve
 use elements
 use eventcounter
-use transform_elements
 use sparse_tools
+use transform_elements
 use fields
-use field_options, only: find_linear_parent_mesh
 use state_module
+use field_options, only: find_linear_parent_mesh
 use vtk_interfaces
 use state_fields_module
 use bound_field_module
@@ -107,7 +107,7 @@ contains
     !assert(field%mesh%shape%degree==1)
 
     ewrite(2,*) 'subroutiune limit_slope_dg'
-    
+
     if (present(not_initialised)) then
        ! Note unsafe for mixed element meshes
        if (element_degree(T,1)==0) then
@@ -172,7 +172,7 @@ contains
             &discontinuous_galerkin/slope_limiter::Cockburn_Shu/tolerate_negative_weights")
 
        call cockburn_shu_setup(T, X)
-              
+       
        do ele=1,element_count(T)
           
           call limit_slope_ele_cockburn_shu(ele, T, X)
@@ -311,7 +311,7 @@ contains
     ele_vertices = local_vertices(T%mesh%shape)
 
     ele_centre=sum(X_val,2)/size(X_val,2)
-    
+
     ele_mean=sum(T_val(ele_vertices))/size(ele_vertices)
     
     neigh=>ele_neigh(T, ele)
@@ -338,7 +338,7 @@ contains
        face_nodes=>face_local_nodes(T%mesh, face)
 
        face_centre(:,ni) = sum(face_val(X,face),2)/size(face_val(X,face),2)
-       
+
        face_mean(ni)=0.
        do j = 1,size(face_nodes)
          if (any(ele_vertices==face_nodes(j))) then    
@@ -355,7 +355,7 @@ contains
        T_val_2=ele_val(T, ele_2)
 
        neigh_centre(:,ni)=sum(X_val_2,2)/size(X_val_2,2)
-       
+
        neigh_mean(ni)=sum(T_val_2(ele_vertices))/size(ele_vertices)
     
        if ((face_mean(ni)-ele_mean)*(face_mean(ni)-neigh_mean(ni))>0.0) then
@@ -367,7 +367,6 @@ contains
 	  face_mean(ni)=max(min(face_mean(ni),lim_value_r),lim_value_l)
 
        end if
-
 
     end do searchloop
 
@@ -434,7 +433,7 @@ contains
        end if
 
     end do
-    
+   
     new_val=T_val
     do ni=1,size(neigh)
       ele_2=neigh(ni)
@@ -481,7 +480,7 @@ contains
     integer :: cnt, d, i, j, ele, deg, ele_2, face
     integer, dimension(:), pointer :: face_nodes, neigh
     integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices  
-    
+
     do_setup = .false.
     if(.not.CSL_initialised) then
        CALL GetEventCounter(EVENT_ADAPTIVITY, csl_adapt_counter)
@@ -509,7 +508,6 @@ contains
           deallocate(A)
           A => null()
        end if
-
        !!ATTENTION: This assumes that all elements have the same number of faces
        allocate(alpha(element_count(T),ele_face_count(T,1)&
             &,ele_face_count(T,1)))
@@ -530,11 +528,9 @@ contains
        end do
        
        call invert(A)
-       
-       do ele = 1, element_count(T)
 
+       do ele = 1, element_count(T)
           call cockburn_shu_setup_ele(ele,T,X)
-	  
        end do
 
     end if    
@@ -558,7 +554,7 @@ contains
     integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices  
     
     ele_vertices = local_vertices(T%mesh%shape)
-    
+
     X_val=ele_val(X, ele)
     
     ele_centre=sum(X_val,2)/size(X_val,2)
@@ -580,7 +576,7 @@ contains
        face_nodes=>face_local_nodes(X%mesh, face)
 
        face_centre(:,ni) = sum(X_val(:,face_nodes),2)/size(face_nodes)
-
+       
        if (ele_2<=0) then
           ! External face.
           neigh_centre(:,ni)=face_centre(:,ni)
@@ -607,9 +603,9 @@ contains
        dx_c(:,ni)=neigh_centre(:,ni)-ele_centre !Vectors from ni centres to
                                                 !ele centre
        dx_f(:,ni)=face_centre(:,ni)-ele_centre !Vectors from ni face centres
-                                               !to ele centre
+                                              !to ele centre
     end do
-    
+
     alpha_construction_loop: do ni = 1, size(neigh)
        !Loop for constructing Delta v(m_i,K_0) as described in C&S
        alphamat(:,1) = dx_c(:,ni)
@@ -693,7 +689,7 @@ contains
           nl = nl + 1
           alpha(ele,ni,nj) = alpha1(nl)
        end do
-       
+
        dx2(ele,ni) = norm2(dx_c(:,ni))
 
     end do alpha_construction_loop
@@ -719,7 +715,7 @@ contains
     real, dimension(mesh_dim(T)+1) :: delta_v
     real, dimension(mesh_dim(T)+1) :: Delta, new_val_f
     integer, dimension(T%mesh%shape%numbering%vertices) :: ele_vertices  
-      
+
     T_val=ele_val(T, ele)
     X_val=ele_val(X, ele)
     
@@ -731,7 +727,7 @@ contains
     face_mean=0.0
     ! x_neigh/=t_neigh only on periodic boundaries.
     x_neigh=>ele_neigh(X, ele)
-    
+
     limit=.false.
 
     searchloop: do ni=1,size(neigh)
@@ -745,7 +741,7 @@ contains
        ! applicable to any field which shares the same mesh topology.
        face=ele_face(T, ele, ele_2)
        face_nodes=>face_local_nodes(T%mesh, face)
-    
+       
        face_mean(ni)=0.
        do j = 1,size(face_nodes)
          if (any(ele_vertices==face_nodes(j))) then    
@@ -762,7 +758,7 @@ contains
        T_val_2=ele_val(T, ele_2)
 
        neigh_mean=sum(T_val_2(ele_vertices))/size(ele_vertices)
-    
+
     end do searchloop
 
     delta_v = matmul(alpha(ele,:,:),neigh_mean-ele_mean)
@@ -772,7 +768,7 @@ contains
        Delta(ni)=TVB_minmod(face_mean(ni)-ele_mean, Limit_factor*delta_v(ni), dx2(ele,ni))
 
     end do delta_loop
-        
+
     ! Apply limiting in the element only if actually needed
     SumUp=0.0
     do ni = 1, size(neigh)
@@ -791,7 +787,7 @@ contains
        neg=sum(max(0.0, -Delta))
        
        Delta = min(1.0,neg/pos)*max(0.0,Delta) &
-             - min(1.0,pos/neg)*max(0.0,-Delta)
+            -min(1.0,pos/neg)*max(0.0,-Delta)
        
     end if
 
@@ -801,7 +797,7 @@ contains
     do ni=1,size(ele_vertices)
       new_val(ele_vertices(ni))=new_val_f(ni)
     enddo
-      
+    
     ! Success or non-boundary failure.
     T_ele=>ele_nodes(T,ele)
     
@@ -894,7 +890,7 @@ contains
     neigh=>ele_neigh(T, ele)
     ! x_neigh/=t_neigh only on periodic boundaries.
     x_neigh=>ele_neigh(X, ele)
-    
+
     ele_vertices = local_vertices(T%mesh%shape)
 
     discontinuity_option = 2
@@ -1295,7 +1291,7 @@ contains
 
     call transform_facet_to_physical( X, face,&
     	 & detwei_f=detwei,normal=normal)
-    
+
     U_flux = 0.5*(face_val_at_quad(U,face)+ &
     	 & face_val_at_quad(U,face_2))
     
@@ -1502,15 +1498,15 @@ contains
        T_val_slope = T_val - Tbar
        T_val_max = ele_val(T_max,ele)
        T_val_min = ele_val(T_min,ele)
-
+       
        !loop over nodes, adjust alpha
        do node = 1, size(T_val)
-	 !check whether to use max or min, and avoid floating point algebra errors due to round-off and underflow
-	 if(T_val(node)>Tbar*(1.0+sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar > tiny(0.0)*1e10) then
-	   alpha = min(alpha,(T_val_max(node)-Tbar)/(T_val(node)-Tbar))
-	 else if(T_val(node)<Tbar*(1.0-sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar < -tiny(0.0)*1e10) then
-	   alpha = min(alpha,(T_val_min(node)-Tbar)/(T_val(node)-Tbar))
-	 end if
+         !check whether to use max or min, and avoid floating point algebra errors due to round-off and underflow
+         if(T_val(node)>Tbar*(1.0+sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar > tiny(0.0)*1e10) then
+           alpha = min(alpha,(T_val_max(node)-Tbar)/(T_val(node)-Tbar))
+         else if(T_val(node)<Tbar*(1.0-sign(1.0e-12,Tbar)) .and. T_val(node)-Tbar < -tiny(0.0)*1e10) then
+           alpha = min(alpha,(T_val_min(node)-Tbar)/(T_val(node)-Tbar))
+         end if
        end do
 
        call set(T_limit, T_ele, Tbar + alpha*T_val_slope)

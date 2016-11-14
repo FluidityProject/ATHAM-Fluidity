@@ -1252,8 +1252,8 @@ contains
     ! BCTYPE_WEAKDIRICHLET=1)
     allocate( bc_type(1:surface_element_count(T)) )
     call get_entire_boundary_condition(T, &
-       & (/"weakdirichlet", &
-       &   "dirichlet    ", &
+       & (/"weakdirichlet       ", &
+       &   "dirichlet           ", &
        &   "neumann             ",   &
        &   "flux                ",   &
        &   "surface_ocean_COARE3"/), &
