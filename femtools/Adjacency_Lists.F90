@@ -793,7 +793,6 @@ END SUBROUTINE NODELE
       call MakeLists_Dynamic(Nonods, Totele, Nloc, NDGLNO, D3, EEList=EEList)
       return
     end if
-    ewrite(1,*) 'Terminate MakeLists_Mesh'
 
   end subroutine MakeLists_Mesh
   

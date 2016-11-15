@@ -2182,8 +2182,8 @@ contains
 
       logical :: have_viscosity      
       integer :: i, s
-      character(len = FIELD_NAME_LEN) :: surface_integral_name
       real :: force(vfield%dim), pressure_force(vfield%dim), viscous_force(vfield%dim)
+      character(len = FIELD_NAME_LEN) :: surface_integral_name
     
       viscosity=>extract_tensor_field(state, "Viscosity", stat)
       have_viscosity = stat == 0

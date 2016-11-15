@@ -422,7 +422,7 @@ contains
       end do
 
       ! Solve for sum_velocity_divergence
-      ! ( = \sum{div(vfrac*u)} )            
+      ! ( = \sum{div(vfrac*u)} for incompressible multiphase flows )            
       if (test_with_cv_dual) then
          ! get the cv mass matrix
          cv_mass => get_cv_mass(state(1), sum_velocity_divergence%mesh)

@@ -111,7 +111,6 @@ contains
     case("gmsh")
        field = read_gmsh_file(filename, quad_degree=quad_degree, quad_ngi=quad_ngi, &
             quad_family=quad_family, mdim=mdim)
-       ewrite(2,*) 'read gmsh mesh successful'
 
     case("exodusii")
 #ifdef HAVE_LIBEXOIIV2C

@@ -48,7 +48,7 @@
     use multigrid
     use solvers
     use petsc_solve_state_module
-    use boundary_conditions_from_options, only: find_reference_node_from_coordinates
+    use boundary_conditions_from_options
 
 
     implicit none
@@ -416,7 +416,7 @@
       call MatDestroy(G_t_comp,ierr) ! Destroy Compressible Divergence Operator.
       call MatDestroy(G_t_incomp, ierr) ! Destroy Incompressible Divergence Operator.
       call MatDestroy(G, ierr) ! Destroy Gradient Operator (i.e. transpose of incompressible div).
-       if(have_preconditioner_matrix) call MatDestroy(pmat,ierr) ! Destroy preconditioning matrix if allocated.
+      if(have_preconditioner_matrix) call MatDestroy(pmat,ierr) ! Destroy preconditioning matrix.
       if(have_auxiliary_matrix) call MatDestroy(S,ierr) ! Destroy stabilization matrix
       
       call deallocate( petsc_numbering_u )

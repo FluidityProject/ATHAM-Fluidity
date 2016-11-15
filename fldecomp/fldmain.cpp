@@ -26,7 +26,7 @@
     USA
 */
 
-#include "mpi.h"
+
 #include "fldecomp.h"
 
 

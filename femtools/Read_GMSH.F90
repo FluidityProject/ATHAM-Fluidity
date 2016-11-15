@@ -185,7 +185,6 @@ contains
       coordinate_dim  = dim
     end if
 
-    ewrite(2,*) "hear 3", numFaces, numElements
     loc = size( elements(1)%nodeIDs )
     if (numFaces>0) then
       sloc = size( faces(1)%nodeIDs )
@@ -256,7 +255,6 @@ contains
     end do
 
     ! If we've got boundaries, do something
-    ewrite(2,*) "have Bounds", haveBounds, haveElementOwners
     if( haveBounds ) then
        if ( haveElementOwners ) then
           call add_faces( field%mesh, &
@@ -272,7 +270,6 @@ contains
        ewrite(2,*) "WARNING: no boundaries in GMSH file "//trim(lfilename)
        call add_faces( field%mesh, sndgln = sndglno(1:numFaces*sloc) )
     end if
-    ewrite(2,*) "before deallocate"
 
     ! Deallocate arrays
     deallocate(sndglno)
@@ -282,7 +279,6 @@ contains
     deallocate(nodes)
     deallocate(faces)
     deallocate(elements)
-    ewrite(2,*) "end"
 
     return
 

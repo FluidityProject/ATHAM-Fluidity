@@ -10,7 +10,7 @@ module anisotropic_zz_module
   use fldebug
   use global_parameters
   use quicksort
-  use sparse_tools, only: csr_matrix, csr_sparsity, row_m_ptr
+  use sparse_tools
   use vector_tools
   use tensors
   use unittest_tools, only: get_mat_diag, is_nan

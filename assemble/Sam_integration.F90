@@ -51,8 +51,7 @@ module sam_integration
   use boundary_conditions
   use tictoc
   use detector_data_types
-  use boundary_conditions_from_options, only: populate_boundary_conditions, &
-         set_boundary_conditions_values
+  use boundary_conditions_from_options
   use reserve_state_module
   use pickers
   use detector_tools
@@ -887,8 +886,7 @@ module sam_integration
            field_s => extract_scalar_field(interpolate_states(state), trim(namelist_s(state, field)))
            call remap_field(field_s, linear_s,stat)
            call check_sam_linear_remap_validity(stat, trim(namelist_s(state, field)))
-           call sam_add_field_scalar(linear_s)
-
+           call sam_add_field(linear_s)
            call remove_scalar_field(states(state), trim(namelist_s(state, field)))
            call remove_scalar_field(interpolate_states(state), trim(namelist_s(state, field)))
          end do
@@ -897,7 +895,7 @@ module sam_integration
            field_v => extract_vector_field(interpolate_states(state), trim(namelist_v(state, field)))
            call remap_field(field_v, linear_v,stat)
            call check_sam_linear_remap_validity(stat, trim(namelist_v(state, field)))
-           call sam_add_field_vector(linear_v)
+           call sam_add_field(linear_v)
            call remove_vector_field(states(state), trim(namelist_v(state, field)))
            call remove_vector_field(interpolate_states(state), trim(namelist_v(state, field)))
          end do
@@ -906,7 +904,7 @@ module sam_integration
            field_t => extract_tensor_field(interpolate_states(state), trim(namelist_t(state, field)))
            call remap_field(field_t, linear_t,stat)
            call check_sam_linear_remap_validity(stat, trim(namelist_t(state, field)))
-           call sam_add_field_tensor(linear_t)
+           call sam_add_field(linear_t)
            call remove_tensor_field(states(state), trim(namelist_t(state, field)))
            call remove_tensor_field(interpolate_states(state), trim(namelist_t(state, field)))
          end do
@@ -915,7 +913,7 @@ module sam_integration
        if(present(metric)) then
          ! Add the metric
          call remap_field(metric, linear_t)
-         call sam_add_field_tensor(linear_t)
+         call sam_add_field(linear_t)
        end if
 
        call deallocate(linear_s)

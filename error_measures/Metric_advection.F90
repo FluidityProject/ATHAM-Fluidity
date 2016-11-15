@@ -35,7 +35,7 @@ module metric_advection
   use elements
   use spud
   use parallel_tools
-  use sparse_tools, only: csr_matrix, csr_sparsity
+  use sparse_tools
   use shape_functions
   use cv_faces
   use transform_elements

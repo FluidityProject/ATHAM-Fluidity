@@ -32,7 +32,7 @@ module SurfaceLabels
   !!< elements can be coarsened or refined.
 
   use fldebug
-  use vector_tools, only: cross_product, eigenrecomposition
+  use vector_tools
   use linked_lists
   use mpi_interfaces
   use parallel_tools
@@ -389,8 +389,6 @@ contains
 
     call merge_surface_ids(mesh, coplanar_ids, max_id = current_id - 1)
 
-    ewrite(2,*) "After merge_surface_ids"
-
   end subroutine get_coplanar_ids
   
   subroutine vtk_write_coplanar_ids(filename, positions, coplanar_ids)
@@ -493,6 +491,7 @@ contains
         ! a divide and conquer algorithm for the indirect merges.
         FLAbort("Maximum communication count encountered in merge_surface_ids")
       end if
+      ewrite(2, *) "Performing surface merge ", comm
     
       ! Pack the old surface IDs for sending
             
@@ -591,6 +590,7 @@ contains
     deallocate(statuses)
     deallocate(requests)
     
+    ewrite(1, *) "Exiting merge_surface_ids"
 #endif
     
   end subroutine merge_surface_ids

@@ -232,10 +232,10 @@ contains
     mesh_positions)
     ! sets up monitors and returns solver_option_path,
     ! and prolongators and surface_nodes to be used in "mg" preconditioner
-    ! if associated on return, this array of prolongators should be passed into petsc_solve
     character(len=*), intent(out):: solver_option_path
-    ! if associated on return, this array of surface_nodes should be passed into petsc_solve
+    ! if associated on return, this array of prolongators should be passed into petsc_solve
     type(petsc_csr_matrix), dimension(:), pointer:: prolongators
+    ! if associated on return, this array of surface_nodes should be passed into petsc_solve
     integer, dimension(:), pointer:: surface_nodes
 
     type(state_type), intent(in):: state
@@ -245,10 +245,10 @@ contains
     character(len=*), intent(in):: field_option_path
     logical, intent(in):: matrix_has_solver_cache
     ! optional option_path that may be provided to override field option_path
+    character(len=*), intent(in), optional:: option_path
     ! if associated on return, this mesh_positions field should be passed into petsc_solve
     ! currently only for vector solves
     type(vector_field), pointer, optional:: mesh_positions
-    character(len=*), intent(in), optional:: option_path
     
     type(vector_field):: positions
     type(scalar_field), pointer:: exact

@@ -45,7 +45,6 @@ USA
 //              3 // calculate edge weights based on curvature of fields
 // options[5]:  1 // simple mesh
 //              2 // mixed formulation
-#include "mpi.h"
 #include "confdefs.h"
 
 #include <map>

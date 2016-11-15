@@ -45,7 +45,6 @@ use sparse_tools_petsc
 use state_module
 use sparse_matrices_fields
 use boundary_conditions
-use boundary_conditions_from_options
 use vertical_extrapolation_module
 use halos
 use field_options
@@ -55,7 +54,6 @@ use sparsity_patterns
 use sparsity_patterns_meshes
 use solvers
 use cv_shape_functions
-use halos_derivation
 implicit none
 
 private
