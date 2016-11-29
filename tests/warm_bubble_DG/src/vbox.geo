@@ -27,5 +27,3 @@ Transfinite Line{1, 3} = 88 Using Progression 1;
 Transfinite Line{2, 4} = 132 Using Progression 1;
 
 Transfinite Surface{6} Alternate;
-
-Physical Surface(7) = {6};
