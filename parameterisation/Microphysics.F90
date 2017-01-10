@@ -2424,6 +2424,8 @@ subroutine saturation_adjustment(state, mesh, sat_path, dt, linit)
     character(len=OPTION_PATH_LEN) :: eos_path, phase_name
     integer :: i,node,stat,thermal_variable, max_iter
     logical :: have_qv, have_ql, have_qi, constant_cp_cv
+    real :: ccn_node, nc_new
+    type(scalar_field), pointer :: n_c, ccn_local
 
     ewrite(1,*) 'Entering saturation adjustment'
     
@@ -2468,6 +2470,19 @@ subroutine saturation_adjustment(state, mesh, sat_path, dt, linit)
         else
           q_c=>dummyscalar
         end if
+
+	if (has_scalar_field(state,"Ndrop")) then
+          n_c=>extract_scalar_field(state,"Ndrop")
+        else
+          n_c=>dummyscalar
+        end if
+
+	if (has_scalar_field(state,"CCN")) then
+          ccn_local=>extract_scalar_field(state,"CCN")
+        else
+          ccn_local=>dummyscalar
+        end if
+
         if (has_scalar_field(state,"Qrain")) then
           q_r=>extract_scalar_field(state,"Qrain")
         else
@@ -2532,11 +2547,16 @@ subroutine saturation_adjustment(state, mesh, sat_path, dt, linit)
 	  qv_node=node_val(q_v,node)
 	  cp_node=node_val(qc_p,node)
 	  cv_node=node_val(qc_v,node)
+          ccn_node=node_val(ccn_local,node)
+
 	  if (has_scalar_field(state,"TotalWaterQ")) qv_node=qv_node-node_val(q_c,node)-node_val(q_r,node) &
 	  					            -node_val(q_i,node)-node_val(q_g,node)-node_val(q_s,node)
 
           dq_c=0.
 	  d_therm=0.
+
+          nc_new=node_val(n_c,node)
+
 	  if ( qv_node > saturation .or. qc_node > xmin ) then
   	    dq_c=(qv_node-saturation) / (1. + cal_flv(tem)**2.*saturation/(node_val(qc_p,node)*   &
 	         (node_val(qc_p,node)-node_val(qc_v,node)) * tem**2.))
@@ -2565,9 +2585,18 @@ subroutine saturation_adjustment(state, mesh, sat_path, dt, linit)
 	    thermal_new=therm+d_therm*dq_c
 	    tem=tem+dtem*dq_c
 	    
+	    if(qc_new > xmin .and. qc_node < xmin)then
+              nc_new = ccn_node
+            else if(qc_new < xmin .and. qc_node > xmin)then
+              nc_new = 0.              
+            endif
+
             call set (thermal,node,thermal_new)
 	    call set (temperature,node,tem)
             call set (q_c,node,qc_new)
+
+            call set (n_c,node,nc_new)
+
 	    if (.not.has_scalar_field(state,"TotalWaterQ")) call set (q_v,node,qv_new)
 	  endif
           call set (epsilon,node,d_therm*dq_c)
