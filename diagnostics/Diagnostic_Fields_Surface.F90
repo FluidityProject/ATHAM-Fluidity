@@ -552,7 +552,6 @@ contains
       model_coordinate=>get_external_coordinate_field(state(1), model_mesh)
       surface_coordinate=get_coordinates_remapped_to_surface(model_coordinate,surface_mesh,surface_element_list) 
     
-      if (counter < 1 .or. node_count(surface_coordinate) < 1) return
       ewrite(2, *) "Writing using mesh " // trim(mesh_name)
       ewrite(2, "(a,i0,a)") "Writing ", size(lsfields), " surface field(s)"
     
