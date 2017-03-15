@@ -81,7 +81,8 @@ module microphysics
 
   private
   public :: calculate_microphysics_forcings, initialise_microphysics, store_microphysics_source, &
-       calculate_diagnostic_microphysics, calculate_lambda_two, calculate_lambda_one, limit_microphysics
+       calculate_diagnostic_microphysics, calculate_lambda_two, calculate_lambda_one, limit_microphysics, &
+       saturation_adjustment_bc
   public :: nu, am, cm, btv, ctv, cal_gamma 
 
 contains
@@ -2645,6 +2646,244 @@ contains
     end subroutine clean_up
 
 end subroutine saturation_adjustment
+
+subroutine saturation_adjustment_bc(states)
+   type(state_type), intent(inout), target :: states(:)
+   
+   integer nphases,nfields,p,f,b,thermal_variable,i_therm,max_iter,i,node
+   type(state_type), pointer :: state
+   type(scalar_field), pointer :: q_v,thermal,q_c,n_c,ccn_local,q_r,q_i,q_g,q_s,pressure
+   character(len=FIELD_NAME_LEN):: bc_type,bc_name,mic_name,mesh_name
+   character(len=OPTION_PATH_LEN):: bc_option_path,mom_path,sat_path,eos_path
+   integer, dimension(:), pointer:: surface_node_list
+   logical :: found_bc,have_qv,have_ql,have_qi,constant_cp_cv
+   type(mesh_type), pointer :: mesh, surface_mesh
+   real :: tol,c_p,c_v,c_p_v,c_v_v,c_p_l,c_v_l,c_p_i,c_v_i
+   real :: tem,therm,pp,saturation,qc_node,qv_node,cp_node,cv_node,ccn_node,qr_node,qi_node,qs_node,qg_node
+   real :: dq_c,d_therm,nc_new,qc_new,qv_new,dtem,exn,thermal_new
+   type(scalar_field), target :: dummyscalar,dummyscalar_qc,dummyscalar_nc
+   type(scalar_field) :: pressure_local,temperature,eosdensity,qc_p,qc_v,epsilon
+   
+   ewrite(1,*) "In saturation_adjustment_bc"
+   nphases = size(states)
+   do p = 0, nphases-1
+     state=>states(p+1)
+     eos_path = trim(state%option_path)//'/equation_of_state'
+     if(.not. have_option(trim(eos_path)//'/compressible/giraldo')) return
+     ! Scalar fields:
+     nfields = scalar_field_count(state)
+     do f = 1, nfields
+       q_v => extract_scalar_field(state,f)
+       if(q_v%name=="VapourWaterQ" .or. q_v%name=="TotalWaterQ")then
+         do b=1,get_boundary_condition_count(q_v)
+           call get_boundary_condition(q_v, b, name=bc_name, &
+                 type=bc_type, option_path=bc_option_path, &
+                 surface_node_list=surface_node_list,surface_mesh=surface_mesh)
+           if (bc_type/="dirichlet") cycle
+           call get_thermo_variable(state, thermal, index=thermal_variable)
+           found_bc=.false.
+           do i_therm=1,size(thermal%bc%boundary_condition)
+             if(thermal%bc%boundary_condition(i_therm)%name==bc_name)then
+               found_bc=.true.
+               exit
+             end if
+           end do
+           if(.not. found_bc)cycle
+           
+           !If at this point, we've found a common dirichlet BC for moisture and thermal variable
+           ewrite(1,*) "saturation_adjustment_bc: found common BC called ", bc_name
+           have_qv=.true.; have_ql=.false.; have_qi=.false.
+           sat_path = '/material_phase[0]/cloud_microphysics/saturation_adjustment'
+           call get_option(trim(sat_path)//"/tolerance",tol,default=1.e-6)
+           call get_option(trim(sat_path)//"/max_iterations",max_iter,default=20)
+           constant_cp_cv=have_option('/material_phase[0]/equation_of_state/compressible/giraldo/constant_cp_cv')
+           call get_cp_cv(c_p,c_v,c_p_v=c_p_v,c_v_v=c_v_v,c_p_l=c_p_l,c_v_l=c_v_l,c_p_i=c_p_i,c_v_i=c_v_i)
+           
+           !Extract reference mesh (the one used for microphysics variables)
+           mom_path = '/material_phase[0]/cloud_microphysics'
+           if (have_option(trim(mom_path)//'/fortran_microphysics')) then
+             if (have_option(trim(mom_path)//'/fortran_microphysics/two_moment_microphysics')) then
+               call get_option(trim(mom_path)//'/fortran_microphysics/two_moment_microphysics/name',mic_name)
+	           mom_path=trim(mom_path)//'/fortran_microphysics/two_moment_microphysics::'//trim(mic_name)
+             else if (have_option(trim(mom_path)//'/fortran_microphysics/one_moment_microphysics')) then
+               call get_option(trim(mom_path)//'/fortran_microphysics/one_moment_microphysics/name',mic_name)
+	           mom_path=trim(mom_path)//'/fortran_microphysics/one_moment_microphysics::'//trim(mic_name)
+             endif
+           else if (have_option(trim(mom_path)//'/diagnostic')) then
+             mom_path=trim(mom_path)//'/diagnostic'
+           endif
+           if (have_option(trim(mom_path)//'/scalar_field::Qdrop/prognostic'))then
+           	call get_option(trim(mom_path)//'/scalar_field::Qdrop/prognostic/mesh/name',mesh_name)
+           else if (have_option(trim(mom_path)//'/scalar_field::Qdrop/diagnostic'))then
+           	call get_option(trim(mom_path)//'/scalar_field::Qdrop/diagnostic/mesh/name',mesh_name)
+           else if (have_option(trim(mom_path)//'/scalar_field::Qdrop/prescribed'))then
+           	call get_option(trim(mom_path)//'/scalar_field::Qdrop/prescribed/mesh/name',mesh_name)
+           endif 
+           mesh=>extract_mesh(state, trim(mesh_name))
+
+           !allocate local fields
+           call allocate (dummyscalar,mesh,"DummyScalar")
+           call zero(dummyscalar)
+           call allocate(eosdensity,mesh,"EOSDensity")
+           call allocate(temperature,mesh,"Temperature")
+           call allocate(pressure_local,mesh,"PressureLocal")
+           call allocate(qc_p,mesh,"LocalCp")
+           call allocate(qc_v,mesh,"LocalCv")
+           call allocate(epsilon,mesh,"Epsilon")
+           call allocate (dummyscalar_qc,mesh,"DummyScalar_qc")
+           call zero(dummyscalar_qc)
+           call allocate (dummyscalar_nc,mesh,"DummyScalar_nc")
+           call zero(dummyscalar_nc)
+           !Grab other microphysics fields and check mesh consistency
+           if (has_scalar_field(state,"Qdrop")) then
+             !q_c=>extract_scalar_field(state,"Qdrop")
+             q_c=>dummyscalar_qc
+             have_ql=.true.
+           else
+             q_c=>dummyscalar
+           end if
+           if (has_scalar_field(state,"Ndrop")) then
+             !n_c=>extract_scalar_field(state,"Ndrop")
+             n_c=>dummyscalar_nc
+           else
+             n_c=>dummyscalar
+           end if
+           if (has_scalar_field(state,"CCN")) then
+             ccn_local=>extract_scalar_field(state,"CCN")
+           else
+             ccn_local=>dummyscalar
+           end if
+           if (has_scalar_field(state,"Qrain")) then
+             q_r=>extract_scalar_field(state,"Qrain")
+           else
+             q_r=>dummyscalar
+           end if
+           if (has_scalar_field(state,"Qice")) then
+             q_i=>extract_scalar_field(state,"Qice")
+             have_qi=.true.
+           else
+             q_i=>dummyscalar
+           end if
+           if (has_scalar_field(state,"Qgrau")) then
+             q_g=>extract_scalar_field(state,"Qgrau")
+           else
+             q_g=>dummyscalar
+           end if
+           if (has_scalar_field(state,"Qsnow")) then
+             q_s=>extract_scalar_field(state,"Qsnow")
+           else
+             q_s=>dummyscalar
+           end if
+           assert(q_v%mesh==mesh)
+           if (has_scalar_field(state,"Qdrop")) then
+             assert(q_c%mesh==mesh)
+           end if
+           if (has_scalar_field(state,"Qrain")) then
+              assert(q_r%mesh==mesh)
+           end if
+           if (has_scalar_field(state,"Qice")) then
+             assert(q_i%mesh==mesh)
+           end if
+           if (has_scalar_field(state,"Qgrau")) then
+             assert(q_g%mesh==mesh)
+           end if
+           if (has_scalar_field(state,"Qsnow")) then
+             assert(q_s%mesh==mesh)
+           end if
+           
+           !Get pressure field and make a local copy projected onto the reference mesh
+           pressure=>extract_scalar_field(state,"Pressure")
+           call safe_set(state,pressure_local,pressure)
+           !Get the density and temperature on the reference mesh (using EOS to calculate density)
+           call compressible_eos(state,density=eosdensity,temperature=temperature)
+           i=0
+           call set(epsilon,1.)
+           do while (max(abs(maxval(epsilon%val)),abs(minval(epsilon%val))) > tol .and. i < max_iter)
+             i=i+1
+             call make_giraldo_quantities_1mat(state,have_qv,have_ql,have_qi,q_v,q_c,q_r,q_i,q_g,q_s,qc_p,qc_v)
+             
+             do node=1,size(surface_node_list)
+               tem=node_val(temperature,surface_node_list(node))
+               therm=node_val(thermal,surface_node_list(node))
+               pp=node_val(pressure_local,surface_node_list(node))
+               saturation=cal_qsat(tem,pp)
+               qc_node=node_val(q_c,surface_node_list(node))
+               qv_node=node_val(q_v,surface_node_list(node))
+               cp_node=node_val(qc_p,surface_node_list(node))
+               cv_node=node_val(qc_v,surface_node_list(node))
+               ccn_node=node_val(ccn_local,surface_node_list(node))
+               qr_node=node_val(q_r,surface_node_list(node))
+               qi_node=node_val(q_i,surface_node_list(node))
+               qs_node=node_val(q_s,surface_node_list(node))
+               qg_node=node_val(q_g,surface_node_list(node))
+	           if (has_scalar_field(state,"TotalWaterQ")) qv_node=qv_node-qc_node-qr_node-qi_node-qg_node-qs_node
+	           dq_c=0.
+               d_therm=0.       
+               nc_new=node_val(n_c,surface_node_list(node))
+               
+               if ( qv_node > saturation .or. qc_node > xmin ) then
+  	             dq_c=(qv_node-saturation) / (1. + cal_flv(tem)**2.*saturation/(cp_node*   &
+                   (cp_node-cv_node) * tem**2.))
+                 qc_new=min(max(qc_node+dq_c,0.),qv_node)
+                 dq_c=qc_new-qc_node
+                 qv_new=min(max(qv_node-dq_c,0.),qv_node+qc_node)
+                 dtem=cal_flv(tem)/cp_node
+                 if (thermal_variable == 1) then
+                   if (.not.constant_cp_cv) then
+                     d_therm = cv_node*dtem - tem*(c_p_v-c_p_l)
+                   else
+                     d_therm = cv_node*dtem
+                   endif
+                 else if (thermal_variable == 2) then
+                   d_therm = dtem
+                 else if (thermal_variable == 3) then
+                   exn = (pp/1.E+05)**((cp_node-cv_node)/cp_node)
+                   d_therm = dtem * therm/tem
+                   if (.not.constant_cp_cv) then
+                     d_therm = d_therm + therm*log(exn)*((c_p_v-c_v_v)/(cp_node-cv_node) &
+	                  - (c_p_v-c_p_l)/cp_node)
+                   endif
+                 endif
+                 thermal_new=therm+d_therm*dq_c
+                 tem=tem+dtem*dq_c
+                 if(qc_new > xmin .and. qc_node < xmin)then
+                   nc_new = ccn_node
+                 else if(qc_new < xmin .and. qc_node > xmin)then
+                   nc_new = 0.              
+                 endif
+                 
+                 call set(thermal,surface_node_list(node),thermal_new)
+                 call set(temperature,surface_node_list(node),tem)
+                 call set(q_c,surface_node_list(node),qc_new)
+                 call set(n_c,surface_node_list(node),nc_new)
+                 if(.not.has_scalar_field(state,"TotalWaterQ")) call set(q_v,surface_node_list(node),qv_new)
+                 
+               endif
+               call set (epsilon,surface_node_list(node),d_therm*dq_c)
+               
+             enddo
+
+           enddo
+           
+           !Deallocate local fields
+           call deallocate(dummyscalar)
+           call deallocate(eosdensity)
+           call deallocate(temperature)
+           call deallocate(pressure_local)
+           call deallocate(qc_p)
+           call deallocate(qc_v)
+           call deallocate(epsilon)
+           call deallocate(dummyscalar_qc)
+           call deallocate(dummyscalar_nc)
+                       
+         enddo
+       else
+         cycle
+       endif
+     end do
+   enddo
+   return
+end subroutine saturation_adjustment_bc
 
 subroutine limit_microphysics(state)
 

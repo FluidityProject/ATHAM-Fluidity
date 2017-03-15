@@ -940,6 +940,10 @@ contains
        ! (should only do something for weak bcs with that options switched on)
        call set_dirichlet_consistent(state)
 
+       !If using microphysics, we need to perform a saturation adjustment on the boundary conditions.
+       !This will only affect thermal and moisture values.
+       if(have_cloud_microphysics) call saturation_adjustment_bc(state)
+
        if(have_option("/timestepping/steady_state")) then
 
           call test_and_write_steady_state(state, change)
