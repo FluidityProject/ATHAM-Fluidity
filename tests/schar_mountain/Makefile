@@ -2,7 +2,7 @@ PROJECT = schar_mountain
 
 input: clean
 	gmsh -2 -o vbox.msh src/vbox.geo
-        cp -f stored_output/stored_$(PROJECT).stat .
+	cp -f stored_output/stored_$(PROJECT).stat .
 
 clean:
 	rm -f $(PROJECT).stat
