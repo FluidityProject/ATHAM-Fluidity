@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <fluidity_options>
   <simulation_name>
-    <string_value lines="1">cold_bubble_DG</string_value>
+    <string_value lines="1">density_current</string_value>
   </simulation_name>
   <problem_type>
     <string_value lines="1">fluids</string_value>
@@ -84,7 +84,7 @@
     </nonlinear_iterations>
     <adaptive_timestep>
       <requested_cfl>
-        <real_value rank="0">0.5</real_value>
+        <real_value rank="0">0.75</real_value>
       </requested_cfl>
       <courant_number name="CFLNumber">
         <mesh name="VelocityMesh"/>
@@ -334,7 +334,7 @@
             <value name="WholeMesh">
               <isotropic>
                 <constant>
-                  <real_value rank="0">90</real_value>
+                  <real_value rank="0">75</real_value>
                 </constant>
               </isotropic>
             </value>
