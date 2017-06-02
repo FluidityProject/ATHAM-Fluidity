@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <fluidity_options>
   <simulation_name>
-    <string_value lines="1">warm_bubble_DG</string_value>
+    <string_value lines="1">warm_bubble</string_value>
   </simulation_name>
   <problem_type>
     <string_value lines="1">fluids</string_value>
@@ -73,7 +73,7 @@
       <real_value rank="0">5.0</real_value>
     </timestep>
     <finish_time>
-      <real_value rank="0">800.0</real_value>
+      <real_value rank="0">720.0</real_value>
     </finish_time>
     <nonlinear_iterations>
       <integer_value rank="0">3</integer_value>
@@ -350,6 +350,18 @@
             </align_bc_with_cartesian>
           </type>
         </boundary_conditions>
+        <tensor_field name="Viscosity" rank="2">
+          <prescribed>
+            <value name="WholeMesh">
+              <isotropic>
+                <constant>
+                  <real_value rank="0">0.1</real_value>
+                </constant>
+              </isotropic>
+            </value>
+            <output/>
+          </prescribed>
+        </tensor_field>
         <output/>
         <stat>
           <include_in_stat/>
@@ -591,6 +603,18 @@
   return theta</string_value>
           </python>
         </initial_condition>
+        <tensor_field name="Diffusivity" rank="2">
+          <prescribed>
+            <value name="WholeMesh">
+              <isotropic>
+                <constant>
+                  <real_value rank="0">0.1</real_value>
+                </constant>
+              </isotropic>
+            </value>
+            <output/>
+          </prescribed>
+        </tensor_field>
         <output/>
         <stat/>
         <convergence>
@@ -606,6 +630,39 @@
           <discontinuous/>
         </galerkin_projection>
       </prognostic>
+    </scalar_field>
+    <scalar_field name="HydrostaticReferencePotentialTemperature" rank="0">
+      <prescribed>
+        <mesh name="VelocityMesh"/>
+        <value name="WholeMesh">
+          <constant>
+            <real_value rank="0">303.15</real_value>
+          </constant>
+        </value>
+        <output/>
+        <stat/>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+        <consistent_interpolation/>
+      </prescribed>
+    </scalar_field>
+    <scalar_field name="PotentialTemperaturePert" rank="0">
+      <diagnostic>
+        <algorithm source_field_2_type="scalar" name="scalar_difference" source_field_1_name="PotentialTemperature" source_field_2_name="HydrostaticReferencePotentialTemperature" material_phase_support="single" source_field_1_type="scalar"/>
+        <mesh name="VelocityMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
     </scalar_field>
   </material_phase>
 </fluidity_options>

@@ -1,11 +1,11 @@
 <?xml version='1.0' encoding='utf-8'?>
 <testproblem>
-  <name>warm_bubble_DG</name>
+  <name>warm_bubble</name>
   <owner userid="jjo31"/>
   <tags>atham</tags>
-  <problem_definition length="long" nprocs="10">
-    <command_line>mpiexec ../../bin/flredecomp -i 1 -o 10 warm_bubble_DG warm_bubble_DG_parallel ;
-mpiexec ../../bin/fluidity -v3 -l warm_bubble_DG_parallel.flml </command_line>
+  <problem_definition length="long" nprocs="24">
+    <command_line>mpiexec ../../bin/flredecomp -i 1 -o 24 warm_bubble warm_bubble_parallel ;
+mpiexec ../../bin/fluidity -v3 -l warm_bubble_parallel.flml </command_line>
   </problem_definition>
   <variables>
 <!--    <variable name="solvers_converged" language="python">
@@ -15,19 +15,19 @@ solvers_converged = not "matrixdump" in files and not "matrixdump.info" in files
     </variable> -->
     <variable name="MaximumVelocity" language="python">
 import fluidity_tools
-MaximumVelocity = fluidity_tools.stat_parser("warm_bubble_DG.stat")['Gas']['Velocity%magnitude']['max'][-1]
+MaximumVelocity = fluidity_tools.stat_parser("warm_bubble.stat")['Gas']['Velocity%magnitude']['max'][-1]
     </variable>    
     <variable name="MaximumVelocityStored" language="python">
 import fluidity_tools
-MaximumVelocityStored = fluidity_tools.stat_parser("stored_warm_bubble_DG.stat")['Gas']['Velocity%magnitude']['max'][-1]
+MaximumVelocityStored = fluidity_tools.stat_parser("stored_warm_bubble.stat")['Gas']['Velocity%magnitude']['max'][-1]
     </variable>
     <variable name="MaximumPotTemp" language="python">
 import fluidity_tools
-MaximumPotTemp = fluidity_tools.stat_parser("warm_bubble_DG.stat")['Gas']['PotentialTemperature']['max'][-1]
+MaximumPotTemp = fluidity_tools.stat_parser("warm_bubble.stat")['Gas']['PotentialTemperature']['max'][-1]
     </variable>    
     <variable name="MaximumPotTempStored" language="python">
 import fluidity_tools
-MaximumPotTempStored = fluidity_tools.stat_parser("stored_warm_bubble_DG.stat")['Gas']['PotentialTemperature']['max'][-1]
+MaximumPotTempStored = fluidity_tools.stat_parser("stored_warm_bubble.stat")['Gas']['PotentialTemperature']['max'][-1]
     </variable>
   </variables>
   <pass_tests>

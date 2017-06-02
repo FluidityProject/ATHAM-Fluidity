@@ -1,4 +1,4 @@
-PROJECT = warm_bubble_DG
+PROJECT = warm_bubble
 
 input: clean
 	gmsh -2 -o vbox.msh src/vbox.geo
@@ -9,7 +9,7 @@ clean:
 	rm -rf $(PROJECT)_?
 	rm -rf $(PROJECT)_??
 	rm -f stored_$(PROJECT).stat
-	rm -f *pvtu
+	rm -f *vtu
 	rm -f fluidity*
 	rm -f *.msh *.halo
 	rm -f *_parallel.flml
