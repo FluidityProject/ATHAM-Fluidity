@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>inertial_gravity_waves</name>
+  <owner userid="jjo31"/>
+  <tags>atham</tags>
+  <problem_definition length="long" nprocs="24">
+    <command_line>mpiexec ../../bin/flredecomp -i 1 -o 24 inertial_gravity_waves inertial_gravity_waves_parallel ;
+mpiexec ../../bin/fluidity -v3 -l inertial_gravity_waves_parallel.flml </command_line>
+  </problem_definition>
+  <variables>
+    <variable name="solvers_converged" language="python">
+import os
+files = os.listdir("./")
+solvers_converged = not "matrixdump" in files and not "matrixdump.info" in files
+    </variable>
+    <variable name="MaximumVelocity" language="python">
+import fluidity_tools
+MaximumVelocity = fluidity_tools.stat_parser("inertial_gravity_waves.stat")['Gas']['Velocity%magnitude']['max'][-1]
+    </variable>    
+    <variable name="MaximumVelocityStored" language="python">
+import fluidity_tools
+MaximumVelocityStored = fluidity_tools.stat_parser("stored_inertial_gravity_waves.stat")['Gas']['Velocity%magnitude']['max'][-1]
+    </variable>
+    <variable name="MaximumPotTemp" language="python">
+import fluidity_tools
+MaximumPotTemp = fluidity_tools.stat_parser("inertial_gravity_waves.stat")['Gas']['PotentialTemperature']['max'][-1]
+    </variable>    
+    <variable name="MaximumPotTempStored" language="python">
+import fluidity_tools
+MaximumPotTempStored = fluidity_tools.stat_parser("stored_inertial_gravity_waves.stat")['Gas']['PotentialTemperature']['max'][-1]
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Solvers converged" language="python">
+      assert(solvers_converged)
+    </test>
+    <test name="Max velocity within 0.1%" language="python">
+Err = (abs(MaximumVelocity-MaximumVelocityStored) / MaximumVelocityStored) *100
+print Err
+assert (Err &lt; 0.1)
+    </test>
+    <test name="Max pot. temp. within 0.1%" language="python">
+Err = (abs(MaximumPotTemp-MaximumPotTempStored) / MaximumPotTempStored) *100
+print Err
+assert (Err &lt; 0.1)
+    </test>
+  </pass_tests>
+</testproblem>
