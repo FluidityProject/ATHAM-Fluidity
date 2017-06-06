@@ -1,0 +1,1934 @@
+<?xml version='1.0' encoding='utf-8'?>
+<fluidity_options>
+  <simulation_name>
+    <string_value lines="1">precip_extreme</string_value>
+  </simulation_name>
+  <problem_type>
+    <string_value lines="1">fluids</string_value>
+  </problem_type>
+  <geometry>
+    <dimension>
+      <integer_value rank="0">3</integer_value>
+    </dimension>
+    <mesh name="CoordinateMesh">
+      <from_file file_name="structured_thin">
+        <format name="gmsh"/>
+        <stat>
+          <include_in_stat/>
+        </stat>
+      </from_file>
+    </mesh>
+    <mesh name="VelocityMesh">
+      <from_mesh>
+        <mesh name="CoordinateMesh"/>
+        <mesh_shape>
+          <polynomial_degree>
+            <integer_value rank="0">1</integer_value>
+          </polynomial_degree>
+        </mesh_shape>
+        <mesh_continuity>
+          <string_value>discontinuous</string_value>
+        </mesh_continuity>
+        <stat>
+          <exclude_from_stat/>
+        </stat>
+      </from_mesh>
+    </mesh>
+    <mesh name="PressureMesh">
+      <from_mesh>
+        <mesh name="CoordinateMesh"/>
+        <mesh_shape>
+          <polynomial_degree>
+            <integer_value rank="0">2</integer_value>
+          </polynomial_degree>
+        </mesh_shape>
+        <mesh_continuity>
+          <string_value>continuous</string_value>
+        </mesh_continuity>
+        <stat>
+          <exclude_from_stat/>
+        </stat>
+      </from_mesh>
+    </mesh>
+    <mesh name="TemperatureMesh">
+      <from_mesh>
+        <mesh name="CoordinateMesh"/>
+        <mesh_shape>
+          <polynomial_degree>
+            <integer_value rank="0">1</integer_value>
+          </polynomial_degree>
+        </mesh_shape>
+        <mesh_continuity>
+          <string_value>discontinuous</string_value>
+        </mesh_continuity>
+        <stat>
+          <exclude_from_stat/>
+        </stat>
+      </from_mesh>
+    </mesh>
+    <quadrature>
+      <degree>
+        <integer_value rank="0">4</integer_value>
+      </degree>
+    </quadrature>
+  </geometry>
+  <io>
+    <dump_format>
+      <string_value>vtk</string_value>
+    </dump_format>
+    <dump_period>
+      <constant>
+        <real_value rank="0">30</real_value>
+      </constant>
+    </dump_period>
+    <output_mesh name="PressureMesh"/>
+    <checkpointing>
+      <checkpoint_period_in_dumps>
+        <integer_value rank="0">50</integer_value>
+      </checkpoint_period_in_dumps>
+      <checkpoint_at_end/>
+    </checkpointing>
+    <stat/>
+  </io>
+  <timestepping>
+    <current_time>
+      <real_value rank="0">0.0</real_value>
+    </current_time>
+    <timestep>
+      <real_value rank="0">10</real_value>
+    </timestep>
+    <finish_time>
+      <real_value rank="0">10800</real_value>
+    </finish_time>
+    <nonlinear_iterations>
+      <integer_value rank="0">2</integer_value>
+      <tolerance>
+        <real_value rank="0">1.e-12</real_value>
+        <infinity_norm/>
+      </tolerance>
+    </nonlinear_iterations>
+    <adaptive_timestep>
+      <requested_cfl>
+        <real_value rank="0">0.5</real_value>
+      </requested_cfl>
+      <courant_number name="CFLNumber">
+        <mesh name="VelocityMesh"/>
+      </courant_number>
+      <at_first_timestep/>
+    </adaptive_timestep>
+  </timestepping>
+  <physical_parameters>
+    <gravity>
+      <magnitude>
+        <real_value rank="0">9.81</real_value>
+      </magnitude>
+      <vector_field name="GravityDirection" rank="1">
+        <prescribed>
+          <mesh name="CoordinateMesh"/>
+          <value name="WholeMesh">
+            <constant>
+              <real_value shape="3" dim1="dim" rank="1">0.0 0.0 -1.0</real_value>
+            </constant>
+          </value>
+          <output/>
+          <stat>
+            <include_in_stat/>
+          </stat>
+          <detectors>
+            <exclude_from_detectors/>
+          </detectors>
+        </prescribed>
+      </vector_field>
+    </gravity>
+  </physical_parameters>
+  <material_phase name="gas">
+    <equation_of_state>
+      <compressible>
+        <giraldo>
+          <reference_pressure>
+            <real_value rank="0">100000</real_value>
+          </reference_pressure>
+          <C_P>
+            <real_value rank="0">1004.64</real_value>
+          </C_P>
+          <C_V>
+            <real_value rank="0">717.6</real_value>
+          </C_V>
+          <constant_cp_cv/>
+        </giraldo>
+        <subtract_out_reference_profile/>
+      </compressible>
+    </equation_of_state>
+    <scalar_field name="Pressure" rank="0">
+      <prognostic>
+        <mesh name="PressureMesh"/>
+        <spatial_discretisation>
+          <continuous_galerkin>
+            <remove_stabilisation_term/>
+          </continuous_galerkin>
+        </spatial_discretisation>
+        <scheme>
+          <poisson_pressure_solution>
+            <string_value lines="1">never</string_value>
+          </poisson_pressure_solution>
+          <use_projection_method/>
+        </scheme>
+        <solver>
+          <iterative_method name="gmres">
+            <restart>
+              <integer_value rank="0">30</integer_value>
+            </restart>
+          </iterative_method>
+          <preconditioner name="sor"/>
+          <relative_error>
+            <real_value rank="0">1.e-7</real_value>
+          </relative_error>
+          <max_iterations>
+            <integer_value rank="0">1000</integer_value>
+          </max_iterations>
+          <ignore_all_solver_failures/>
+          <diagnostics>
+            <monitors/>
+          </diagnostics>
+        </solver>
+        <initial_condition name="WholeMesh">
+          <python>
+            <string_value lines="20" type="code" language="python">def val(X, t):
+  p=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    p=98143.45+(X[2]-0.00)*(97827.27-98143.45)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    p=97827.27+(X[2]-27.10)*(96718.86-97827.27)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    p=96718.86+(X[2]-122.60)*(94758.10-96718.86)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    p=94758.10+(X[2]-293.30)*(92141.83-94758.10)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    p=92141.83+(X[2]-525.20)*(89028.67-92141.83)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    p=89028.67+(X[2]-808.10)*(85541.41-89028.67)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    p=85541.41+(X[2]-1134.30)*(81778.04-85541.41)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    p=81778.04+(X[2]-1498.10)*(77821.68-81778.04)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    p=77821.68+(X[2]-1895.40)*(73736.62-77821.68)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    p=73736.62+(X[2]-2323.40)*(69571.26-73736.62)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    p=69571.26+(X[2]-2780.40)*(65362.31-69571.26)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    p=65362.31+(X[2]-3265.80)*(61136.43-65362.31)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    p=61136.43+(X[2]-3779.60)*(56910.43-61136.43)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    p=56910.43+(X[2]-4322.70)*(52696.59-56910.43)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    p=52696.59+(X[2]-4896.60)*(48509.81-52696.59)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    p=48509.81+(X[2]-5503.20)*(44362.42-48509.81)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    p=44362.42+(X[2]-6144.90)*(40264.41-44362.42)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    p=40264.41+(X[2]-6824.20)*(36230.35-40264.41)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    p=36230.35+(X[2]-7544.10)*(32283.23-36230.35)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    p=32283.23+(X[2]-8307.40)*(28453.76-32283.23)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    p=28453.76+(X[2]-9117.20)*(24822.32-28453.76)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    p=24822.32+(X[2]-9976.80)*(21490.66-24822.32)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    p=21490.66+(X[2]-10890.20)*(18495.37-21490.66)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    p=18495.37+(X[2]-11863.00)*(15394.07-18495.37)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    p=15394.07+(X[2]-13072.00)*(11793.87-15394.07)/(14828.30-13072.00)
+  return p</string_value>
+          </python>
+        </initial_condition>
+        <boundary_conditions name="inlet_top_outlet">
+          <surface_ids>
+            <integer_value shape="3" rank="1">3 2 4</integer_value>
+          </surface_ids>
+          <type name="dirichlet">
+            <python>
+              <string_value lines="20" type="code" language="python">def val(X, t):
+  p=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    p=98143.45+(X[2]-0.00)*(97827.27-98143.45)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    p=97827.27+(X[2]-27.10)*(96718.86-97827.27)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    p=96718.86+(X[2]-122.60)*(94758.10-96718.86)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    p=94758.10+(X[2]-293.30)*(92141.83-94758.10)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    p=92141.83+(X[2]-525.20)*(89028.67-92141.83)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    p=89028.67+(X[2]-808.10)*(85541.41-89028.67)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    p=85541.41+(X[2]-1134.30)*(81778.04-85541.41)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    p=81778.04+(X[2]-1498.10)*(77821.68-81778.04)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    p=77821.68+(X[2]-1895.40)*(73736.62-77821.68)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    p=73736.62+(X[2]-2323.40)*(69571.26-73736.62)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    p=69571.26+(X[2]-2780.40)*(65362.31-69571.26)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    p=65362.31+(X[2]-3265.80)*(61136.43-65362.31)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    p=61136.43+(X[2]-3779.60)*(56910.43-61136.43)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    p=56910.43+(X[2]-4322.70)*(52696.59-56910.43)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    p=52696.59+(X[2]-4896.60)*(48509.81-52696.59)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    p=48509.81+(X[2]-5503.20)*(44362.42-48509.81)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    p=44362.42+(X[2]-6144.90)*(40264.41-44362.42)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    p=40264.41+(X[2]-6824.20)*(36230.35-40264.41)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    p=36230.35+(X[2]-7544.10)*(32283.23-36230.35)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    p=32283.23+(X[2]-8307.40)*(28453.76-32283.23)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    p=28453.76+(X[2]-9117.20)*(24822.32-28453.76)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    p=24822.32+(X[2]-9976.80)*(21490.66-24822.32)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    p=21490.66+(X[2]-10890.20)*(18495.37-21490.66)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    p=18495.37+(X[2]-11863.00)*(15394.07-18495.37)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    p=15394.07+(X[2]-13072.00)*(11793.87-15394.07)/(14828.30-13072.00)
+  return p</string_value>
+            </python>
+          </type>
+        </boundary_conditions>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+        <consistent_interpolation/>
+      </prognostic>
+    </scalar_field>
+    <scalar_field name="Density" rank="0">
+      <prognostic>
+        <mesh name="PressureMesh"/>
+        <spatial_discretisation>
+          <continuous_galerkin>
+            <stabilisation>
+              <no_stabilisation/>
+            </stabilisation>
+            <advection_terms/>
+            <mass_terms/>
+          </continuous_galerkin>
+          <conservative_advection>
+            <real_value rank="0">0.0</real_value>
+          </conservative_advection>
+        </spatial_discretisation>
+        <temporal_discretisation>
+          <theta>
+            <real_value rank="0">0.75</real_value>
+          </theta>
+        </temporal_discretisation>
+        <solver>
+          <iterative_method name="gmres">
+            <restart>
+              <integer_value rank="0">30</integer_value>
+            </restart>
+          </iterative_method>
+          <preconditioner name="eisenstat"/>
+          <relative_error>
+            <real_value rank="0">1.0e-7</real_value>
+          </relative_error>
+          <max_iterations>
+            <integer_value rank="0">1000</integer_value>
+          </max_iterations>
+          <never_ignore_solver_failures/>
+          <diagnostics>
+            <monitors/>
+          </diagnostics>
+        </solver>
+        <initial_condition name="WholeMesh">
+          <from_equation_of_state/>
+        </initial_condition>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+        <consistent_interpolation/>
+      </prognostic>
+    </scalar_field>
+    <vector_field name="Velocity" rank="1">
+      <prognostic>
+        <mesh name="VelocityMesh"/>
+        <equation name="LinearMomentum"/>
+        <spatial_discretisation>
+          <discontinuous_galerkin>
+            <viscosity_scheme>
+              <bassi_rebay/>
+              <partial_stress_form/>
+            </viscosity_scheme>
+            <advection_scheme>
+              <upwind/>
+              <project_velocity_to_continuous>
+                <mesh name="CoordinateMesh"/>
+              </project_velocity_to_continuous>
+              <integrate_advection_by_parts>
+                <twice/>
+              </integrate_advection_by_parts>
+            </advection_scheme>
+            <buoyancy/>
+          </discontinuous_galerkin>
+          <conservative_advection>
+            <real_value rank="0">0.0</real_value>
+          </conservative_advection>
+        </spatial_discretisation>
+        <temporal_discretisation>
+          <theta>
+            <real_value rank="0">0.75</real_value>
+          </theta>
+          <relaxation>
+            <real_value rank="0">0.0</real_value>
+          </relaxation>
+          <discontinuous_galerkin>
+            <maximum_courant_number_per_subcycle>
+              <real_value rank="0">0.25</real_value>
+            </maximum_courant_number_per_subcycle>
+          </discontinuous_galerkin>
+        </temporal_discretisation>
+        <solver>
+          <iterative_method name="gmres">
+            <restart>
+              <integer_value rank="0">30</integer_value>
+            </restart>
+          </iterative_method>
+          <preconditioner name="eisenstat"/>
+          <relative_error>
+            <real_value rank="0">1.e-7</real_value>
+          </relative_error>
+          <max_iterations>
+            <integer_value rank="0">1000</integer_value>
+          </max_iterations>
+          <never_ignore_solver_failures/>
+          <diagnostics>
+            <monitors/>
+          </diagnostics>
+        </solver>
+        <initial_condition name="WholeMesh">
+          <python>
+            <string_value lines="20" type="code" language="python">def val(X, t):
+  Vel=[0.0,0.0,0.0]
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    Vel=[0.00+(X[2]-0.00)*(14.93-0.00)/(27.10-0.00),0.0,0.0]
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    Vel=[14.93+(X[2]-27.10)*(18.79-14.93)/(122.60-27.10),0.0,0.0]
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    Vel=[18.79+(X[2]-122.60)*(21.38-18.79)/(293.30-122.60),0.0,0.0]
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    Vel=[21.38+(X[2]-293.30)*(23.76-21.38)/(525.20-293.30),0.0,0.0]
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    Vel=[23.76+(X[2]-525.20)*(22.82-23.76)/(808.10-525.20),0.0,0.0]
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    Vel=[22.82+(X[2]-808.10)*(20.86-22.82)/(1134.30-808.10),0.0,0.0]
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    Vel=[20.86+(X[2]-1134.30)*(18.99-20.86)/(1498.10-1134.30),0.0,0.0]
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    Vel=[18.99+(X[2]-1498.10)*(16.86-18.99)/(1895.40-1498.10),0.0,0.0]
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    Vel=[16.86+(X[2]-1895.40)*(19.46-16.86)/(2323.40-1895.40),0.0,0.0]
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    Vel=[19.46+(X[2]-2323.40)*(18.15-19.46)/(2780.40-2323.40),0.0,0.0]
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    Vel=[18.15+(X[2]-2780.40)*(18.32-18.15)/(3265.80-2780.40),0.0,0.0]
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    Vel=[18.32+(X[2]-3265.80)*(17.09-18.32)/(3779.60-3265.80),0.0,0.0]
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    Vel=[17.09+(X[2]-3779.60)*(15.58-17.09)/(4322.70-3779.60),0.0,0.0]
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    Vel=[15.58+(X[2]-4322.70)*(14.11-15.58)/(4896.60-4322.70),0.0,0.0]
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    Vel=[14.11+(X[2]-4896.60)*(13.70-14.11)/(5503.20-4896.60),0.0,0.0]
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    Vel=[13.70+(X[2]-5503.20)*(12.21-13.70)/(6144.90-5503.20),0.0,0.0]
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    Vel=[12.21+(X[2]-6144.90)*(10.84-12.21)/(6824.20-6144.90),0.0,0.0]
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    Vel=[10.84+(X[2]-6824.20)*(8.32-10.84)/(7544.10-6824.20),0.0,0.0]
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    Vel=[8.32+(X[2]-7544.10)*(6.24-8.32)/(8307.40-7544.10),0.0,0.0]
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    Vel=[6.24+(X[2]-8307.40)*(5.48-6.24)/(9117.20-8307.40),0.0,0.0]
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    Vel=[5.48+(X[2]-9117.20)*(4.50-5.48)/(9976.80-9117.20),0.0,0.0]
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    Vel=[4.50+(X[2]-9976.80)*(4.80-4.50)/(10890.20-9976.80),0.0,0.0]
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    Vel=[4.80+(X[2]-10890.20)*(4.38-4.80)/(11863.00-10890.20),0.0,0.0]
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    Vel=[4.38+(X[2]-11863.00)*(4.26-4.38)/(13072.00-11863.00),0.0,0.0]
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    Vel=[4.26+(X[2]-13072.00)*(3.77-4.26)/(14828.30-13072.00),0.0,0.0]
+  return Vel</string_value>
+          </python>
+        </initial_condition>
+        <boundary_conditions name="inlet">
+          <surface_ids>
+            <integer_value shape="1" rank="1">3</integer_value>
+          </surface_ids>
+          <type name="dirichlet">
+            <align_bc_with_cartesian>
+              <x_component>
+                <synthetic_eddy_method>
+                  <number_of_eddies>
+                    <integer_value rank="0">1000</integer_value>
+                  </number_of_eddies>
+                  <turbulence_lengthscale>
+                    <python>
+                      <string_value lines="20" type="code" language="python">def val(X, t):
+  L=1.25*X[2]**0.77
+  return L</string_value>
+                    </python>
+                  </turbulence_lengthscale>
+                  <mean_profile>
+                    <python>
+                      <string_value lines="20" type="code" language="python">def val(X, t):
+  U=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    U=0.00+(X[2]-0.00)*(14.93-0.00)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    U=14.93+(X[2]-27.10)*(18.79-14.93)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    U=18.79+(X[2]-122.60)*(21.38-18.79)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    U=21.38+(X[2]-293.30)*(23.76-21.38)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    U=23.76+(X[2]-525.20)*(22.82-23.76)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    U=22.82+(X[2]-808.10)*(20.86-22.82)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    U=20.86+(X[2]-1134.30)*(18.99-20.86)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    U=18.99+(X[2]-1498.10)*(16.86-18.99)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    U=16.86+(X[2]-1895.40)*(19.46-16.86)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    U=19.46+(X[2]-2323.40)*(18.15-19.46)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    U=18.15+(X[2]-2780.40)*(18.32-18.15)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    U=18.32+(X[2]-3265.80)*(17.09-18.32)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    U=17.09+(X[2]-3779.60)*(15.58-17.09)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    U=15.58+(X[2]-4322.70)*(14.11-15.58)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    U=14.11+(X[2]-4896.60)*(13.70-14.11)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    U=13.70+(X[2]-5503.20)*(12.21-13.70)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    U=12.21+(X[2]-6144.90)*(10.84-12.21)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    U=10.84+(X[2]-6824.20)*(8.32-10.84)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    U=8.32+(X[2]-7544.10)*(6.24-8.32)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    U=6.24+(X[2]-8307.40)*(5.48-6.24)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    U=5.48+(X[2]-9117.20)*(4.50-5.48)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    U=4.50+(X[2]-9976.80)*(4.80-4.50)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    U=4.80+(X[2]-10890.20)*(4.38-4.80)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    U=4.38+(X[2]-11863.00)*(4.26-4.38)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    U=4.26+(X[2]-13072.00)*(3.77-4.26)/(14828.30-13072.00)
+  return U</string_value>
+                    </python>
+                  </mean_profile>
+                  <Re_stresses_profile>
+                    <python>
+                      <string_value lines="20" type="code" language="python">def val(X, t):
+  from math import exp
+  Re=0.00435*exp(-0.0006*X[2])*23.76**2
+  if(X[2]&gt;10000):
+    Re=0.0
+  return Re</string_value>
+                    </python>
+                  </Re_stresses_profile>
+                </synthetic_eddy_method>
+              </x_component>
+              <y_component>
+                <synthetic_eddy_method>
+                  <number_of_eddies>
+                    <integer_value rank="0">1000</integer_value>
+                  </number_of_eddies>
+                  <turbulence_lengthscale>
+                    <python>
+                      <string_value lines="20" type="code" language="python">def val(X, t):
+  L=1.25*X[2]**0.77
+  return L</string_value>
+                    </python>
+                  </turbulence_lengthscale>
+                  <mean_profile>
+                    <constant>
+                      <real_value rank="0">0.0</real_value>
+                    </constant>
+                  </mean_profile>
+                  <Re_stresses_profile>
+                    <python>
+                      <string_value lines="20" type="code" language="python">def val(X, t):
+  from math import exp
+  Re=0.00435*exp(-0.0006*X[2])*23.76**2
+  if(X[2]&gt;10000):
+    Re=0.0
+  return Re</string_value>
+                    </python>
+                  </Re_stresses_profile>
+                </synthetic_eddy_method>
+              </y_component>
+              <z_component>
+                <synthetic_eddy_method>
+                  <number_of_eddies>
+                    <integer_value rank="0">1000</integer_value>
+                  </number_of_eddies>
+                  <turbulence_lengthscale>
+                    <python>
+                      <string_value lines="20" type="code" language="python">def val(X, t):
+  L=1.25*X[2]**0.77
+  return L</string_value>
+                    </python>
+                  </turbulence_lengthscale>
+                  <mean_profile>
+                    <constant>
+                      <real_value rank="0">0.0</real_value>
+                    </constant>
+                  </mean_profile>
+                  <Re_stresses_profile>
+                    <python>
+                      <string_value lines="20" type="code" language="python">def val(X, t):
+  from math import exp
+  Re=0.00435*exp(-0.0006*X[2])*23.76**2
+  if(X[2]&gt;10000):
+    Re=0.0
+  return Re</string_value>
+                    </python>
+                  </Re_stresses_profile>
+                </synthetic_eddy_method>
+              </z_component>
+            </align_bc_with_cartesian>
+          </type>
+        </boundary_conditions>
+        <boundary_conditions name="top">
+          <surface_ids>
+            <integer_value shape="1" rank="1">2</integer_value>
+          </surface_ids>
+          <type name="dirichlet">
+            <align_bc_with_cartesian>
+              <z_component>
+                <constant>
+                  <real_value rank="0">0.0</real_value>
+                </constant>
+              </z_component>
+            </align_bc_with_cartesian>
+          </type>
+        </boundary_conditions>
+        <boundary_conditions name="surface">
+          <surface_ids>
+            <integer_value shape="1" rank="1">1</integer_value>
+          </surface_ids>
+          <type name="dirichlet">
+            <align_bc_with_cartesian>
+              <x_component>
+                <constant>
+                  <real_value rank="0">0.0</real_value>
+                </constant>
+              </x_component>
+              <y_component>
+                <constant>
+                  <real_value rank="0">0.0</real_value>
+                </constant>
+              </y_component>
+              <z_component>
+                <constant>
+                  <real_value rank="0">0.0</real_value>
+                </constant>
+              </z_component>
+            </align_bc_with_cartesian>
+          </type>
+        </boundary_conditions>
+        <boundary_conditions name="sides">
+          <surface_ids>
+            <integer_value shape="2" rank="1">5 6</integer_value>
+          </surface_ids>
+          <type name="dirichlet">
+            <align_bc_with_cartesian>
+              <y_component>
+                <constant>
+                  <real_value rank="0">0.0</real_value>
+                </constant>
+              </y_component>
+            </align_bc_with_cartesian>
+          </type>
+        </boundary_conditions>
+        <vector_field name="Absorption" rank="1">
+          <diagnostic>
+            <algorithm name="atmosphere_forcing_vector">
+              <python>
+                <string_value lines="20" type="code" language="python">def val(X, t):
+  Vel=[0.0,0.0,0.0]
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    Vel=[0.00+(X[2]-0.00)*(14.93-0.00)/(27.10-0.00),0.0,0.0]
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    Vel=[14.93+(X[2]-27.10)*(18.79-14.93)/(122.60-27.10),0.0,0.0]
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    Vel=[18.79+(X[2]-122.60)*(21.38-18.79)/(293.30-122.60),0.0,0.0]
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    Vel=[21.38+(X[2]-293.30)*(23.76-21.38)/(525.20-293.30),0.0,0.0]
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    Vel=[23.76+(X[2]-525.20)*(22.82-23.76)/(808.10-525.20),0.0,0.0]
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    Vel=[22.82+(X[2]-808.10)*(20.86-22.82)/(1134.30-808.10),0.0,0.0]
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    Vel=[20.86+(X[2]-1134.30)*(18.99-20.86)/(1498.10-1134.30),0.0,0.0]
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    Vel=[18.99+(X[2]-1498.10)*(16.86-18.99)/(1895.40-1498.10),0.0,0.0]
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    Vel=[16.86+(X[2]-1895.40)*(19.46-16.86)/(2323.40-1895.40),0.0,0.0]
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    Vel=[19.46+(X[2]-2323.40)*(18.15-19.46)/(2780.40-2323.40),0.0,0.0]
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    Vel=[18.15+(X[2]-2780.40)*(18.32-18.15)/(3265.80-2780.40),0.0,0.0]
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    Vel=[18.32+(X[2]-3265.80)*(17.09-18.32)/(3779.60-3265.80),0.0,0.0]
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    Vel=[17.09+(X[2]-3779.60)*(15.58-17.09)/(4322.70-3779.60),0.0,0.0]
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    Vel=[15.58+(X[2]-4322.70)*(14.11-15.58)/(4896.60-4322.70),0.0,0.0]
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    Vel=[14.11+(X[2]-4896.60)*(13.70-14.11)/(5503.20-4896.60),0.0,0.0]
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    Vel=[13.70+(X[2]-5503.20)*(12.21-13.70)/(6144.90-5503.20),0.0,0.0]
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    Vel=[12.21+(X[2]-6144.90)*(10.84-12.21)/(6824.20-6144.90),0.0,0.0]
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    Vel=[10.84+(X[2]-6824.20)*(8.32-10.84)/(7544.10-6824.20),0.0,0.0]
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    Vel=[8.32+(X[2]-7544.10)*(6.24-8.32)/(8307.40-7544.10),0.0,0.0]
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    Vel=[6.24+(X[2]-8307.40)*(5.48-6.24)/(9117.20-8307.40),0.0,0.0]
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    Vel=[5.48+(X[2]-9117.20)*(4.50-5.48)/(9976.80-9117.20),0.0,0.0]
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    Vel=[4.50+(X[2]-9976.80)*(4.80-4.50)/(10890.20-9976.80),0.0,0.0]
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    Vel=[4.80+(X[2]-10890.20)*(4.38-4.80)/(11863.00-10890.20),0.0,0.0]
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    Vel=[4.38+(X[2]-11863.00)*(4.26-4.38)/(13072.00-11863.00),0.0,0.0]
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    Vel=[4.26+(X[2]-13072.00)*(3.77-4.26)/(14828.30-13072.00),0.0,0.0]
+  return Vel</string_value>
+              </python>
+              <sponge_layer_velocity_absorption>
+                <coefficient>
+                  <real_value rank="0">1.0</real_value>
+                </coefficient>
+                <x_sponge_right>
+                  <real_value rank="0">45000</real_value>
+                </x_sponge_right>
+              </sponge_layer_velocity_absorption>
+            </algorithm>
+            <output/>
+            <stat>
+              <include_in_stat/>
+            </stat>
+            <convergence>
+              <include_in_convergence/>
+            </convergence>
+            <detectors>
+              <include_in_detectors/>
+            </detectors>
+            <steady_state>
+              <include_in_steady_state/>
+            </steady_state>
+          </diagnostic>
+          <default_absorption/>
+        </vector_field>
+        <output/>
+        <stat>
+          <include_in_stat/>
+          <previous_time_step>
+            <exclude_from_stat/>
+          </previous_time_step>
+          <nonlinear_field>
+            <exclude_from_stat/>
+          </nonlinear_field>
+        </stat>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+        <galerkin_projection>
+          <discontinuous/>
+        </galerkin_projection>
+      </prognostic>
+    </vector_field>
+    <scalar_field name="HydrostaticReferencePressure" rank="0">
+      <prescribed>
+        <mesh name="PressureMesh"/>
+        <value name="WholeMesh">
+          <python>
+            <string_value lines="20" type="code" language="python">def val(X, t):
+  p=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    p=98143.45+(X[2]-0.00)*(97827.27-98143.45)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    p=97827.27+(X[2]-27.10)*(96718.86-97827.27)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    p=96718.86+(X[2]-122.60)*(94758.10-96718.86)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    p=94758.10+(X[2]-293.30)*(92141.83-94758.10)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    p=92141.83+(X[2]-525.20)*(89028.67-92141.83)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    p=89028.67+(X[2]-808.10)*(85541.41-89028.67)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    p=85541.41+(X[2]-1134.30)*(81778.04-85541.41)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    p=81778.04+(X[2]-1498.10)*(77821.68-81778.04)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    p=77821.68+(X[2]-1895.40)*(73736.62-77821.68)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    p=73736.62+(X[2]-2323.40)*(69571.26-73736.62)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    p=69571.26+(X[2]-2780.40)*(65362.31-69571.26)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    p=65362.31+(X[2]-3265.80)*(61136.43-65362.31)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    p=61136.43+(X[2]-3779.60)*(56910.43-61136.43)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    p=56910.43+(X[2]-4322.70)*(52696.59-56910.43)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    p=52696.59+(X[2]-4896.60)*(48509.81-52696.59)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    p=48509.81+(X[2]-5503.20)*(44362.42-48509.81)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    p=44362.42+(X[2]-6144.90)*(40264.41-44362.42)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    p=40264.41+(X[2]-6824.20)*(36230.35-40264.41)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    p=36230.35+(X[2]-7544.10)*(32283.23-36230.35)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    p=32283.23+(X[2]-8307.40)*(28453.76-32283.23)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    p=28453.76+(X[2]-9117.20)*(24822.32-28453.76)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    p=24822.32+(X[2]-9976.80)*(21490.66-24822.32)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    p=21490.66+(X[2]-10890.20)*(18495.37-21490.66)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    p=18495.37+(X[2]-11863.00)*(15394.07-18495.37)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    p=15394.07+(X[2]-13072.00)*(11793.87-15394.07)/(14828.30-13072.00)
+  return p</string_value>
+          </python>
+        </value>
+        <output/>
+        <stat/>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+        <consistent_interpolation/>
+      </prescribed>
+    </scalar_field>
+    <scalar_field name="HydrostaticReferenceDensity" rank="0">
+      <prescribed>
+        <mesh name="PressureMesh"/>
+        <value name="WholeMesh">
+          <from_equation_of_state/>
+        </value>
+        <output/>
+        <stat/>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+        <consistent_interpolation/>
+      </prescribed>
+    </scalar_field>
+    <scalar_field name="DG_CourantNumber" rank="0">
+      <diagnostic>
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <mesh name="VelocityMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="PotentialTemperature" rank="0">
+      <prognostic>
+        <mesh name="TemperatureMesh"/>
+        <equation name="AdvectionDiffusion"/>
+        <spatial_discretisation>
+          <discontinuous_galerkin>
+            <advection_scheme>
+              <upwind/>
+              <project_velocity_to_continuous>
+                <mesh name="CoordinateMesh"/>
+              </project_velocity_to_continuous>
+              <integrate_advection_by_parts>
+                <twice/>
+              </integrate_advection_by_parts>
+            </advection_scheme>
+            <diffusion_scheme>
+              <compact_discontinuous_galerkin/>
+            </diffusion_scheme>
+            <slope_limiter name="Vertex_Based"/>
+          </discontinuous_galerkin>
+          <conservative_advection>
+            <real_value rank="0">0.0</real_value>
+          </conservative_advection>
+        </spatial_discretisation>
+        <temporal_discretisation>
+          <theta>
+            <real_value rank="0">0.75</real_value>
+          </theta>
+          <discontinuous_galerkin>
+            <maximum_courant_number_per_subcycle>
+              <real_value rank="0">0.25</real_value>
+            </maximum_courant_number_per_subcycle>
+          </discontinuous_galerkin>
+        </temporal_discretisation>
+        <solver>
+          <iterative_method name="gmres">
+            <restart>
+              <integer_value rank="0">30</integer_value>
+            </restart>
+          </iterative_method>
+          <preconditioner name="eisenstat"/>
+          <relative_error>
+            <real_value rank="0">1.e-7</real_value>
+          </relative_error>
+          <max_iterations>
+            <integer_value rank="0">1000</integer_value>
+          </max_iterations>
+          <never_ignore_solver_failures/>
+          <diagnostics>
+            <monitors/>
+          </diagnostics>
+        </solver>
+        <initial_condition name="WholeMesh">
+          <python>
+            <string_value lines="20" type="code" language="python">def val(X, t):
+  pt=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    pt=288.569+(X[2]-0.00)*(288.834-288.569)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    pt=288.834+(X[2]-27.10)*(288.571-288.834)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    pt=288.571+(X[2]-122.60)*(288.261-288.571)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    pt=288.261+(X[2]-293.30)*(288.979-288.261)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    pt=288.979+(X[2]-525.20)*(289.796-288.979)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    pt=289.796+(X[2]-808.10)*(290.379-289.796)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    pt=290.379+(X[2]-1134.30)*(291.304-290.379)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    pt=291.304+(X[2]-1498.10)*(292.920-291.304)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    pt=292.920+(X[2]-1895.40)*(294.514-292.920)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    pt=294.514+(X[2]-2323.40)*(296.530-294.514)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    pt=296.530+(X[2]-2780.40)*(298.584-296.530)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    pt=298.584+(X[2]-3265.80)*(300.544-298.584)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    pt=300.544+(X[2]-3779.60)*(302.197-300.544)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    pt=302.197+(X[2]-4322.70)*(303.581-302.197)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    pt=303.581+(X[2]-4896.60)*(305.168-303.581)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    pt=305.168+(X[2]-5503.20)*(306.181-305.168)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    pt=306.181+(X[2]-6144.90)*(306.667-306.181)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    pt=306.667+(X[2]-6824.20)*(307.143-306.667)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    pt=307.143+(X[2]-7544.10)*(307.630-307.143)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    pt=307.630+(X[2]-8307.40)*(309.214-307.630)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    pt=309.214+(X[2]-9117.20)*(320.164-309.214)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    pt=320.164+(X[2]-9976.80)*(340.227-320.164)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    pt=340.227+(X[2]-10890.20)*(364.528-340.227)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    pt=364.528+(X[2]-11863.00)*(386.741-364.528)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    pt=386.741+(X[2]-13072.00)*(417.569-386.741)/(14828.30-13072.00)
+  return pt</string_value>
+          </python>
+        </initial_condition>
+        <boundary_conditions name="inlet">
+          <surface_ids>
+            <integer_value shape="1" rank="1">3</integer_value>
+          </surface_ids>
+          <type name="dirichlet">
+            <python>
+              <string_value lines="20" type="code" language="python">def val(X, t):
+  pt=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    pt=288.569+(X[2]-0.00)*(288.834-288.569)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    pt=288.834+(X[2]-27.10)*(288.571-288.834)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    pt=288.571+(X[2]-122.60)*(288.261-288.571)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    pt=288.261+(X[2]-293.30)*(288.979-288.261)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    pt=288.979+(X[2]-525.20)*(289.796-288.979)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    pt=289.796+(X[2]-808.10)*(290.379-289.796)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    pt=290.379+(X[2]-1134.30)*(291.304-290.379)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    pt=291.304+(X[2]-1498.10)*(292.920-291.304)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    pt=292.920+(X[2]-1895.40)*(294.514-292.920)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    pt=294.514+(X[2]-2323.40)*(296.530-294.514)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    pt=296.530+(X[2]-2780.40)*(298.584-296.530)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    pt=298.584+(X[2]-3265.80)*(300.544-298.584)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    pt=300.544+(X[2]-3779.60)*(302.197-300.544)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    pt=302.197+(X[2]-4322.70)*(303.581-302.197)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    pt=303.581+(X[2]-4896.60)*(305.168-303.581)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    pt=305.168+(X[2]-5503.20)*(306.181-305.168)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    pt=306.181+(X[2]-6144.90)*(306.667-306.181)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    pt=306.667+(X[2]-6824.20)*(307.143-306.667)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    pt=307.143+(X[2]-7544.10)*(307.630-307.143)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    pt=307.630+(X[2]-8307.40)*(309.214-307.630)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    pt=309.214+(X[2]-9117.20)*(320.164-309.214)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    pt=320.164+(X[2]-9976.80)*(340.227-320.164)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    pt=340.227+(X[2]-10890.20)*(364.528-340.227)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    pt=364.528+(X[2]-11863.00)*(386.741-364.528)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    pt=386.741+(X[2]-13072.00)*(417.569-386.741)/(14828.30-13072.00)
+  return pt</string_value>
+            </python>
+          </type>
+        </boundary_conditions>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+        <galerkin_projection>
+          <discontinuous/>
+        </galerkin_projection>
+      </prognostic>
+    </scalar_field>
+    <scalar_field name="HydrostaticReferencePotentialTemperature" rank="0">
+      <prescribed>
+        <mesh name="TemperatureMesh"/>
+        <value name="WholeMesh">
+          <python>
+            <string_value lines="20" type="code" language="python">def val(X, t):
+  pt=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    pt=288.569+(X[2]-0.00)*(288.834-288.569)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    pt=288.834+(X[2]-27.10)*(288.571-288.834)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    pt=288.571+(X[2]-122.60)*(288.261-288.571)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    pt=288.261+(X[2]-293.30)*(288.979-288.261)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    pt=288.979+(X[2]-525.20)*(289.796-288.979)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    pt=289.796+(X[2]-808.10)*(290.379-289.796)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    pt=290.379+(X[2]-1134.30)*(291.304-290.379)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    pt=291.304+(X[2]-1498.10)*(292.920-291.304)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    pt=292.920+(X[2]-1895.40)*(294.514-292.920)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    pt=294.514+(X[2]-2323.40)*(296.530-294.514)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    pt=296.530+(X[2]-2780.40)*(298.584-296.530)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    pt=298.584+(X[2]-3265.80)*(300.544-298.584)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    pt=300.544+(X[2]-3779.60)*(302.197-300.544)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    pt=302.197+(X[2]-4322.70)*(303.581-302.197)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    pt=303.581+(X[2]-4896.60)*(305.168-303.581)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    pt=305.168+(X[2]-5503.20)*(306.181-305.168)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    pt=306.181+(X[2]-6144.90)*(306.667-306.181)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    pt=306.667+(X[2]-6824.20)*(307.143-306.667)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    pt=307.143+(X[2]-7544.10)*(307.630-307.143)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    pt=307.630+(X[2]-8307.40)*(309.214-307.630)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    pt=309.214+(X[2]-9117.20)*(320.164-309.214)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    pt=320.164+(X[2]-9976.80)*(340.227-320.164)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    pt=340.227+(X[2]-10890.20)*(364.528-340.227)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    pt=364.528+(X[2]-11863.00)*(386.741-364.528)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    pt=386.741+(X[2]-13072.00)*(417.569-386.741)/(14828.30-13072.00)
+  return pt</string_value>
+          </python>
+        </value>
+        <solver>
+          <iterative_method name="gmres">
+            <restart>
+              <integer_value rank="0">30</integer_value>
+            </restart>
+          </iterative_method>
+          <preconditioner name="eisenstat"/>
+          <relative_error>
+            <real_value rank="0">1.0e-7</real_value>
+          </relative_error>
+          <max_iterations>
+            <integer_value rank="0">1000</integer_value>
+          </max_iterations>
+          <never_ignore_solver_failures/>
+          <diagnostics>
+            <monitors/>
+          </diagnostics>
+        </solver>
+        <output/>
+        <stat/>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+        <consistent_interpolation/>
+      </prescribed>
+    </scalar_field>
+    <scalar_field name="PressurePert" rank="0">
+      <diagnostic>
+        <algorithm source_field_2_type="scalar" name="scalar_difference" source_field_1_name="Pressure" source_field_2_name="HydrostaticReferencePressure" material_phase_support="single" source_field_1_type="scalar"/>
+        <mesh name="PressureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="DensityPert" rank="0">
+      <diagnostic>
+        <algorithm source_field_2_type="scalar" name="scalar_difference" source_field_1_name="Density" source_field_2_name="HydrostaticReferenceDensity" material_phase_support="single" source_field_1_type="scalar"/>
+        <mesh name="PressureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="PotTempPert" rank="0">
+      <diagnostic>
+        <algorithm source_field_2_type="scalar" name="scalar_difference" source_field_1_name="PotentialTemperature" source_field_2_name="HydrostaticReferencePotentialTemperature" material_phase_support="single" source_field_1_type="scalar"/>
+        <mesh name="TemperatureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="VapourWaterQ" rank="0">
+      <prognostic>
+        <mesh name="TemperatureMesh"/>
+        <equation name="AdvectionDiffusion"/>
+        <spatial_discretisation>
+          <discontinuous_galerkin>
+            <advection_scheme>
+              <upwind/>
+              <project_velocity_to_continuous>
+                <mesh name="CoordinateMesh"/>
+              </project_velocity_to_continuous>
+              <integrate_advection_by_parts>
+                <twice/>
+              </integrate_advection_by_parts>
+            </advection_scheme>
+            <diffusion_scheme>
+              <compact_discontinuous_galerkin/>
+            </diffusion_scheme>
+            <slope_limiter name="Vertex_Based"/>
+          </discontinuous_galerkin>
+          <conservative_advection>
+            <real_value rank="0">0.</real_value>
+          </conservative_advection>
+        </spatial_discretisation>
+        <temporal_discretisation>
+          <theta>
+            <real_value rank="0">0.75</real_value>
+          </theta>
+          <discontinuous_galerkin>
+            <maximum_courant_number_per_subcycle>
+              <real_value rank="0">0.25</real_value>
+            </maximum_courant_number_per_subcycle>
+          </discontinuous_galerkin>
+        </temporal_discretisation>
+        <solver>
+          <iterative_method name="gmres">
+            <restart>
+              <integer_value rank="0">30</integer_value>
+            </restart>
+          </iterative_method>
+          <preconditioner name="eisenstat"/>
+          <relative_error>
+            <real_value rank="0">1.e-7</real_value>
+          </relative_error>
+          <max_iterations>
+            <integer_value rank="0">1000</integer_value>
+          </max_iterations>
+          <never_ignore_solver_failures/>
+          <diagnostics>
+            <monitors/>
+          </diagnostics>
+        </solver>
+        <initial_condition name="WholeMesh">
+          <python>
+            <string_value lines="20" type="code" language="python">def val(X, t):
+  Q=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    Q=0.008728+(X[2]-0.00)*(0.008728-0.008728)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    Q=0.008728+(X[2]-27.10)*(0.008471-0.008728)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    Q=0.008471+(X[2]-122.60)*(0.008316-0.008471)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    Q=0.008316+(X[2]-293.30)*(0.007305-0.008316)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    Q=0.007305+(X[2]-525.20)*(0.006588-0.007305)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    Q=0.006588+(X[2]-808.10)*(0.006056-0.006588)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    Q=0.006056+(X[2]-1134.30)*(0.005402-0.006056)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    Q=0.005402+(X[2]-1498.10)*(0.004871-0.005402)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    Q=0.004871+(X[2]-1895.40)*(0.004482-0.004871)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    Q=0.004482+(X[2]-2323.40)*(0.003723-0.004482)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    Q=0.003723+(X[2]-2780.40)*(0.003098-0.003723)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    Q=0.003098+(X[2]-3265.80)*(0.002476-0.003098)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    Q=0.002476+(X[2]-3779.60)*(0.001869-0.002476)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    Q=0.001869+(X[2]-4322.70)*(0.001331-0.001869)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    Q=0.001331+(X[2]-4896.60)*(0.000917-0.001331)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    Q=0.000917+(X[2]-5503.20)*(0.000571-0.000917)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    Q=0.000571+(X[2]-6144.90)*(0.000317-0.000571)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    Q=0.000317+(X[2]-6824.20)*(0.000164-0.000317)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    Q=0.000164+(X[2]-7544.10)*(0.000076-0.000164)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    Q=0.000076+(X[2]-8307.40)*(0.000037-0.000076)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    Q=0.000037+(X[2]-9117.20)*(0.000038-0.000037)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    Q=0.000038+(X[2]-9976.80)*(0.000017-0.000038)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    Q=0.000017+(X[2]-10890.20)*(0.000005-0.000017)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    Q=0.000005+(X[2]-11863.00)*(0.000003-0.000005)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    Q=0.000003+(X[2]-13072.00)*(0.000003-0.000003)/(14828.30-13072.00)
+  return Q</string_value>
+          </python>
+        </initial_condition>
+        <boundary_conditions name="inlet">
+          <surface_ids>
+            <integer_value shape="1" rank="1">3</integer_value>
+          </surface_ids>
+          <type name="dirichlet">
+            <python>
+              <string_value lines="20" type="code" language="python">def val(X, t):
+  Q=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    Q=0.008728+(X[2]-0.00)*(0.008728-0.008728)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    Q=0.008728+(X[2]-27.10)*(0.008471-0.008728)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    Q=0.008471+(X[2]-122.60)*(0.008316-0.008471)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    Q=0.008316+(X[2]-293.30)*(0.007305-0.008316)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    Q=0.007305+(X[2]-525.20)*(0.006588-0.007305)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    Q=0.006588+(X[2]-808.10)*(0.006056-0.006588)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    Q=0.006056+(X[2]-1134.30)*(0.005402-0.006056)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    Q=0.005402+(X[2]-1498.10)*(0.004871-0.005402)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    Q=0.004871+(X[2]-1895.40)*(0.004482-0.004871)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    Q=0.004482+(X[2]-2323.40)*(0.003723-0.004482)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    Q=0.003723+(X[2]-2780.40)*(0.003098-0.003723)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    Q=0.003098+(X[2]-3265.80)*(0.002476-0.003098)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    Q=0.002476+(X[2]-3779.60)*(0.001869-0.002476)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    Q=0.001869+(X[2]-4322.70)*(0.001331-0.001869)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    Q=0.001331+(X[2]-4896.60)*(0.000917-0.001331)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    Q=0.000917+(X[2]-5503.20)*(0.000571-0.000917)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    Q=0.000571+(X[2]-6144.90)*(0.000317-0.000571)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    Q=0.000317+(X[2]-6824.20)*(0.000164-0.000317)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    Q=0.000164+(X[2]-7544.10)*(0.000076-0.000164)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    Q=0.000076+(X[2]-8307.40)*(0.000037-0.000076)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    Q=0.000037+(X[2]-9117.20)*(0.000038-0.000037)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    Q=0.000038+(X[2]-9976.80)*(0.000017-0.000038)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    Q=0.000017+(X[2]-10890.20)*(0.000005-0.000017)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    Q=0.000005+(X[2]-11863.00)*(0.000003-0.000005)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    Q=0.000003+(X[2]-13072.00)*(0.000003-0.000003)/(14828.30-13072.00)
+  return Q</string_value>
+            </python>
+          </type>
+        </boundary_conditions>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+        <galerkin_projection>
+          <discontinuous/>
+        </galerkin_projection>
+      </prognostic>
+    </scalar_field>
+    <scalar_field name="HydrostaticReferenceVapourWaterQ" rank="0">
+      <prescribed>
+        <mesh name="TemperatureMesh"/>
+        <value name="WholeMesh">
+          <python>
+            <string_value lines="20" type="code" language="python">def val(X, t):
+  Q=0.0
+  if(X[2]&gt;=0.00 and X[2]&lt;27.10):
+    Q=0.008728+(X[2]-0.00)*(0.008728-0.008728)/(27.10-0.00)
+  if(X[2]&gt;=27.10 and X[2]&lt;122.60):
+    Q=0.008728+(X[2]-27.10)*(0.008471-0.008728)/(122.60-27.10)
+  if(X[2]&gt;=122.60 and X[2]&lt;293.30):
+    Q=0.008471+(X[2]-122.60)*(0.008316-0.008471)/(293.30-122.60)
+  if(X[2]&gt;=293.30 and X[2]&lt;525.20):
+    Q=0.008316+(X[2]-293.30)*(0.007305-0.008316)/(525.20-293.30)
+  if(X[2]&gt;=525.20 and X[2]&lt;808.10):
+    Q=0.007305+(X[2]-525.20)*(0.006588-0.007305)/(808.10-525.20)
+  if(X[2]&gt;=808.10 and X[2]&lt;1134.30):
+    Q=0.006588+(X[2]-808.10)*(0.006056-0.006588)/(1134.30-808.10)
+  if(X[2]&gt;=1134.30 and X[2]&lt;1498.10):
+    Q=0.006056+(X[2]-1134.30)*(0.005402-0.006056)/(1498.10-1134.30)
+  if(X[2]&gt;=1498.10 and X[2]&lt;1895.40):
+    Q=0.005402+(X[2]-1498.10)*(0.004871-0.005402)/(1895.40-1498.10)
+  if(X[2]&gt;=1895.40 and X[2]&lt;2323.40):
+    Q=0.004871+(X[2]-1895.40)*(0.004482-0.004871)/(2323.40-1895.40)
+  if(X[2]&gt;=2323.40 and X[2]&lt;2780.40):
+    Q=0.004482+(X[2]-2323.40)*(0.003723-0.004482)/(2780.40-2323.40)
+  if(X[2]&gt;=2780.40 and X[2]&lt;3265.80):
+    Q=0.003723+(X[2]-2780.40)*(0.003098-0.003723)/(3265.80-2780.40)
+  if(X[2]&gt;=3265.80 and X[2]&lt;3779.60):
+    Q=0.003098+(X[2]-3265.80)*(0.002476-0.003098)/(3779.60-3265.80)
+  if(X[2]&gt;=3779.60 and X[2]&lt;4322.70):
+    Q=0.002476+(X[2]-3779.60)*(0.001869-0.002476)/(4322.70-3779.60)
+  if(X[2]&gt;=4322.70 and X[2]&lt;4896.60):
+    Q=0.001869+(X[2]-4322.70)*(0.001331-0.001869)/(4896.60-4322.70)
+  if(X[2]&gt;=4896.60 and X[2]&lt;5503.20):
+    Q=0.001331+(X[2]-4896.60)*(0.000917-0.001331)/(5503.20-4896.60)
+  if(X[2]&gt;=5503.20 and X[2]&lt;6144.90):
+    Q=0.000917+(X[2]-5503.20)*(0.000571-0.000917)/(6144.90-5503.20)
+  if(X[2]&gt;=6144.90 and X[2]&lt;6824.20):
+    Q=0.000571+(X[2]-6144.90)*(0.000317-0.000571)/(6824.20-6144.90)
+  if(X[2]&gt;=6824.20 and X[2]&lt;7544.10):
+    Q=0.000317+(X[2]-6824.20)*(0.000164-0.000317)/(7544.10-6824.20)
+  if(X[2]&gt;=7544.10 and X[2]&lt;8307.40):
+    Q=0.000164+(X[2]-7544.10)*(0.000076-0.000164)/(8307.40-7544.10)
+  if(X[2]&gt;=8307.40 and X[2]&lt;9117.20):
+    Q=0.000076+(X[2]-8307.40)*(0.000037-0.000076)/(9117.20-8307.40)
+  if(X[2]&gt;=9117.20 and X[2]&lt;9976.80):
+    Q=0.000037+(X[2]-9117.20)*(0.000038-0.000037)/(9976.80-9117.20)
+  if(X[2]&gt;=9976.80 and X[2]&lt;10890.20):
+    Q=0.000038+(X[2]-9976.80)*(0.000017-0.000038)/(10890.20-9976.80)
+  if(X[2]&gt;=10890.20 and X[2]&lt;11863.00):
+    Q=0.000017+(X[2]-10890.20)*(0.000005-0.000017)/(11863.00-10890.20)
+  if(X[2]&gt;=11863.00 and X[2]&lt;13072.00):
+    Q=0.000005+(X[2]-11863.00)*(0.000003-0.000005)/(13072.00-11863.00)
+  if(X[2]&gt;=13072.00 and X[2]&lt;14828.30):
+    Q=0.000003+(X[2]-13072.00)*(0.000003-0.000003)/(14828.30-13072.00)
+  return Q</string_value>
+          </python>
+        </value>
+        <output/>
+        <stat/>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+        <consistent_interpolation/>
+      </prescribed>
+    </scalar_field>
+    <scalar_field name="QPert" rank="0">
+      <diagnostic>
+        <algorithm source_field_2_type="scalar" name="scalar_difference" source_field_1_name="VapourWaterQ" source_field_2_name="HydrostaticReferenceVapourWaterQ" material_phase_support="single" source_field_1_type="scalar"/>
+        <mesh name="TemperatureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="Saturation" rank="0">
+      <diagnostic>
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <mesh name="TemperatureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="SurfacePrecipitation" rank="0">
+      <diagnostic>
+        <mesh name="TemperatureMesh"/>
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <boundary_conditions name="diagnostic">
+          <surface_ids>
+            <integer_value shape="1" rank="1">1</integer_value>
+          </surface_ids>
+          <parent_field_name>Qdrop</parent_field_name>
+          <type name="surface_precipitation"/>
+        </boundary_conditions>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="CumulatedSurfacePrecipitation" rank="0">
+      <diagnostic>
+        <mesh name="TemperatureMesh"/>
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <boundary_conditions name="diagnostic">
+          <surface_ids>
+            <integer_value shape="1" rank="1">1</integer_value>
+          </surface_ids>
+          <parent_field_name>Qdrop</parent_field_name>
+          <type name="cumulated_surface_precipitation"/>
+        </boundary_conditions>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <cloud_microphysics>
+      <time_integration name="Strang"/>
+      <condensation_evaporation name="Analytic"/>
+      <no_negative_concentrations/>
+      <fortran_microphysics>
+        <scalar_field name="MicrophysicsSource" rank="0">
+          <diagnostic>
+            <mesh name="TemperatureMesh"/>
+            <algorithm name="Internal" material_phase_support="multiple"/>
+            <solver>
+              <iterative_method name="gmres">
+                <restart>
+                  <integer_value rank="0">30</integer_value>
+                </restart>
+              </iterative_method>
+              <preconditioner name="sor"/>
+              <relative_error>
+                <real_value rank="0">1.e-7</real_value>
+              </relative_error>
+              <max_iterations>
+                <integer_value rank="0">1000</integer_value>
+              </max_iterations>
+              <never_ignore_solver_failures/>
+              <diagnostics>
+                <monitors/>
+              </diagnostics>
+            </solver>
+            <output/>
+            <stat/>
+            <detectors>
+              <include_in_detectors/>
+            </detectors>
+          </diagnostic>
+        </scalar_field>
+        <scalar_field name="SinkingVelocity" rank="0">
+          <diagnostic>
+            <mesh name="TemperatureMesh"/>
+            <algorithm name="Internal" material_phase_support="multiple"/>
+            <solver>
+              <iterative_method name="gmres">
+                <restart>
+                  <integer_value rank="0">30</integer_value>
+                </restart>
+              </iterative_method>
+              <preconditioner name="sor"/>
+              <relative_error>
+                <real_value rank="0">1.e-7</real_value>
+              </relative_error>
+              <max_iterations>
+                <integer_value rank="0">1000</integer_value>
+              </max_iterations>
+              <never_ignore_solver_failures/>
+              <diagnostics>
+                <monitors/>
+              </diagnostics>
+            </solver>
+            <output/>
+            <stat/>
+            <detectors>
+              <include_in_detectors/>
+            </detectors>
+          </diagnostic>
+        </scalar_field>
+        <two_moment_microphysics name="seifert_beheng">
+          <scalar_field name="CCN" rank="0">
+            <prescribed>
+              <mesh name="TemperatureMesh"/>
+              <value name="WholeMesh">
+                <constant>
+                  <real_value rank="0">300000000</real_value>
+                </constant>
+              </value>
+              <output/>
+              <stat/>
+              <detectors>
+                <exclude_from_detectors/>
+              </detectors>
+              <consistent_interpolation/>
+            </prescribed>
+          </scalar_field>
+          <scalar_field name="Ndrop" rank="0">
+            <prognostic>
+              <mesh name="TemperatureMesh"/>
+              <equation name="AdvectionDiffusion"/>
+              <spatial_discretisation>
+                <discontinuous_galerkin>
+                  <advection_scheme>
+                    <upwind/>
+                    <project_velocity_to_continuous>
+                      <mesh name="CoordinateMesh"/>
+                    </project_velocity_to_continuous>
+                    <integrate_advection_by_parts>
+                      <twice/>
+                    </integrate_advection_by_parts>
+                  </advection_scheme>
+                  <diffusion_scheme>
+                    <compact_discontinuous_galerkin/>
+                  </diffusion_scheme>
+                  <slope_limiter name="Vertex_Based"/>
+                </discontinuous_galerkin>
+                <conservative_advection>
+                  <real_value rank="0">0.</real_value>
+                </conservative_advection>
+              </spatial_discretisation>
+              <temporal_discretisation>
+                <theta>
+                  <real_value rank="0">0.75</real_value>
+                </theta>
+                <discontinuous_galerkin>
+                  <maximum_courant_number_per_subcycle>
+                    <real_value rank="0">0.25</real_value>
+                  </maximum_courant_number_per_subcycle>
+                </discontinuous_galerkin>
+              </temporal_discretisation>
+              <solver>
+                <iterative_method name="gmres">
+                  <restart>
+                    <integer_value rank="0">30</integer_value>
+                  </restart>
+                </iterative_method>
+                <preconditioner name="eisenstat"/>
+                <relative_error>
+                  <real_value rank="0">1.e-7</real_value>
+                </relative_error>
+                <max_iterations>
+                  <integer_value rank="0">1000</integer_value>
+                </max_iterations>
+                <never_ignore_solver_failures/>
+                <diagnostics>
+                  <monitors/>
+                </diagnostics>
+              </solver>
+              <initial_condition name="WholeMesh">
+                <constant>
+                  <real_value rank="0">0.</real_value>
+                </constant>
+              </initial_condition>
+              <output/>
+              <stat/>
+              <convergence>
+                <include_in_convergence/>
+              </convergence>
+              <detectors>
+                <include_in_detectors/>
+              </detectors>
+              <steady_state>
+                <include_in_steady_state/>
+              </steady_state>
+              <consistent_interpolation/>
+            </prognostic>
+          </scalar_field>
+          <scalar_field name="Qdrop" rank="0">
+            <prognostic>
+              <mesh name="TemperatureMesh"/>
+              <equation name="AdvectionDiffusion"/>
+              <spatial_discretisation>
+                <discontinuous_galerkin>
+                  <advection_scheme>
+                    <upwind/>
+                    <project_velocity_to_continuous>
+                      <mesh name="CoordinateMesh"/>
+                    </project_velocity_to_continuous>
+                    <integrate_advection_by_parts>
+                      <twice/>
+                    </integrate_advection_by_parts>
+                  </advection_scheme>
+                  <diffusion_scheme>
+                    <compact_discontinuous_galerkin/>
+                  </diffusion_scheme>
+                  <slope_limiter name="Vertex_Based"/>
+                </discontinuous_galerkin>
+                <conservative_advection>
+                  <real_value rank="0">0.</real_value>
+                </conservative_advection>
+              </spatial_discretisation>
+              <temporal_discretisation>
+                <theta>
+                  <real_value rank="0">0.75</real_value>
+                </theta>
+                <discontinuous_galerkin>
+                  <maximum_courant_number_per_subcycle>
+                    <real_value rank="0">0.25</real_value>
+                  </maximum_courant_number_per_subcycle>
+                </discontinuous_galerkin>
+              </temporal_discretisation>
+              <solver>
+                <iterative_method name="gmres">
+                  <restart>
+                    <integer_value rank="0">30</integer_value>
+                  </restart>
+                </iterative_method>
+                <preconditioner name="eisenstat"/>
+                <relative_error>
+                  <real_value rank="0">1.e-7</real_value>
+                </relative_error>
+                <max_iterations>
+                  <integer_value rank="0">1000</integer_value>
+                </max_iterations>
+                <never_ignore_solver_failures/>
+                <diagnostics>
+                  <monitors/>
+                </diagnostics>
+              </solver>
+              <initial_condition name="WholeMesh">
+                <constant>
+                  <real_value rank="0">0.</real_value>
+                </constant>
+              </initial_condition>
+              <output/>
+              <stat/>
+              <convergence>
+                <include_in_convergence/>
+              </convergence>
+              <detectors>
+                <include_in_detectors/>
+              </detectors>
+              <steady_state>
+                <include_in_steady_state/>
+              </steady_state>
+              <consistent_interpolation/>
+            </prognostic>
+          </scalar_field>
+          <scalar_field name="Nrain" rank="0">
+            <prognostic>
+              <mesh name="TemperatureMesh"/>
+              <equation name="AdvectionDiffusion"/>
+              <spatial_discretisation>
+                <discontinuous_galerkin>
+                  <advection_scheme>
+                    <upwind/>
+                    <project_velocity_to_continuous>
+                      <mesh name="CoordinateMesh"/>
+                    </project_velocity_to_continuous>
+                    <integrate_advection_by_parts>
+                      <twice/>
+                    </integrate_advection_by_parts>
+                  </advection_scheme>
+                  <diffusion_scheme>
+                    <compact_discontinuous_galerkin/>
+                  </diffusion_scheme>
+                  <slope_limiter name="Vertex_Based"/>
+                </discontinuous_galerkin>
+                <conservative_advection>
+                  <real_value rank="0">0.</real_value>
+                </conservative_advection>
+              </spatial_discretisation>
+              <temporal_discretisation>
+                <theta>
+                  <real_value rank="0">0.75</real_value>
+                </theta>
+                <discontinuous_galerkin>
+                  <maximum_courant_number_per_subcycle>
+                    <real_value rank="0">0.25</real_value>
+                  </maximum_courant_number_per_subcycle>
+                </discontinuous_galerkin>
+              </temporal_discretisation>
+              <solver>
+                <iterative_method name="gmres">
+                  <restart>
+                    <integer_value rank="0">30</integer_value>
+                  </restart>
+                </iterative_method>
+                <preconditioner name="eisenstat"/>
+                <relative_error>
+                  <real_value rank="0">1.e-7</real_value>
+                </relative_error>
+                <max_iterations>
+                  <integer_value rank="0">1000</integer_value>
+                </max_iterations>
+                <never_ignore_solver_failures/>
+                <diagnostics>
+                  <monitors/>
+                </diagnostics>
+              </solver>
+              <initial_condition name="WholeMesh">
+                <constant>
+                  <real_value rank="0">0.</real_value>
+                </constant>
+              </initial_condition>
+              <output/>
+              <stat/>
+              <convergence>
+                <include_in_convergence/>
+              </convergence>
+              <detectors>
+                <include_in_detectors/>
+              </detectors>
+              <steady_state>
+                <include_in_steady_state/>
+              </steady_state>
+              <consistent_interpolation/>
+            </prognostic>
+          </scalar_field>
+          <scalar_field name="Qrain" rank="0">
+            <prognostic>
+              <mesh name="TemperatureMesh"/>
+              <equation name="AdvectionDiffusion"/>
+              <spatial_discretisation>
+                <discontinuous_galerkin>
+                  <advection_scheme>
+                    <upwind/>
+                    <project_velocity_to_continuous>
+                      <mesh name="CoordinateMesh"/>
+                    </project_velocity_to_continuous>
+                    <integrate_advection_by_parts>
+                      <twice/>
+                    </integrate_advection_by_parts>
+                  </advection_scheme>
+                  <diffusion_scheme>
+                    <compact_discontinuous_galerkin/>
+                  </diffusion_scheme>
+                  <slope_limiter name="Vertex_Based"/>
+                </discontinuous_galerkin>
+                <conservative_advection>
+                  <real_value rank="0">0.</real_value>
+                </conservative_advection>
+              </spatial_discretisation>
+              <temporal_discretisation>
+                <theta>
+                  <real_value rank="0">0.75</real_value>
+                </theta>
+                <discontinuous_galerkin>
+                  <maximum_courant_number_per_subcycle>
+                    <real_value rank="0">0.25</real_value>
+                  </maximum_courant_number_per_subcycle>
+                </discontinuous_galerkin>
+              </temporal_discretisation>
+              <solver>
+                <iterative_method name="gmres">
+                  <restart>
+                    <integer_value rank="0">30</integer_value>
+                  </restart>
+                </iterative_method>
+                <preconditioner name="eisenstat"/>
+                <relative_error>
+                  <real_value rank="0">1.e-7</real_value>
+                </relative_error>
+                <max_iterations>
+                  <integer_value rank="0">1000</integer_value>
+                </max_iterations>
+                <never_ignore_solver_failures/>
+                <diagnostics>
+                  <monitors/>
+                </diagnostics>
+              </solver>
+              <initial_condition name="WholeMesh">
+                <constant>
+                  <real_value rank="0">0.</real_value>
+                </constant>
+              </initial_condition>
+              <output/>
+              <stat/>
+              <convergence>
+                <include_in_convergence/>
+              </convergence>
+              <detectors>
+                <include_in_detectors/>
+              </detectors>
+              <steady_state>
+                <include_in_steady_state/>
+              </steady_state>
+              <consistent_interpolation/>
+            </prognostic>
+          </scalar_field>
+          <autoconversion_radius>
+            <real_value rank="0">40e-6</real_value>
+          </autoconversion_radius>
+          <simple_activation/>
+        </two_moment_microphysics>
+      </fortran_microphysics>
+    </cloud_microphysics>
+  </material_phase>
+</fluidity_options>
