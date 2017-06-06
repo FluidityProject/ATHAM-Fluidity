@@ -1237,9 +1237,9 @@ logical, optional, intent(in):: nomatrixdump
   if (timing) then
     call cpu_time(time2)
     call PetscGetFlops(flops2, ierr)
-    ewrite(2,*) 'CPU time spent in solver:', time2-time1
-    ewrite(2,*) 'MFlops counted by Petsc:', (flops2-flops1)/1e6
-    ewrite(2,*) 'MFlops/sec:', (flops2-flops1)/((time2-time1)*1e6)
+    ewrite(2,*) trim(name)// ' CPU time spent in solver: ',time2-time1
+    ewrite(2,*) trim(name)// ' MFlops counted by Petsc: ',(flops2-flops1)/1e6
+    ewrite(2,*) trim(name)// ' MFlops/sec: ',(flops2-flops1)/((time2-time1)*1e6)
   end if
   
   if(have_option(trim(solver_option_path)//'/diagnostics/dump_matrix')) then
@@ -1579,7 +1579,7 @@ subroutine SetupKSP(ksp, mat, pmat, solver_option_path, parallel, &
     KSPType ksptype
     PC pc
     PetscReal rtol, atol, dtol
-    PetscInt max_its
+    PetscInt max_its, lrestart
     PetscErrorCode ierr
     PetscObject vf
     
@@ -1611,6 +1611,15 @@ subroutine SetupKSP(ksp, mat, pmat, solver_option_path, parallel, &
     ! set ksptype again to force the flml choice
     call KSPSetType(ksp, ksptype, ierr)
     ewrite(2, *) 'ksp_type:', trim(ksptype)
+
+    if(trim(ksptype) == 'gmres') then
+       call get_option(trim(solver_option_path)//&
+            '/iterative_method::gmres/restart', lrestart, default=-1)
+       if (lrestart >= 0) then
+          call KSPGMRESSetRestart(ksp, lrestart, ierr)
+          ewrite(2, *) 'restart:', lrestart
+       end if
+    end if
 
     ! set max. iterations and tolerances:
     ! =======================================
