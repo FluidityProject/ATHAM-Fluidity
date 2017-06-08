@@ -1,0 +1,3 @@
+This test case is based on the 'Inertia-gravity waves' simulation (fixed CFL number of 0.25 configuration), as described in Savre et al. (2016, Monthly Weather Review, 144:4349-4372).
+
+Due to subsequent code changes and/or tweaks to model parameters, results will be similar but not identical to those presented in the paper.

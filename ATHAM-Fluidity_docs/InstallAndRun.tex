@@ -242,7 +242,7 @@ Finally, it is noted that for parallel runs, there is a second workflow option a
 where \texttt{<mesh\_file>} is the name of the numerical mesh file (see Section \ref{Mesh}) without the extension, including its relative path if the file is not in the same directory as the \texttt{.flml} file. This is only mentioned here because this second workflow has been found to overcome an as-yet unresolved memory issue with \texttt{flredecomp} when running on a large number (hundreds) of processes.
 
 \section{ATHAM-Fluidity model options} \label{Config}
-***This section is still under revision***\\
+\textit{\textbf{***Note that ATHAM-Fluidity is still under development, and so many of the options in this section are likely to change or be added to before the model's general release***}}\\
 In this section, you will find a description of all the useful ATHAM-Fluidity model options accessible through the diamond GUI. The options listed below correspond to a generic $\mathbb{P}_{1DG}-\mathbb{P}_2$ atmospheric simulation (the recommended finite element discretization method, in which pressure and density are solved on a $2^{\mathrm{nd}}$-order continuous grid while momentum and all other scalars are solved on a $1^{\mathrm{st}}$-order discontinuous grid) for compressible flow, including turbulence and cloud microphysics parameterizations. Refer to the main Fluidity manual for a more detailed description of all the Fluidity options and capabilities. For any option that does not appear below, it can typically be left turned off, or the default option used.\\\\
 To launch the diamond GUI type:\\\\
 \tab \texttt{\$ diamond <filename>.flml}\\\\
@@ -325,7 +325,7 @@ The above command assumes that you have added \texttt{<A-F\_install\_path>/libsp
 \item \texttt{spatial\_discretisation/discontinuous\_galerkin/conservative\_advection} should be set to zero.
 \item \texttt{temporal\_discretisation/relaxation} should be set to zero.
 \item \texttt{temporal\_discretisation/discontinuous\_galerkin/maximum\_courant\_number\_per\_subcycle} should be specified.
-\item \texttt{boundary\_conditions}: For the surface, either use \texttt{surface\_ocean\_COARE3} or \texttt{\seqsplit{type(dirichlet)/align\_bc\_with\_cartesian}} with only normal velocity component selected and set to 0 (free slip condition)
+\item \texttt{boundary\_conditions}: For the surface, either use \texttt{surface\_ocean\_COARE3} or \texttt{\seqsplit{type(dirichlet)/align\_bc\_with\_cartesian}} with only normal velocity component selected and set to 0 (free slip condition, often sed at domain lid) or all three velocity components selected and set to 0 (no slip condition, often used at domain surface)
 \item \texttt{boundary\_conditions}: At the inlet, set the normal velocity components as appropriate. Nothing needs to be set for other boundaries (except possibly top BC as a rigid lid with normal velocity set to 0). There is also the option to use time dependent boundary conditions. BC values are read in from external files (\texttt{from\_file} option) and the number of input files is prescribed (see Section \ref{IO} for the required file name formats).
 \item \texttt{vector\_field (Absorption)/diagnostic/algorithm (atmosphere\_forcing\_vector)}: Optional for sponge layers. Possibility to use time dependent conditions consistent with the BC.
 \end{itemize}
@@ -363,7 +363,7 @@ The above command assumes that you have added \texttt{<A-F\_install\_path>/libsp
 \item \texttt{temporal\_discretisation/discontinuous\_galerkin} with max CFL
 \item \texttt{initial\_condition}: Use \texttt{python} (idealised) or \texttt{from\_file} (non-idealised).
 \item \texttt{boundary\_conditions}: For the surface, either use \texttt{surface\_ocean\_COARE3}, \texttt{type(dirichlet)} (\texttt{python} or \texttt{from\_file}), or nothing (zero-gradient).
-\item \texttt{boundary\_conditions}: At inle,t use Dirichlet (do not \texttt{apply\_weakly}). Nothing to be set for other boundaries (do not define other boundaries). Possibility to have \texttt{time\_dependent} BCs.
+\item \texttt{boundary\_conditions}: At inlet use Dirichlet (do not \texttt{apply\_weakly}). Nothing to be set for other boundaries (do not define other boundaries). Possibility to have \texttt{time\_dependent} BCs.
 \item \texttt{scalar\_field (Absorption)/diagnostic/algorithm (atmosphere\_forcing\_scalar)}: Optional for sponge layers.
 \item \texttt{galerkin\_projection/discontinuous}
 \end{itemize}
@@ -442,7 +442,7 @@ The above command assumes that you have added \texttt{<A-F\_install\_path>/libsp
 
 \section{Creating a numerical mesh} \label{Mesh}
 The numerical meshes for ATHAM-Fluidity are generated using the external software \texttt{Gmsh}. The \texttt{Gmsh} binaries (or source code) can be downloaded from \url{http://gmsh.info/#Download}. If building \texttt{Gmsh} from source, following the installation instructions within the included README file.\\\\
-Generating the mesh is a two stage process. The geometry of the modelling domain and mesh resolution parameters (plus any additional options) must first be specified in an ASCII text file with the extension \texttt{.geo}. Guidance on the format of these geometry files, as well as some examples, can be found in the \texttt{Gmsh} reference manual, available here: \url{http://gmsh.info/doc/texinfo/gmsh.pdf}. Users could also look at the \texttt{.geo} files included with the ATHAM-Fluidity test runs (see Section ???). The modelling domain and mesh can also be visualised within the \texttt{Gmsh} GUI, which is launched by typing:\\\\
+Generating the mesh is a two stage process. The geometry of the modelling domain and mesh resolution parameters (plus any additional options) must first be specified in an ASCII text file with the extension \texttt{.geo}. Guidance on the format of these geometry files, as well as some examples, can be found in the \texttt{Gmsh} reference manual, available here: \url{http://gmsh.info/doc/texinfo/gmsh.pdf}. Users could also look at the \texttt{.geo} files included with the ATHAM-Fluidity test cases/examples (see Section \ref{Tests}). The modelling domain and mesh can also be visualised within the \texttt{Gmsh} GUI, which is launched by typing:\\\\
 \tab \texttt{\$ gmsh <mesh\_file>.geo}\\\\
 Once the geometry file has been created, the \texttt{Gmsh} executable should be invoked to read the contents of this \texttt{.geo} and generate a corresponding \texttt{.msh} file - a much larger file that contains a list of all the mesh elements and node coordinates:\\\\
 \tab \texttt{\$ gmsh -N <other options> <mesh\_file>.geo}\\\\
@@ -450,10 +450,11 @@ where \texttt{N} is the dimension of the modelling domain (i.e. 2 or 3). Useful 
 
 \section{ATHAM-Fluidity test cases and examples} \label{Tests}
 \subsection{Test cases}
-A number of 2-dimensional test cases have been included with the ATHAM-Fluidity source code (under the `\texttt{tests}' subdirectory). These comprise a series of benchmark and idealized atmospheric simulations that were originally performed in order to evaluate ATHAM-Fluidity. Full details and results of these simulations can be found in Savre \textit{et al.} (2016, Monthly Weather Review, 144:4349-4372). A brief description of each test case is also given below:
+A number of 2-dimensional test cases have been included with the ATHAM-Fluidity source code (under the `\texttt{tests}' subdirectory). These comprise a series of benchmark and idealized atmospheric simulations that were originally performed in order to evaluate ATHAM-Fluidity. Full details and results of these simulations can be found in Savre \textit{et al.} (2016, Monthly Weather Review, 144:4349-4372). Note, however, that due to subsequent code changes and/or tweaks to model parameters, results will be similar but not identical to those presented in this paper. A brief description of each test case is also given below:
 
 \begin{itemize}
 \item \texttt{warm\_bubble}: A positive Gaussian potential temperature perturbation is initially imposed in an otherwise neutral and static environment in hydrostatic balance. This results in a rising smooth warm bubble with a Kelvin-Helmholtz rotor developing on each side of the bubble. The configuration from Savre \textit{et al.} (2016) that uses a 10 m spatial resolution is specified.
+\item \texttt{warm\_bubble\_adapt}: Same as the \texttt{warm\_bubble} test case, but using mesh optimisation. The minimum edge length (maximum resolution) is set to 5 m and the maximum edge length (coarsest resolution) is set to 250 m. Optimisation is computed based on a target absolute interpolation error for potential temeprature.
 \item \texttt{density\_current}: A negative Gaussian potential temperature perturbation is initially imposed in an otherwise neutral and static environment in hydrostatic balance. This rapidly sinks, hits the solid surface and spreads out as a cold density current with three rotors on each side. The configuration from Savre \textit{et al.} (2016) that uses a 200 m spatial resolution is specified.
 \item \texttt{warm\_cold\_bubbles}: This case is similar to the \texttt{warm\_bubble} set-up with the addition of a second smaller cold bubble above and off-centre with the warm bubble. As time progresses, these bubbles collide and mix. The configuration from Savre \textit{et al.} (2016) that uses a 10 m spatial resolution is specified.
 \item \texttt{inertial\_gravity\_waves}: This case involves a horizontally propagating nonhydrostatic gravity wave in a channel, resulting from an initial potential temperature perturbation in an otherwise uniformly stratified atmosphere with homogeneous horizontal flow. The configuration from Savre \textit{et al.} (2016) that uses an adaptive timestep based on a CFL number of 0.25 is specified.
@@ -464,7 +465,7 @@ As well as the \texttt{.flml} and mesh geometry files, each of the above test di
 \tab \texttt{\$ <A-F\_install\_path>/tools/testharness.py -f <test\_case>.xml}\\\\
 where \texttt{<test\_case>} should be replaced by one of the test case names above, e.g. \texttt{warm\_bubble}. To run all the test cases in succession, issue the following command:\\\\
 \tab \texttt{\$ <A-F\_install\_path>/tools/testharness.py -t atham -l long}\\\\
-Note that all the above test cases are set up to run in parallel on \textit{24 processes} in order to keep runtimes down. If you are using a machine that does not have this many processes (or if you want use more processes!), you should open the relevant \texttt{.xml} file(s) in a text editor and modify this value (it appears in two places near the top of each file) as appropriate. 
+Note that all the above test cases are set up to run in parallel on \textit{24 processes} in order to keep runtimes down. If you are using a machine that does not have this many processes (or if you want use more processes!), you should open the relevant \texttt{.xml} file(s) in a text editor and modify this value (it appears in two places near the top of each file) as appropriate.
 
 \subsection{Example cases}
 A number of 2- and 3-dimensional examples have also been included with the ATHAM-Fluidity source code (under the `\texttt{examples}' subdirectory). A brief description of each example is given below:
