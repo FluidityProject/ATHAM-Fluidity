@@ -5,11 +5,16 @@ equation_of_state_options =
          (
             fluids_eos_options|
             compressible_eos_options
-         )
-      }
+         
+         )   
+      },
+#      element linearise {}?
+      ## Linearise density in the momentum equations (UNTESTED)
+      element  linearise{
+                  empty
+                               }?
+    
    )
- 
- 
 fluids_eos_options = 
    (
       ## Equations of state for ocean (and simple fluid) applications

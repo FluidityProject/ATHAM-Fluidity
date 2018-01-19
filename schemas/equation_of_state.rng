@@ -8,6 +8,13 @@
         <ref name="compressible_eos_options"/>
       </choice>
     </element>
+    <optional>
+      <!--      element linearise {}? -->
+      <element name="linearise">
+        <a:documentation>Linearise density in the momentum equations (UNTESTED)</a:documentation>
+        <empty/>
+      </element>
+    </optional>
   </define>
   <define name="fluids_eos_options">
     <element name="fluids">
@@ -154,46 +161,6 @@ be the surface pressure, 1.0e05.</a:documentation>
             <a:documentation>Heat capacity at constant volume</a:documentation>
             <ref name="real"/>
           </element>
-	  <optional>
-	    <element name="constant_cp_cv">
-	      <a:documentation>CP and CV are kept constant and equal to their prescribed values</a:documentation>
-	    </element>
-	  </optional>
-          <optional>
-            <element name="buoyancy_from_pt">
-              <a:documentation>Calculates buoyancy from a density potential temperature. 
-              The DensityPotentialTemperature field must therefore be apropriately defined.</a:documentation>
-            </element>
-          </optional>
-	</element>
-	<element name="ATHAM">
-	  <a:documentation>ATHAM moist equation of state
-
-Used with compressible simulations</a:documentation>
-	  <optional>
-	    <element name="reference_pressure">
-	      <a:documentation>reference pressure
-
-The pressure at which potential temperature
-equals actual temperature. Normally taken to
-be the surface pressure, 1.0e05.</a:documentation>
-	      <ref name="real"/>
-	    </element>
-	  </optional>
-	  <element name="C_P">
-	    <a:documentation>Heat capacity at constant pressure</a:documentation>
-	    <ref name="real"/>
-	  </element>
-	  <element name="C_V">
-	    <a:documentation>Heat capacity at constant volume</a:documentation>
-	    <ref name="real"/>
-	  </element>
-	  <optional>
-	    <element name="density">
-	      <a:documentation>Constant density of incompressible material phases</a:documentation>
-	      <ref name="real"/>
-	    </element>
-	  </optional>
         </element>
         <element name="foam">
           <a:documentation>Foam EoS
