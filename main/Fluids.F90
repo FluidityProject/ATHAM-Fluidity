@@ -117,7 +117,7 @@ module fluids_module
 
   private
 
-  public :: fluids, fluids_module_check_options
+  public :: fluids,  fluids_module_check_options 
 
   interface
     subroutine check_options
@@ -192,6 +192,13 @@ contains
     logical::use_advdif=.true.  ! decide whether we enter advdif or not
 
     INTEGER :: adapt_count
+    
+
+    !Lin Dens
+    real, allocatable, dimension(:) :: comp
+    type ( scalar_field ), pointer :: nfield
+    integer, dimension(:), pointer :: nodes
+    integer :: ele
 
     ! Absolute first thing: check that the options, if present, are valid.
     call check_options
@@ -783,7 +790,8 @@ contains
              ewrite(1, *) "Finished field " // trim(field_name_list(it)) // " in state " // trim(state(field_state_list(it))%name)
           end do field_loop
 
-          ! Sort out the dregs of GLS after the solve on Psi (GenericSecondQuantity) has finished
+
+         ! Sort out the dregs of GLS after the solve on Psi (GenericSecondQuantity) has finished
           if( have_option("/material_phase[0]/subgridscale_parameterisations/GLS/option")) then
             call gls_diffusivity(state(1))
           end if
@@ -1092,7 +1100,12 @@ contains
     call print_current_memory_stats(0)
 #endif
 
-  contains
+        
+     if (have_option("/material_phase[0]/linearise")) THEN
+        call linearise()
+
+         end if
+ contains
 
     subroutine set_simulation_start_times()
       !!< Set the simulation start times
@@ -1107,6 +1120,42 @@ contains
 
     end subroutine set_simulation_start_times
 
+                subroutine linearise
+              allocate(comp(ele_loc(nfield,1)))
+              if (nfield%mesh%shape%degree==2) then
+                select case(mesh_dim(nfield))
+                  case(1)
+                    do ele=1,ele_count(nfield)
+                      nodes=>ele_nodes(nfield,ele)
+                      comp=ele_val(nfield,ele)
+                      call set(nfield,nodes(2),0.5*(comp(1)+comp(3)))
+                    end do
+                  case(2)
+                    do ele=1,ele_count(nfield)
+                      nodes=>ele_nodes(nfield,ele)
+                      comp=ele_val(nfield,ele)
+                      call set(nfield,nodes(2),0.5*(comp(1)+comp(3)))
+                      call set(nfield,nodes(4),0.5*(comp(1)+comp(6)))
+                      call set(nfield,nodes(5),0.5*(comp(3)+comp(6)))
+                    end do
+                  case(3)
+                    do ele=1,ele_count(nfield)
+                      nodes=>ele_nodes(nfield,ele)
+                      comp=ele_val(nfield,ele)
+                      call set(nfield,nodes(2),0.5*(comp(1)+comp(3)))
+                      call set(nfield,nodes(4),0.5*(comp(1)+comp(6)))
+                      call set(nfield,nodes(5),0.5*(comp(3)+comp(6)))
+                      call set(nfield,nodes(7),0.5*(comp(1)+comp(10)))
+                      call set(nfield,nodes(8),0.5*(comp(3)+comp(10)))
+                      call set(nfield,nodes(9),0.5*(comp(6)+comp(10)))
+                    end do
+               end select
+               deallocate(comp)
+             end if
+
+           end subroutine linearise
+
+        
   end subroutine fluids
 
   subroutine pre_adapt_tasks(sub_state)
